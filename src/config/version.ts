@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.18.1',
+  version: '2026.11.18.2',
   date: '2026-11-18',
-  releaseNumber: 1,
+  releaseNumber: 2,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.18 #1 (JST)',
-  description: 'プロジェクト共有ボードのタスク担当者アサイン永続化および dbo.ProjectCards 旧カラム互換・JSON/SQL同期強化'
+  display: 'v2026.11.18 #2 (JST)',
+  description: '資産管理の点検予定ライフサイクル・項目別インライン編集・資産別点検チェックリスト・運転記録簿走行距離連動・メインカレンダー自動プロット実装'
 } as const;

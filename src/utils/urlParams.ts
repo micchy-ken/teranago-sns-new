@@ -32,8 +32,8 @@ export interface AppQueryParams {
   pollId?: string;
   // Assets (資産管理) specific
   assetId?: string;
-  assetSubTab?: 'details' | 'history';
-  assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+  assetSubTab?: 'details' | 'inspections' | 'history';
+  assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
   assetCategory?: string;
   assetOffice?: string;
   assetAssignee?: string;
@@ -103,12 +103,13 @@ export function normalizeCalendarMode(modeStr?: string | null): 'personal' | 'te
   return undefined;
 }
 
-export function normalizeAssetMode(modeStr?: string | null): 'my' | 'catalog' | 'shared' | 'calendar' | undefined {
+export function normalizeAssetMode(modeStr?: string | null): 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar' | undefined {
   if (!modeStr) return undefined;
   const lower = modeStr.toLowerCase().trim();
   if (['my', 'mine', 'personal', '自分', '自分の資産'].includes(lower)) return 'my';
   if (['catalog', 'list', 'daicho', 'all', '台帳', '資産台帳', '種類別'].includes(lower)) return 'catalog';
   if (['shared', 'common', 'kyoyu', '共用', '共用資産'].includes(lower)) return 'shared';
+  if (['inspections', 'inspection_list', 'check', '点検一覧', '点検管理'].includes(lower)) return 'inspections';
   if (['calendar', 'cal', 'schedule', 'カレンダー', '資産カレンダー'].includes(lower)) return 'calendar';
   return undefined;
 }
@@ -217,7 +218,7 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
   if (rawAssetId) result.assetId = rawAssetId;
 
   const rawAssetSubTab = params.get('assetSubTab') || params.get('asset_sub_tab');
-  if (rawAssetSubTab === 'history' || rawAssetSubTab === 'details') {
+  if (rawAssetSubTab === 'history' || rawAssetSubTab === 'details' || rawAssetSubTab === 'inspections') {
     result.assetSubTab = rawAssetSubTab;
   }
 

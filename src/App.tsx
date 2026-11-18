@@ -244,7 +244,7 @@ export default function App() {
   const [targetTaskId, setTargetTaskId] = useState<string | undefined>(initialUrlParams.taskId);
   const [projectViewParam, setProjectViewParam] = useState<'kanban' | 'list' | 'mytasks' | undefined>(initialUrlParams.projectView);
   const [assetParams, setAssetParams] = useState<{
-    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
     assetAssignee?: string;
@@ -252,7 +252,7 @@ export default function App() {
     assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
     assetQ?: string;
     assetShowRetired?: boolean;
-    assetSubTab?: 'details' | 'history';
+    assetSubTab?: 'details' | 'inspections' | 'history';
     assetSort?: string;
     requestKey?: number;
   }>(() => ({
@@ -373,8 +373,8 @@ export default function App() {
     type?: string;
     targetUserId?: string;
     assetId?: string;
-    assetSubTab?: 'details' | 'history';
-    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetSubTab?: 'details' | 'inspections' | 'history';
+    assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
     assetAssignee?: string;
@@ -3979,6 +3979,13 @@ export default function App() {
               onRefetchEvents={(opts) => refetchEvents(usersList, false, opts)}
               onNavigateToInspectionScheduler={() => setActiveTab('inspection_scheduler')}
               onNavigateToSite={handleNavigateToSite}
+              onNavigateToAsset={(assetId, subTab: 'details' | 'inspections' | 'history' = 'inspections') =>
+                handleNavigateToContent({
+                  tab: 'assets',
+                  assetId,
+                  assetSubTab: subTab,
+                })
+              }
               pendingPollCount={pendingSchedulePolls.length}
               openSchedulePolls={openSchedulePolls}
               onOpenSchedulePollModal={(pollId?: string) => {

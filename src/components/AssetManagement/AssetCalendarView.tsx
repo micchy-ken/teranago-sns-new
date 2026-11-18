@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,10 +16,14 @@ import {
   OfficeMaster
 } from '../../types';
 import {
+  INSPECTION_SCHEDULE_FIELD_KEYS,
+  LAST_INSPECTION_FIELD_KEYS,
   computeAssetAlerts,
   formatAssetDateJa,
+  getActiveScheduledInspection,
   getAssetIconComponent,
-  getJstTodayStr
+  getJstTodayStr,
+  isConfirmedInspectionLog
 } from '../../utils/assets';
 
 interface AssetCalendarViewProps {
@@ -27,7 +31,7 @@ interface AssetCalendarViewProps {
   categories: AssetCategory[];
   logs: AssetLogItem[];
   offices: OfficeMaster[];
-  onSelectAsset: (asset: AssetItem) => void;
+  onSelectAsset: (asset: AssetItem, subTab?: 'details' | 'inspections' | 'history') => void;
 }
 
 interface CalendarPlotItem {
@@ -103,20 +107,20 @@ export function AssetCalendarView({
     return map;
   }, [filteredAssets]);
 
-  // All alerts sorted by urgency
+  // All alerts sorted by urgency (SSOT logs integrated)
   const allAlerts = useMemo(() => {
     const items: Array<{ alert: AssetAlertInfo; asset: AssetItem; category?: AssetCategory }> = [];
     for (const asset of filteredAssets) {
       const cat = categories.find((c) => c.id === asset.categoryId);
-      const alerts = computeAssetAlerts(asset, cat, todayStr);
+      const alerts = computeAssetAlerts(asset, cat, todayStr, logs);
       for (const alert of alerts) {
         items.push({ alert, asset, category: cat });
       }
     }
     return items.sort((a, b) => a.alert.daysRemaining - b.alert.daysRemaining);
-  }, [filteredAssets, categories, todayStr]);
+  }, [filteredAssets, categories, todayStr, logs]);
 
-  // Build calendar plot items keyed by YYYY-MM-DD
+  // Build calendar plot items keyed by YYYY-MM-DD (SSOT scheduled + static expiry + confirmed history)
   const plotsByDate = useMemo(() => {
     const map: Record<string, CalendarPlotItem[]> = {};
     const addPlot = (item: CalendarPlotItem) => {
@@ -127,14 +131,32 @@ export function AssetCalendarView({
     for (const asset of filteredAssets) {
       const cat = categories.find((c) => c.id === asset.categoryId);
       if (!cat) continue;
+
+      // 1. SSOT アクティブ点検予定
+      const scheduled = getActiveScheduledInspection(asset, logs, todayStr);
+      if (scheduled) {
+        addPlot({
+          id: `${asset.id}-sched-${scheduled.logId || scheduled.eventDate}`,
+          dateStr: scheduled.eventDate,
+          asset,
+          category: cat,
+          title: `${scheduled.isDueOrOverdue ? '[要確認] ' : ''}${asset.name} (${scheduled.inspectionType || '点検予定'})`,
+          badgeType: 'inspection',
+          overdue: scheduled.isDueOrOverdue
+        });
+      }
+
+      // 2. 静的期限フィールド（車検満期・リース満了等）
       for (const field of cat.fields || []) {
         if (field.type !== 'date') continue;
+        if (INSPECTION_SCHEDULE_FIELD_KEYS.has(field.key) || LAST_INSPECTION_FIELD_KEYS.has(field.key)) {
+          continue;
+        }
         const rawDate = asset.attributes?.[field.key];
         if (!rawDate) continue;
         const dStr = String(rawDate).slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) continue;
 
-        // 納車日・購入日・支給日・最終点検日はスキップしてカレンダーを見やすく保つ（予定・期限中心）
         const isScheduleOrExpiry =
           Boolean(field.alertRule) ||
           field.label.includes('予定') ||
@@ -167,11 +189,9 @@ export function AssetCalendarView({
 
     if (showHistoryLogs) {
       for (const log of logs) {
-        if (
-          log.actionType !== 'inspection' &&
-          log.actionType !== 'repair' &&
-          log.actionType !== 'replacement'
-        ) {
+        const isConfirmedInsp = isConfirmedInspectionLog(log);
+        const isRepairOrReplace = log.actionType === 'repair' || log.actionType === 'replacement';
+        if (!isConfirmedInsp && !isRepairOrReplace) {
           continue;
         }
         const asset = filteredAssetMap.get(log.assetId);
@@ -184,7 +204,7 @@ export function AssetCalendarView({
           dateStr: dStr,
           asset,
           category: cat,
-          title: `${asset.name} [${log.actionType === 'repair' ? '修理' : '実施'}] ${log.summary}`,
+          title: `${asset.name} [${log.actionType === 'repair' ? '修理' : '確定済'}] ${log.summary}`,
           badgeType: 'history'
         });
       }
@@ -203,7 +223,6 @@ export function AssetCalendarView({
 
     const cells: Array<{ dateStr: string; dayNum: number; isCurrentMonth: boolean }> = [];
 
-    // Prev month padding
     const prevMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
     const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
     const daysInPrev = new Date(Date.UTC(prevMonthYear, prevMonth, 0)).getUTCDate();
@@ -216,7 +235,6 @@ export function AssetCalendarView({
       });
     }
 
-    // Current month
     for (let d = 1; d <= daysInMonth; d++) {
       cells.push({
         dateStr: `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
@@ -225,7 +243,6 @@ export function AssetCalendarView({
       });
     }
 
-    // Next month padding to 35 or 42 cells
     const nextMonthYear = currentMonth === 12 ? currentYear + 1 : currentYear;
     const nextMonth = currentMonth === 12 ? 1 : currentMonth + 1;
     let nextDay = 1;
@@ -257,7 +274,7 @@ export function AssetCalendarView({
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <h3 className="text-base font-bold text-slate-900 min-w-[120px] text-center">
+            <h3 className="text-base font-bold text-slate-900 min-w-[120px] text-center tabular-nums">
               {currentYear}年 {currentMonth}月
             </h3>
             <button
@@ -311,7 +328,7 @@ export function AssetCalendarView({
                 onChange={(e) => setShowHistoryLogs(e.target.checked)}
                 className="rounded border-slate-300 text-emerald-600"
               />
-              実施履歴を表示
+              確定済み履歴を表示
             </label>
           </div>
         </div>
@@ -328,11 +345,11 @@ export function AssetCalendarView({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-xs bg-rose-500" />
-            期限超過
+            要実施確認・期限超過
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500" />
-            実施済み点検・修理履歴
+            確定済み点検・修理履歴
           </span>
         </div>
 
@@ -375,7 +392,7 @@ export function AssetCalendarView({
               >
                 <div className="flex items-center justify-between mb-1">
                   <span
-                    className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
+                    className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full tabular-nums ${
                       isToday
                         ? 'bg-indigo-600 text-white'
                         : cell.isCurrentMonth
@@ -386,7 +403,7 @@ export function AssetCalendarView({
                     {cell.dayNum}
                   </span>
                   {plots.length > 0 && (
-                    <span className="text-[10px] font-semibold text-slate-400">
+                    <span className="text-[10px] font-semibold text-slate-400 tabular-nums">
                       {plots.length}件
                     </span>
                   )}
@@ -408,7 +425,12 @@ export function AssetCalendarView({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSelectAsset(item.asset);
+                          onSelectAsset(
+                            item.asset,
+                            item.badgeType === 'inspection' || item.badgeType === 'history'
+                              ? 'inspections'
+                              : 'details'
+                          );
                         }}
                         title={item.title}
                         className={`w-full text-left px-1.5 py-0.5 rounded border text-[10px] truncate cursor-pointer hover:opacity-80 ${cls}`}
@@ -444,7 +466,14 @@ export function AssetCalendarView({
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => onSelectAsset(item.asset)}
+                      onClick={() =>
+                        onSelectAsset(
+                          item.asset,
+                          item.badgeType === 'inspection' || item.badgeType === 'history'
+                            ? 'inspections'
+                            : 'details'
+                        )
+                      }
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 text-xs text-slate-800 shadow-2xs cursor-pointer"
                     >
                       <IconComp className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -466,12 +495,12 @@ export function AssetCalendarView({
               <AlertTriangle className="w-4 h-4 text-amber-600" />
               点検・入替アラート一覧
             </h3>
-            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800">
+            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800 tabular-nums">
               {allAlerts.length}件
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            点検・車検（1ヶ月前）とリース満了入替（6ヶ月前）を自動検知します
+            未確定の点検予定（1ヶ月前〜経過）とリース満了入替（6ヶ月前）を自動検知します
           </p>
         </div>
 
@@ -495,7 +524,12 @@ export function AssetCalendarView({
                 <button
                   key={`${asset.id}-${alert.fieldKey}`}
                   type="button"
-                  onClick={() => onSelectAsset(asset)}
+                  onClick={() =>
+                    onSelectAsset(
+                      asset,
+                      alert.kind === 'inspection' ? 'inspections' : 'details'
+                    )
+                  }
                   className={`w-full text-left p-3 rounded-xl border transition-all hover:shadow-xs cursor-pointer space-y-1 ${badgeCls}`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -508,7 +542,7 @@ export function AssetCalendarView({
                       {alert.ruleLabel}
                     </span>
                     <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold whitespace-nowrap ${
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold whitespace-nowrap tabular-nums ${
                         alert.severity === 'overdue'
                           ? 'bg-rose-600 text-white'
                           : alert.severity === 'warning'
@@ -518,6 +552,8 @@ export function AssetCalendarView({
                     >
                       {alert.daysRemaining < 0
                         ? `${Math.abs(alert.daysRemaining)}日超過`
+                        : alert.daysRemaining === 0
+                        ? '本日予定'
                         : `あと${alert.daysRemaining}日`}
                     </span>
                   </div>
@@ -528,7 +564,7 @@ export function AssetCalendarView({
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] opacity-85">
-                    <span>
+                    <span className="tabular-nums">
                       {alert.fieldLabel}: {formatAssetDateJa(alert.targetDate)}
                     </span>
                     <span>

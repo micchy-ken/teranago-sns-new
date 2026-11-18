@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset, CalendarViewSettings, CalendarMemberGroup } from '../types';
+import { CalendarEvent, EventType, User, OfficeMaster, DivisionMaster, Memo, RequirementType, MemoUserRecipientStatus, CalendarPreset, CalendarViewSettings, CalendarMemberGroup, AssetInspectionScheduleEvent } from '../types';
 import { Site } from '../types/site';
 import { API_BASE_URL } from '../config/api';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
@@ -64,6 +64,7 @@ interface CalendarProps {
   onRefetchEvents?: (options?: { from?: string; all?: boolean }) => void;
   onNavigateToInspectionScheduler?: () => void;
   onNavigateToSite?: (siteIdOrCode: string) => void;
+  onNavigateToAsset?: (assetId: string, subTab?: 'details' | 'inspections' | 'history') => void;
   onOpenSchedulePollModal?: (pollId?: string) => void;
   pendingPollCount?: number;
   openSchedulePolls?: SchedulePoll[];
@@ -167,6 +168,7 @@ export function Calendar({
   onRefetchEvents,
   onNavigateToInspectionScheduler,
   onNavigateToSite,
+  onNavigateToAsset,
   onOpenSchedulePollModal,
   pendingPollCount = 0,
   openSchedulePolls = [],
@@ -192,6 +194,32 @@ export function Calendar({
       .catch(() => {});
     return () => { isMounted = false; };
   }, [sites]);
+
+  // 資産管理からの点検予定スケジュール（個人所有・担当者紐付）を動的取得・自動プロット
+  const [assetSchedules, setAssetSchedules] = useState<AssetInspectionScheduleEvent[]>([]);
+
+  const fetchAssetSchedules = useCallback(() => {
+    fetch(`${API_BASE_URL}/assets/inspection-schedules`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (Array.isArray(data)) {
+          setAssetSchedules(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchAssetSchedules();
+    const handleAssetsUpdated = () => fetchAssetSchedules();
+    const handleWindowFocus = () => fetchAssetSchedules();
+    window.addEventListener('teranago:assets-updated', handleAssetsUpdated);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      window.removeEventListener('teranago:assets-updated', handleAssetsUpdated);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [fetchAssetSchedules]);
 
   // 工事予定の種別バッジ描画（【新規】【残】【出庫有】）
   const renderConstructionBadge = useCallback((e: CalendarEvent, compact: boolean = false) => {
@@ -1730,8 +1758,47 @@ export function Calendar({
       });
     }
 
+    // 資産点検予定を動的オーバーレイ表示（個人所有・使用者指定ありのみ / DB複製なし）
+    if (assetSchedules.length > 0 && (selectedTypeFilter === 'all' || selectedTypeFilter === 'inspection')) {
+      const userById = new Map((allUsers || []).map(u => [String(u.id), u]));
+      const targetPersonalId = String(activePersonalUser?.id || currentUser?.id || '');
+
+      assetSchedules.forEach(sched => {
+        if (!sched.eventDate || sched.isShared || !sched.assigneeUserId) return;
+        const assigneeUid = String(sched.assigneeUserId);
+        if (calendarMode === 'personal' && targetPersonalId && assigneeUid !== targetPersonalId) {
+          return;
+        }
+        const assigneeUser = userById.get(assigneeUid);
+        const virtualEv: CalendarEvent = {
+          id: `asset_insp_${sched.assetId}_${sched.eventDate}`,
+          title: `🔧[資産点検${sched.isDueOrOverdue ? '·要確認' : ''}] ${sched.assetName}${sched.inspectionType ? ` (${sched.inspectionType})` : ''}`,
+          start: `${sched.eventDate}T09:00:00+09:00`,
+          end: `${sched.eventDate}T10:00:00+09:00`,
+          type: 'inspection',
+          memo: [
+            `【資産点検予定】${sched.assetName}${sched.categoryName ? ` (${sched.categoryName})` : ''}`,
+            sched.inspectionType ? `内容: ${sched.inspectionType}` : '',
+            sched.vendor ? `業者: ${sched.vendor}` : '',
+            sched.isDueOrOverdue
+              ? '※予定日到来・実施確認待ち（クリックで資産点検タブを開きます）'
+              : '※クリックで資産管理の点検タブを開きます'
+          ].filter(Boolean).join('\n'),
+          attendees: assigneeUser ? [assigneeUser] : [],
+          isAllDay: true,
+          isGoogleSynced: false,
+          isAssetInspection: true,
+          assetId: sched.assetId,
+          assetLogId: sched.logId,
+          assetDueConfirmation: sched.isDueOrOverdue,
+          assetCategoryName: sched.categoryName,
+        };
+        list.push(virtualEv);
+      });
+    }
+
     return list;
-  }, [expandedEvents, selectedTypeFilter, currentUser, activePersonalUser, calendarMode, openSchedulePolls, allUsers]);
+  }, [expandedEvents, selectedTypeFilter, currentUser, activePersonalUser, calendarMode, openSchedulePolls, allUsers, assetSchedules]);
 
   // チーム表示用の所属メンバー抽出をメモ化 (マイグループ選択時はそのメンバー、未選択時は拠点・部署マスターID照合)
   const teamMembers = React.useMemo(() => {
@@ -1960,6 +2027,12 @@ export function Calendar({
       }
       return 'bg-amber-50 text-amber-900 border-amber-300 border-dashed hover:bg-amber-100';
     }
+    if (e.isAssetInspection) {
+      if (e.assetDueConfirmation) {
+        return 'bg-rose-50 text-rose-900 border-rose-400 border-dashed font-bold hover:bg-rose-100';
+      }
+      return 'bg-indigo-50 text-indigo-900 border-indigo-300 border-dashed font-bold hover:bg-indigo-100';
+    }
     const startStr = getLocalDateStr(e.start);
     const endStr = e.end ? getLocalDateStr(e.end) : startStr;
     const isMultiDay = startStr !== endStr;
@@ -2073,6 +2146,12 @@ export function Calendar({
     if (event.isSchedulePoll && event.pollId) {
       if (onOpenSchedulePollModal) {
         onOpenSchedulePollModal(event.pollId);
+      }
+      return;
+    }
+    if (event.isAssetInspection && event.assetId) {
+      if (onNavigateToAsset) {
+        onNavigateToAsset(event.assetId, 'inspections');
       }
       return;
     }
@@ -2775,7 +2854,7 @@ export function Calendar({
 
   // Drag & Drop handlers
   const handleDragStart = (e: React.DragEvent, eventId: string, memberId?: string) => {
-    if (resizingEventRef.current) {
+    if (resizingEventRef.current || eventId.startsWith('asset_insp_') || eventId.startsWith('poll_')) {
       e.preventDefault();
       return;
     }
@@ -4203,7 +4282,7 @@ export function Calendar({
                                     <div
                                       key={e.id}
                                       data-event-card="true"
-                                      draggable={!e.isIcal}
+                                      draggable={!e.isIcal && !e.isAssetInspection}
                                       onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                                       onDragEnd={handleDragEnd}
                                       onMouseDown={(eClick) => eClick.stopPropagation()}
@@ -4505,7 +4584,7 @@ export function Calendar({
                                 <div
                                   key={e.id}
                                   data-event-card="true"
-                                  draggable={!e.isIcal && !isMobile3Day}
+                                  draggable={!e.isIcal && !e.isAssetInspection && !isMobile3Day}
                                   onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                                   onDragEnd={handleDragEnd}
                                   onMouseDown={(eClick) => eClick.stopPropagation()}
@@ -4602,7 +4681,7 @@ export function Calendar({
                                       <div
                                         key={e.id}
                                         data-event-card="true"
-                                        draggable={!e.isIcal && !isBeingResized && !isMobile3Day}
+                                        draggable={!e.isIcal && !e.isAssetInspection && !isBeingResized && !isMobile3Day}
                                         onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                                         onDragEnd={handleDragEnd}
                                         onDragOver={(eDragOver) => {
@@ -4658,7 +4737,7 @@ export function Calendar({
                                           </>
                                         )}
 
-                                        {!e.isIcal && !isMobile3Day && (
+                                        {!e.isIcal && !e.isAssetInspection && !isMobile3Day && (
                                           <div
                                             onMouseDown={(evt) => {
                                               evt.stopPropagation();
@@ -4805,7 +4884,7 @@ export function Calendar({
                             <div
                               key={e.id}
                               data-event-card="true"
-                              draggable={!e.isIcal}
+                              draggable={!e.isIcal && !e.isAssetInspection}
                               onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                               onDragEnd={handleDragEnd}
                               onMouseDown={(eClick) => eClick.stopPropagation()}
@@ -4820,7 +4899,7 @@ export function Calendar({
                                   <div className="font-bold text-xs sm:text-sm">{e.isIcal ? `[iCal] ${e.title}` : e.title}</div>
                                   {isMulti && <div className="text-[10px] sm:text-[11px] font-medium opacity-90">{sStr} ～ {eStr}</div>}
                                 </div>
-                                <span className="text-[9px] sm:text-[10px] px-2 py-0.5 bg-white/20 rounded-full font-bold">{e.isIcal ? 'iCal' : typeLabels[e.type]}</span>
+                                <span className="text-[9px] sm:text-[10px] px-2 py-0.5 bg-white/20 rounded-full font-bold">{e.isIcal ? 'iCal' : e.isAssetInspection ? '資産点検' : typeLabels[e.type]}</span>
                               </div>
                               {e.memo && <div className="text-[11px] sm:text-xs font-normal mt-1 opacity-90">{renderContentWithLinks(e.memo)}</div>}
                             </div>
@@ -4891,7 +4970,7 @@ export function Calendar({
                         <div
                           key={e.id}
                           data-event-card="true"
-                          draggable={!e.isIcal && !isBeingResized}
+                          draggable={!e.isIcal && !e.isAssetInspection && !isBeingResized}
                           onDragStart={(eDrag) => handleDragStart(eDrag, e.id)}
                           onDragEnd={handleDragEnd}
                           onDragOver={(eDragOver) => {
@@ -4924,7 +5003,7 @@ export function Calendar({
                               <span>{e.title}</span>
                             </div>
                             <span className="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold border bg-white/80 shrink-0">
-                              {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
+                              {e.isSchedulePoll ? '日程調整' : e.isAssetInspection ? '資産点検' : typeLabels[e.type]}
                             </span>
                           </div>
                           <div className="text-[10px] sm:text-xs font-semibold text-slate-600 mt-0.5 pointer-events-none">{displayTimeString}</div>
@@ -4935,7 +5014,7 @@ export function Calendar({
                           )}
 
                           {/* 縦方向リサイズハンドル */}
-                          {!e.isIcal && (
+                          {!e.isIcal && !e.isAssetInspection && (
                             <div
                               onMouseDown={(evt) => {
                                 evt.stopPropagation();
@@ -5071,7 +5150,7 @@ export function Calendar({
                         <div className="flex-1 min-w-0 py-0.5">
                           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider border ${getEventStyle(e)}`}>
-                              {e.isSchedulePoll ? '日程調整' : typeLabels[e.type]}
+                              {e.isSchedulePoll ? '日程調整' : e.isAssetInspection ? '資産点検' : typeLabels[e.type]}
                             </span>
                             {renderConstructionBadge(e)}
                             <h3 className="font-bold text-slate-900 truncate text-sm sm:text-base flex-1 min-w-0">{e.title}</h3>

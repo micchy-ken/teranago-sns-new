@@ -22,7 +22,9 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
-  RotateCcw
+  RotateCcw,
+  ClipboardCheck,
+  Gauge
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 import { AppQueryParams, buildAppUrl, copyTextToClipboard } from '../../utils/urlParams';
@@ -42,11 +44,16 @@ import {
 } from '../../types';
 import {
   ASSET_STATUS_META,
+  INSPECTION_SCHEDULE_FIELD_KEYS,
+  LAST_INSPECTION_FIELD_KEYS,
   computeAssetAlerts,
   exportAssetsToCsv,
   formatAssetDateJa,
+  getActiveScheduledInspection,
   getAssetIconComponent,
   getCategoryTheme,
+  getDerivedLastInspectionDate,
+  getEffectiveAssetMileage,
   getJstTodayStr,
   getSelectChipStyle
 } from '../../utils/assets';
@@ -56,9 +63,15 @@ import { AssetDetailModal } from './AssetDetailModal';
 import { AssetCategoryEditorModal } from './AssetCategoryEditorModal';
 import { AssetCsvImportModal } from './AssetCsvImportModal';
 import { AssetCalendarView } from './AssetCalendarView';
+import { AssetInspectionListView } from './AssetInspectionListView';
+import {
+  AssetInspectionConfirmModal,
+  ConfirmInspectionPayload,
+  RescheduleInspectionPayload
+} from './AssetInspectionConfirmModal';
 
 export interface AssetInitialParams {
-  assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+  assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
   assetCategory?: string;
   assetOffice?: string;
   assetAssignee?: string;
@@ -66,7 +79,7 @@ export interface AssetInitialParams {
   assetAlert?: 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
   assetQ?: string;
   assetShowRetired?: boolean;
-  assetSubTab?: 'details' | 'history';
+  assetSubTab?: 'details' | 'inspections' | 'history';
   assetSort?: string;
   requestKey?: number;
 }
@@ -92,7 +105,7 @@ interface AssetManagementProps {
   onUpdateUser?: (user: User) => void;
 }
 
-type MainMode = 'my' | 'catalog' | 'shared' | 'calendar';
+type MainMode = 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
 type SubLens = 'all' | 'inspection_due' | 'last_inspection' | 'attachments' | 'lease_alert';
 type AlertFilterType = 'none' | 'all_alerts' | 'overdue' | 'inspection_1m' | 'replacement_6m';
 
@@ -158,12 +171,48 @@ export function AssetManagement({
   // Modals
   const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
   const [editingAsset, setEditingAsset] = useState<AssetItem | null>(null);
-  const [detailInitialSubTab, setDetailInitialSubTab] = useState<'details' | 'history'>('details');
+  const [detailInitialSubTab, setDetailInitialSubTab] = useState<
+    'details' | 'inspections' | 'history'
+  >('details');
   const [categoryModalOpen, setCategoryModalOpen] = useState<boolean>(false);
   const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
   const [csvImportModalOpen, setCsvImportModalOpen] = useState<boolean>(false);
+  const [confirmModalAsset, setConfirmModalAsset] = useState<AssetItem | null>(null);
+
+  // Inline table cell editing states
+  const [inlineEditCell, setInlineEditCell] = useState<{
+    assetId: string;
+    colKey: string;
+  } | null>(null);
+  const [inlineDraftVal, setInlineDraftVal] = useState<string>('');
+  const [inlineSavingId, setInlineSavingId] = useState<string | null>(null);
 
   const todayStr = getJstTodayStr();
+
+  const refreshAssetsAndLogs = useCallback(async () => {
+    try {
+      const [assetRes, logRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/assets/items`),
+        fetch(`${API_BASE_URL}/assets/logs`)
+      ]);
+      const [assetData, logData] = await Promise.all([
+        assetRes.ok ? assetRes.json() : null,
+        logRes.ok ? logRes.json() : null
+      ]);
+      if (Array.isArray(assetData)) {
+        setAssets(assetData);
+        setEditingAsset((prev) =>
+          prev ? assetData.find((a: AssetItem) => a.id === prev.id) || prev : null
+        );
+      }
+      if (Array.isArray(logData)) {
+        setLogs(logData);
+      }
+      window.dispatchEvent(new CustomEvent('teranago:assets-updated'));
+    } catch {
+      // silent refresh failure
+    }
+  }, []);
 
   const fetchAllData = useCallback(async () => {
     setLoading(true);
@@ -348,15 +397,24 @@ export function AssetManagement({
     return map;
   }, [allUsers]);
 
-  // Pre-compute alerts per asset
+  // Pre-compute alerts per asset (SSOT: scheduled inspections + static dates)
   const assetAlertsMap = useMemo(() => {
     const map = new Map<string, AssetAlertInfo[]>();
     for (const a of assets) {
       const cat = categoryMap.get(a.categoryId);
-      map.set(a.id, computeAssetAlerts(a, cat, todayStr));
+      map.set(a.id, computeAssetAlerts(a, cat, todayStr, logs));
     }
     return map;
-  }, [assets, categoryMap, todayStr]);
+  }, [assets, categoryMap, todayStr, logs]);
+
+  // Scheduled inspections due today or overdue waiting for execution confirmation
+  const dueConfirmationAssets = useMemo(() => {
+    return assets.filter((a) => {
+      if (a.status === 'retired') return false;
+      const sched = getActiveScheduledInspection(a, logs, todayStr);
+      return Boolean(sched && sched.isDueOrOverdue);
+    });
+  }, [assets, logs, todayStr]);
 
   // Global summary counts
   const summaryStats = useMemo(() => {
@@ -387,9 +445,10 @@ export function AssetManagement({
       sharedCount,
       overdueCount,
       inspection1mCount,
-      replacement6mCount
+      replacement6mCount,
+      dueConfirmationCount: dueConfirmationAssets.length
     };
-  }, [assets, assetAlertsMap, currentUser.id]);
+  }, [assets, assetAlertsMap, currentUser.id, dueConfirmationAssets.length]);
 
   // Active category in catalog mode
   const activeCategory = useMemo(() => {
@@ -458,12 +517,9 @@ export function AssetManagement({
         return false;
       }
       if (subLens === 'inspection_due') {
-        const hasInspectionDate =
-          Boolean(a.attributes?.nextInspectionDate) ||
-          Boolean(a.attributes?.shakenExpiryDate) ||
-          Boolean(a.attributes?.nextCalibrationDate) ||
-          Boolean(a.attributes?.nextCheckDate);
-        if (!hasInspectionDate) return false;
+        const hasScheduled = Boolean(getActiveScheduledInspection(a, logs, todayStr));
+        const hasOtherInspectionDate = Boolean(a.attributes?.shakenExpiryDate);
+        if (!hasScheduled && !hasOtherInspectionDate) return false;
       }
 
       if (q) {
@@ -523,12 +579,8 @@ export function AssetManagement({
           return { empty: !s, kind: 'text', value: s };
         }
         if (key === '__nextDate') {
-          const d =
-            asset.attributes?.nextInspectionDate ||
-            asset.attributes?.shakenExpiryDate ||
-            asset.attributes?.nextCalibrationDate ||
-            asset.attributes?.nextCheckDate ||
-            '';
+          const sched = getActiveScheduledInspection(asset, logs, todayStr);
+          const d = sched?.eventDate || asset.attributes?.shakenExpiryDate || '';
           return { empty: !d, kind: 'date', value: String(d) };
         }
         if (key === '__leaseDate') {
@@ -541,6 +593,22 @@ export function AssetManagement({
         }
         if (key === '__attachments') {
           return { empty: false, kind: 'num', value: asset.attachments?.length || 0 };
+        }
+
+        if (LAST_INSPECTION_FIELD_KEYS.has(key)) {
+          const derived = getDerivedLastInspectionDate(asset, logs);
+          return { empty: !derived, kind: 'date', value: derived };
+        }
+        if (INSPECTION_SCHEDULE_FIELD_KEYS.has(key)) {
+          const sched = getActiveScheduledInspection(asset, logs, todayStr);
+          const d = sched?.eventDate || '';
+          return { empty: !d, kind: 'date', value: d };
+        }
+        if (key === 'mileage') {
+          const mi = getEffectiveAssetMileage(asset);
+          return mi.value === null
+            ? { empty: true, kind: 'num', value: 0 }
+            : { empty: false, kind: 'num', value: mi.value };
         }
 
         const raw = asset.attributes?.[key];
@@ -590,27 +658,19 @@ export function AssetManagement({
     } else if (subLens === 'inspection_due') {
       list = [...list].sort((a, b) => {
         const da =
-          a.attributes?.nextInspectionDate ||
+          getActiveScheduledInspection(a, logs, todayStr)?.eventDate ||
           a.attributes?.shakenExpiryDate ||
-          a.attributes?.nextCalibrationDate ||
           '9999-99-99';
         const db =
-          b.attributes?.nextInspectionDate ||
+          getActiveScheduledInspection(b, logs, todayStr)?.eventDate ||
           b.attributes?.shakenExpiryDate ||
-          b.attributes?.nextCalibrationDate ||
           '9999-99-99';
         return String(da).localeCompare(String(db));
       });
     } else if (subLens === 'last_inspection') {
       list = [...list].sort((a, b) => {
-        const da =
-          a.attributes?.lastInspectionDate ||
-          a.attributes?.lastCalibrationDate ||
-          '0000-00-00';
-        const db =
-          b.attributes?.lastInspectionDate ||
-          b.attributes?.lastCalibrationDate ||
-          '0000-00-00';
+        const da = getDerivedLastInspectionDate(a, logs) || '0000-00-00';
+        const db = getDerivedLastInspectionDate(b, logs) || '0000-00-00';
         return String(db).localeCompare(String(da));
       });
     } else if (subLens === 'lease_alert' || alertFilter !== 'none') {
@@ -638,7 +698,9 @@ export function AssetManagement({
     sortConfig,
     activeCategory,
     categoryMap,
-    userMap
+    userMap,
+    logs,
+    todayStr
   ]);
 
   // CRUD Handlers
@@ -709,14 +771,71 @@ export function AssetManagement({
       const exists = prev.some((a) => a.id === saved.id);
       return exists ? prev.map((a) => (a.id === saved.id ? saved : a)) : [saved, ...prev];
     });
-    // 最新の自動記録ログも反映
-    fetch(`${API_BASE_URL}/assets/logs`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((lgs) => {
-        if (Array.isArray(lgs)) setLogs(lgs);
-      })
-      .catch(() => {});
+    await refreshAssetsAndLogs();
     return saved;
+  };
+
+  const handleSaveAssetInline = async (asset: AssetItem, patch: Partial<AssetItem>) => {
+    await handleSaveAsset({
+      ...asset,
+      ...patch,
+      id: asset.id
+    });
+  };
+
+  const handleSaveScheduledInspection = async (params: {
+    assetId: string;
+    logId?: string;
+    eventDate: string;
+    inspectionType?: string;
+    vendor?: string;
+    memo?: string;
+  }) => {
+    const res = await fetch(
+      `${API_BASE_URL}/assets/${encodeURIComponent(params.assetId)}/scheduled-inspection`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...params,
+          actorId: currentUser.id,
+          actorName: currentUser.name
+        })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || '点検予定の保存に失敗しました');
+    }
+    await refreshAssetsAndLogs();
+  };
+
+  const handleConfirmInspection = async (payload: ConfirmInspectionPayload) => {
+    const res = await fetch(
+      `${API_BASE_URL}/assets/${encodeURIComponent(payload.assetId)}/inspections/confirm`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          actorId: currentUser.id,
+          actorName: currentUser.name
+        })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || '点検実施の確定保存に失敗しました');
+    }
+    await refreshAssetsAndLogs();
+  };
+
+  const handleCancelScheduledInspection = async (assetId: string, logId?: string) => {
+    await handleSaveScheduledInspection({
+      assetId,
+      logId,
+      eventDate: ''
+    });
   };
 
   const handleDeleteAsset = async (assetId: string) => {
@@ -726,6 +845,7 @@ export function AssetManagement({
     if (!res.ok) throw new Error('資産の削除に失敗しました');
     setAssets((prev) => prev.filter((a) => a.id !== assetId));
     setLogs((prev) => prev.filter((l) => l.assetId !== assetId));
+    window.dispatchEvent(new CustomEvent('teranago:assets-updated'));
   };
 
   const handleAddLog = async (
@@ -769,6 +889,7 @@ export function AssetManagement({
         )
       );
     }
+    window.dispatchEvent(new CustomEvent('teranago:assets-updated'));
   };
 
   const handleDeleteLog = async (_assetId: string, logId: string) => {
@@ -778,6 +899,7 @@ export function AssetManagement({
     );
     if (!res.ok) return;
     setLogs((prev) => prev.filter((l) => l.id !== logId));
+    window.dispatchEvent(new CustomEvent('teranago:assets-updated'));
   };
 
   const handleExportCsv = () => {
@@ -787,16 +909,22 @@ export function AssetManagement({
       users: allUsers,
       offices,
       divisions,
+      logs,
       selectedCategory: activeCategory
     });
   };
 
   const openCreateModal = () => {
+    setDetailInitialSubTab('details');
     setEditingAsset(null);
     setDetailModalOpen(true);
   };
 
-  const openEditModal = (asset: AssetItem) => {
+  const openEditModal = (
+    asset: AssetItem,
+    subTab: 'details' | 'inspections' | 'history' = 'details'
+  ) => {
+    setDetailInitialSubTab(subTab);
     setEditingAsset(asset);
     setDetailModalOpen(true);
   };
@@ -809,13 +937,200 @@ export function AssetManagement({
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }, [activeCategory]);
 
+  const commitInlineFieldValue = async (
+    asset: AssetItem,
+    field: AssetFieldDefinition,
+    nextRaw: any
+  ) => {
+    setInlineEditCell(null);
+    setInlineSavingId(asset.id);
+    try {
+      if (INSPECTION_SCHEDULE_FIELD_KEYS.has(field.key)) {
+        const scheduled = getActiveScheduledInspection(asset, logs, todayStr);
+        const nextDate = String(nextRaw || '').trim();
+        if ((scheduled?.eventDate || '') === nextDate) return;
+        await handleSaveScheduledInspection({
+          assetId: asset.id,
+          logId: scheduled?.logId,
+          eventDate: nextDate,
+          inspectionType: scheduled?.inspectionType || asset.attributes?.inspectionType,
+          vendor:
+            scheduled?.vendor ||
+            asset.attributes?.inspectionVendor ||
+            asset.attributes?.maintenanceVendor
+        });
+        return;
+      }
+
+      if (field.key === 'mileage') {
+        const trimmed = String(nextRaw ?? '').trim();
+        if (trimmed === '') return;
+        const num = Number(trimmed.replace(/,/g, ''));
+        if (!Number.isFinite(num) || num < 0) return;
+        await handleSaveAssetInline(asset, {
+          attributes: {
+            ...(asset.attributes || {}),
+            mileage: num,
+            mileageManualUpdatedAt: todayStr
+          }
+        });
+        return;
+      }
+
+      const nextVal =
+        field.type === 'number'
+          ? String(nextRaw ?? '').trim() === ''
+            ? ''
+            : Number(String(nextRaw).replace(/,/g, ''))
+          : nextRaw;
+      if ((asset.attributes?.[field.key] ?? '') === nextVal) return;
+
+      await handleSaveAssetInline(asset, {
+        attributes: {
+          ...(asset.attributes || {}),
+          [field.key]: nextVal
+        }
+      });
+    } finally {
+      setInlineSavingId(null);
+    }
+  };
+
   const renderFieldCell = (asset: AssetItem, field: AssetFieldDefinition) => {
-    const val = asset.attributes?.[field.key];
+    // 1) 最終点検日系は「確定済み点検履歴」から自動算出。0件時は必ず完全空白（'-' 禁止）
+    if (LAST_INSPECTION_FIELD_KEYS.has(field.key)) {
+      const derivedLast = getDerivedLastInspectionDate(asset, logs);
+      if (!derivedLast) return null;
+      return (
+        <span className="whitespace-nowrap text-xs font-medium text-slate-800 tabular-nums">
+          {formatAssetDateJa(derivedLast)}
+        </span>
+      );
+    }
+
+    const scheduled = INSPECTION_SCHEDULE_FIELD_KEYS.has(field.key)
+      ? getActiveScheduledInspection(asset, logs, todayStr)
+      : null;
+    const mileageInfo =
+      field.key === 'mileage' ? getEffectiveAssetMileage(asset) : null;
+
+    const val = scheduled
+      ? scheduled.eventDate
+      : mileageInfo
+      ? mileageInfo.value
+      : asset.attributes?.[field.key];
+
+    const canInlineEdit = Boolean(field.inlineEditable);
+    const isEditingThis =
+      inlineEditCell?.assetId === asset.id && inlineEditCell.colKey === field.key;
+
+    if (canInlineEdit && isEditingThis) {
+      if (field.type === 'select') {
+        return (
+          <select
+            autoFocus
+            value={inlineDraftVal}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => commitInlineFieldValue(asset, field, e.target.value)}
+            onBlur={() => setInlineEditCell(null)}
+            className="w-full max-w-[160px] px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded focus:outline-none"
+          >
+            <option value="">-- 未選択 --</option>
+            {(field.options || []).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        );
+      }
+
+      if (field.type === 'date') {
+        return (
+          <input
+            type="date"
+            autoFocus
+            value={inlineDraftVal}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setInlineDraftVal(e.target.value)}
+            onBlur={() => commitInlineFieldValue(asset, field, inlineDraftVal)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitInlineFieldValue(asset, field, inlineDraftVal);
+              if (e.key === 'Escape') setInlineEditCell(null);
+            }}
+            className="px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded tabular-nums focus:outline-none"
+          />
+        );
+      }
+
+      if (field.type === 'number') {
+        return (
+          <input
+            type="number"
+            autoFocus
+            value={inlineDraftVal}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setInlineDraftVal(e.target.value)}
+            onBlur={() => commitInlineFieldValue(asset, field, inlineDraftVal)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitInlineFieldValue(asset, field, inlineDraftVal);
+              if (e.key === 'Escape') setInlineEditCell(null);
+            }}
+            className="w-24 px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded tabular-nums focus:outline-none"
+          />
+        );
+      }
+
+      return (
+        <input
+          type="text"
+          autoFocus
+          value={inlineDraftVal}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setInlineDraftVal(e.target.value)}
+          onBlur={() => commitInlineFieldValue(asset, field, inlineDraftVal)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitInlineFieldValue(asset, field, inlineDraftVal);
+            if (e.key === 'Escape') setInlineEditCell(null);
+          }}
+          className="w-full min-w-[110px] px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded focus:outline-none"
+        />
+      );
+    }
+
+    const triggerInlineEdit = (e: React.MouseEvent) => {
+      if (!canInlineEdit) return;
+      e.stopPropagation();
+      if (field.type === 'checkbox') {
+        commitInlineFieldValue(asset, field, !val);
+        return;
+      }
+      setInlineEditCell({ assetId: asset.id, colKey: field.key });
+      setInlineDraftVal(val !== undefined && val !== null ? String(val) : '');
+    };
+
+    const wrapInline = (node: React.ReactNode) =>
+      canInlineEdit ? (
+        <div
+          onClick={triggerInlineEdit}
+          title="クリックして表のまま直接編集"
+          className="cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-indigo-100/60 transition-colors min-h-[22px] flex items-center"
+        >
+          {node}
+        </div>
+      ) : (
+        node
+      );
+
     if (val === undefined || val === null || val === '') {
-      return <span className="text-slate-300">-</span>;
+      return wrapInline(
+        <span className={canInlineEdit ? 'text-slate-300 hover:text-indigo-500 text-[11px]' : 'text-slate-300'}>
+          {canInlineEdit ? '入力...' : '-'}
+        </span>
+      );
     }
     if (field.type === 'select') {
-      return (
+      return wrapInline(
         <span
           className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border whitespace-nowrap ${getSelectChipStyle(
             String(val)
@@ -828,10 +1143,10 @@ export function AssetManagement({
     if (field.type === 'date') {
       const alerts = assetAlertsMap.get(asset.id) || [];
       const fieldAlert = alerts.find((al) => al.fieldKey === field.key);
-      return (
+      return wrapInline(
         <span
-          className={`whitespace-nowrap text-xs ${
-            fieldAlert?.severity === 'overdue'
+          className={`whitespace-nowrap text-xs tabular-nums ${
+            scheduled?.isDueOrOverdue || fieldAlert?.severity === 'overdue'
               ? 'text-rose-700 font-bold'
               : fieldAlert?.severity === 'warning'
               ? 'text-amber-800 font-bold'
@@ -845,20 +1160,32 @@ export function AssetManagement({
       );
     }
     if (field.type === 'checkbox') {
-      return val ? (
-        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold whitespace-nowrap">
-          <Check className="w-3.5 h-3.5" />
-          対象
-        </span>
-      ) : (
-        <span className="text-slate-400 text-xs">-</span>
+      return wrapInline(
+        val ? (
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-semibold whitespace-nowrap">
+            <Check className="w-3.5 h-3.5" />
+            対象
+          </span>
+        ) : (
+          <span className="text-slate-400 text-xs">-</span>
+        )
       );
     }
     if (field.type === 'number') {
-      return (
-        <span className="whitespace-nowrap text-xs text-slate-700 font-medium">
-          {Number(val).toLocaleString()}
-          {field.unit ? ` ${field.unit}` : ''}
+      return wrapInline(
+        <span className="whitespace-nowrap text-xs text-slate-700 font-medium inline-flex items-center gap-1 tabular-nums">
+          <span>
+            {Number(val).toLocaleString()}
+            {field.unit ? ` ${field.unit}` : ''}
+          </span>
+          {mileageInfo?.source === 'driving_log' && (
+            <span
+              className="text-[10px] text-sky-700 font-semibold inline-flex items-center gap-0.5"
+              title={`運転記録簿（${mileageInfo.date}時点）から自動反映`}
+            >
+              <Gauge className="w-3 h-3" />
+            </span>
+          )}
         </span>
       );
     }
@@ -876,7 +1203,7 @@ export function AssetManagement({
         </a>
       );
     }
-    return (
+    return wrapInline(
       <span className="text-xs text-slate-700 truncate block" title={String(val)}>
         {String(val)}
       </span>
@@ -1216,12 +1543,13 @@ export function AssetManagement({
                     my: '自分の資産',
                     catalog: '資産台帳',
                     shared: '共用資産',
+                    inspections: '点検一覧',
                     calendar: '資産カレンダー',
                   };
                   const catLabel =
-                    mainMode !== 'calendar' && activeCategory
+                    mainMode !== 'calendar' && mainMode !== 'inspections' && activeCategory
                       ? activeCategory.name
-                      : mainMode !== 'calendar'
+                      : mainMode !== 'calendar' && mainMode !== 'inspections'
                         ? 'すべて'
                         : '';
                   const title = catLabel
@@ -1417,6 +1745,32 @@ export function AssetManagement({
 
             <button
               type="button"
+              onClick={() => handleChangeMainMode('inspections')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                mainMode === 'inspections'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : summaryStats.dueConfirmationCount > 0
+                  ? 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <ClipboardCheck className="w-3.5 h-3.5" />
+              点検一覧
+              {summaryStats.dueConfirmationCount > 0 && (
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold tabular-nums ${
+                    mainMode === 'inspections'
+                      ? 'bg-white text-amber-800'
+                      : 'bg-rose-600 text-white'
+                  }`}
+                >
+                  要確認 {summaryStats.dueConfirmationCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => handleChangeMainMode('calendar')}
               className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 mainMode === 'calendar'
@@ -1430,7 +1784,7 @@ export function AssetManagement({
           </div>
 
           {/* Clickable Alert KPI Chips */}
-          {mainMode !== 'calendar' && (
+          {mainMode !== 'calendar' && mainMode !== 'inspections' && (
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -1485,6 +1839,44 @@ export function AssetManagement({
         </div>
       </div>
 
+      {/* Scheduled Inspections Due Confirmation Banner */}
+      {dueConfirmationAssets.length > 0 && mainMode !== 'calendar' && (
+        <div className="p-3.5 rounded-2xl bg-rose-50/90 border border-rose-200 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0" />
+            <div className="text-xs text-rose-950">
+              <span className="font-extrabold">
+                点検予定日を過ぎた資産（実施確認待ち）が {dueConfirmationAssets.length}件 あります
+              </span>
+              <span className="text-rose-700 ml-2 hidden sm:inline">
+                実施確認すると予定をクリアし、確定履歴・最終点検日へ反映します。
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {dueConfirmationAssets.slice(0, 3).map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setConfirmModalAsset(a)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-rose-300 text-rose-800 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+              >
+                {a.name} を確認
+              </button>
+            ))}
+            {mainMode !== 'inspections' && (
+              <button
+                type="button"
+                onClick={() => handleChangeMainMode('inspections')}
+                className="px-3 py-1 rounded-lg text-[11px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer whitespace-nowrap"
+              >
+                点検一覧で確認する
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
           {error}
@@ -1492,7 +1884,19 @@ export function AssetManagement({
       )}
 
       {/* Main Content */}
-      {mainMode === 'calendar' ? (
+      {mainMode === 'inspections' ? (
+        <AssetInspectionListView
+          assets={assets}
+          categories={categories}
+          logs={logs}
+          users={allUsers}
+          offices={offices}
+          onSaveScheduledInspection={handleSaveScheduledInspection}
+          onSaveAssetInline={handleSaveAssetInline}
+          onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
+          onOpenDetailModal={(asset, subTab) => openEditModal(asset, subTab || 'inspections')}
+        />
+      ) : mainMode === 'calendar' ? (
         <AssetCalendarView
           assets={assets}
           categories={categories}
@@ -1749,7 +2153,6 @@ export function AssetManagement({
                     ? resolveOfficeName(asset.officeId, offices) || asset.office || ''
                     : asset.office || '';
 
-                  // Summary fields for mixed-category view ('自分の資産' / '共用資産')
                   const summaryText =
                     asset.attributes?.vehicleModel ||
                     asset.attributes?.makerModel ||
@@ -1757,13 +2160,16 @@ export function AssetManagement({
                     asset.attributes?.toolType ||
                     asset.assetCode ||
                     '-';
-                  const nextDate =
-                    asset.attributes?.nextInspectionDate ||
-                    asset.attributes?.shakenExpiryDate ||
-                    asset.attributes?.nextCalibrationDate ||
-                    asset.attributes?.nextCheckDate ||
-                    '';
+                  const scheduled = getActiveScheduledInspection(asset, logs, todayStr);
+                  const nextDate = scheduled?.eventDate || asset.attributes?.shakenExpiryDate || '';
                   const leaseDate = asset.attributes?.leaseEndDate || '';
+
+                  const canInlineAssignee = Boolean(!asset.isShared && activeCategory?.allowInlineAssignee);
+                  const isEditingAssignee =
+                    inlineEditCell?.assetId === asset.id && inlineEditCell.colKey === '__assignee';
+                  const canInlineNotes = activeCategory ? activeCategory.allowInlineNotes !== false : true;
+                  const isEditingNotes =
+                    inlineEditCell?.assetId === asset.id && inlineEditCell.colKey === '__notes';
 
                   return (
                     <tr
@@ -1771,7 +2177,7 @@ export function AssetManagement({
                       onClick={() => openEditModal(asset)}
                       className={`group hover:bg-indigo-50/40 transition-colors cursor-pointer ${
                         asset.status === 'retired' ? 'opacity-50 bg-slate-50' : ''
-                      }`}
+                      } ${inlineSavingId === asset.id ? 'opacity-60' : ''}`}
                     >
                       {/* 登録番号 / 名称 + Hover 開く */}
                       <td
@@ -1822,9 +2228,50 @@ export function AssetManagement({
                       {/* 使用者 */}
                       <td
                         style={getColStyle('__assignee')}
-                        className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                        onClick={
+                          canInlineAssignee && !isEditingAssignee
+                            ? (e) => {
+                                e.stopPropagation();
+                                setInlineEditCell({ assetId: asset.id, colKey: '__assignee' });
+                                setInlineDraftVal(asset.assigneeUserId ? String(asset.assigneeUserId) : '');
+                              }
+                            : undefined
+                        }
+                        title={canInlineAssignee ? 'クリックして使用者の直接変更' : undefined}
+                        className={`py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden ${
+                          canInlineAssignee ? 'hover:bg-indigo-100/50' : ''
+                        }`}
                       >
-                        {asset.isShared ? (
+                        {isEditingAssignee ? (
+                          <select
+                            autoFocus
+                            value={inlineDraftVal}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={async (e) => {
+                              const nextUid = e.target.value;
+                              setInlineEditCell(null);
+                              const targetU = allUsers.find((u) => String(u.id) === String(nextUid));
+                              setInlineSavingId(asset.id);
+                              try {
+                                await handleSaveAssetInline(asset, {
+                                  assigneeUserId: nextUid || '',
+                                  assigneeUserName: targetU?.name || ''
+                                });
+                              } finally {
+                                setInlineSavingId(null);
+                              }
+                            }}
+                            onBlur={() => setInlineEditCell(null)}
+                            className="w-full px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded focus:outline-none"
+                          >
+                            <option value="">未割当</option>
+                            {allUsers.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : asset.isShared ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <Users className="w-3 h-3" />
                             共用（限定なし）
@@ -1888,9 +2335,15 @@ export function AssetManagement({
                           </td>
                           <td
                             style={getColStyle('__nextDate')}
-                            className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden"
+                            className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap overflow-hidden tabular-nums"
                           >
-                            {nextDate ? formatAssetDateJa(nextDate) : '-'}
+                            {nextDate ? (
+                              <span className={scheduled?.isDueOrOverdue ? 'text-rose-700 font-bold' : 'text-slate-700'}>
+                                {formatAssetDateJa(nextDate)}
+                              </span>
+                            ) : (
+                              '-'
+                            )}
                           </td>
                           <td
                             style={getColStyle('__leaseDate')}
@@ -1901,14 +2354,61 @@ export function AssetManagement({
                         </>
                       )}
 
-                      {/* 備考 */}
+                      {/* 備考 (種類別で直編集設定有効時にインライン編集) */}
                       <td
                         style={getColStyle('__notes', { maxWidth: '200px' })}
-                        className="py-2 px-3 border-r border-slate-200/70 overflow-hidden"
+                        onClick={
+                          canInlineNotes && !isEditingNotes
+                            ? (e) => {
+                                e.stopPropagation();
+                                setInlineEditCell({ assetId: asset.id, colKey: '__notes' });
+                                setInlineDraftVal(asset.notes || '');
+                              }
+                            : undefined
+                        }
+                        title={canInlineNotes ? 'クリックして備考を直接編集' : asset.notes}
+                        className={`py-2 px-3 border-r border-slate-200/70 overflow-hidden ${
+                          canInlineNotes ? 'hover:bg-indigo-100/50' : ''
+                        }`}
                       >
-                        <span className="truncate block text-slate-600" title={asset.notes}>
-                          {asset.notes || ''}
-                        </span>
+                        {isEditingNotes ? (
+                          <input
+                            type="text"
+                            autoFocus
+                            value={inlineDraftVal}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setInlineDraftVal(e.target.value)}
+                            onBlur={async () => {
+                              setInlineEditCell(null);
+                              if ((asset.notes || '') === inlineDraftVal) return;
+                              setInlineSavingId(asset.id);
+                              try {
+                                await handleSaveAssetInline(asset, { notes: inlineDraftVal });
+                              } finally {
+                                setInlineSavingId(null);
+                              }
+                            }}
+                            onKeyDown={async (e) => {
+                              if (e.key === 'Enter') {
+                                setInlineEditCell(null);
+                                if ((asset.notes || '') !== inlineDraftVal) {
+                                  setInlineSavingId(asset.id);
+                                  try {
+                                    await handleSaveAssetInline(asset, { notes: inlineDraftVal });
+                                  } finally {
+                                    setInlineSavingId(null);
+                                  }
+                                }
+                              }
+                              if (e.key === 'Escape') setInlineEditCell(null);
+                            }}
+                            className="w-full min-w-[120px] px-1.5 py-0.5 text-xs bg-white border border-indigo-400 rounded focus:outline-none"
+                          />
+                        ) : (
+                          <span className="truncate block text-slate-600" title={asset.notes}>
+                            {asset.notes || (canInlineNotes ? <span className="text-slate-300 text-[11px]">入力...</span> : '')}
+                          </span>
+                        )}
                       </td>
 
                       {/* 添付 */}
@@ -1987,7 +2487,20 @@ export function AssetManagement({
         onDeleteAsset={handleDeleteAsset}
         onAddLog={handleAddLog}
         onDeleteLog={handleDeleteLog}
+        onSaveScheduledInspection={handleSaveScheduledInspection}
+        onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
         onUpdateUser={onUpdateUser}
+      />
+
+      <AssetInspectionConfirmModal
+        isOpen={Boolean(confirmModalAsset)}
+        onClose={() => setConfirmModalAsset(null)}
+        asset={confirmModalAsset}
+        category={confirmModalAsset ? categoryMap.get(confirmModalAsset.categoryId) || null : null}
+        logs={logs}
+        onConfirmInspection={handleConfirmInspection}
+        onRescheduleInspection={(p: RescheduleInspectionPayload) => handleSaveScheduledInspection(p)}
+        onCancelSchedule={handleCancelScheduledInspection}
       />
 
       <AssetCategoryEditorModal

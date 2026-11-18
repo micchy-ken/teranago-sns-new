@@ -25,6 +25,7 @@ export interface AssetFieldDefinition {
   required?: boolean;
   showInList?: boolean;
   showInMyAssets?: boolean;
+  inlineEditable?: boolean;
   alertRule?: AssetFieldAlertRule;
   sortOrder?: number;
 }
@@ -35,6 +36,8 @@ export interface AssetCategory {
   icon: string;
   color: string;
   defaultShared?: boolean;
+  allowInlineNotes?: boolean;
+  allowInlineAssignee?: boolean;
   fields: AssetFieldDefinition[];
   sortOrder: number;
   isSystem?: boolean;
@@ -43,6 +46,28 @@ export interface AssetCategory {
 }
 
 export type AssetStatus = 'active' | 'maintenance' | 'standby' | 'retired';
+
+export type AssetMainMode = 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
+export type AssetSubTab = 'details' | 'inspections' | 'history';
+
+export interface AssetInspectionChecklistItem {
+  id: string;
+  label: string;
+  method?: string;
+  sortOrder?: number;
+}
+
+export type AssetChecklistStatus = 'ok' | 'caution' | 'ng' | 'na';
+
+export interface AssetChecklistResult {
+  itemId: string;
+  label: string;
+  method?: string;
+  status: AssetChecklistStatus;
+  note?: string;
+}
+
+export type AssetInspectionStatus = 'scheduled' | 'completed' | 'cancelled';
 
 export interface AssetAttachment {
   id: string;
@@ -69,6 +94,10 @@ export interface AssetItem {
   nextAlertDate?: string;
   attributes: Record<string, any>;
   attachments: AssetAttachment[];
+  inspectionItems?: AssetInspectionChecklistItem[];
+  latestDrivingMileage?: number;
+  latestDrivingMileageDate?: string;
+  latestDrivingReportId?: string;
   notes?: string;
   createdBy?: string;
   createdByName?: string;
@@ -95,9 +124,17 @@ export interface AssetLogItem {
   eventDate: string; // YYYY-MM-DD (JST)
   summary: string;
   detail?: {
+    inspectionStatus?: AssetInspectionStatus;
+    inspectionType?: string;
     vendor?: string;
     cost?: number;
     mileage?: number;
+    checklistResults?: AssetChecklistResult[];
+    confirmedAt?: string;
+    confirmedById?: string;
+    confirmedByName?: string;
+    scheduledDateBefore?: string;
+    cancellationReason?: string;
     beforeAssignee?: string;
     afterAssignee?: string;
     changedFields?: Array<{ key: string; label: string; before?: any; after?: any }>;
@@ -105,6 +142,26 @@ export interface AssetLogItem {
     [key: string]: any;
   };
   createdAt: string;
+}
+
+export interface AssetInspectionScheduleEvent {
+  logId?: string;
+  assetId: string;
+  assetName: string;
+  assetCode?: string;
+  categoryId: string;
+  categoryName: string;
+  isShared: boolean;
+  assigneeUserId?: string;
+  assigneeUserName?: string;
+  officeId?: string;
+  office?: string;
+  eventDate: string; // YYYY-MM-DD (JST)
+  inspectionType?: string;
+  vendor?: string;
+  summary: string;
+  isDueOrOverdue: boolean;
+  source: 'log' | 'legacy_attribute';
 }
 
 export type AssetAlertSeverity = 'overdue' | 'warning' | 'upcoming';
@@ -120,3 +177,4 @@ export interface AssetAlertInfo {
   daysBefore: number;
   severity: AssetAlertSeverity;
 }
+

@@ -292,6 +292,13 @@ export interface CalendarEvent {
   hasMyPollAnswer?: boolean;
   pollAnsweredCount?: number;
   pollTotalTargetCount?: number;
+
+  // 資産管理・点検予定自動プロット連携
+  isAssetInspection?: boolean;
+  assetId?: string;
+  assetLogId?: string;
+  assetDueConfirmation?: boolean;
+  assetCategoryName?: string;
 }
 
 export type ConstructionPhase = 'new' | 'remaining' | 'shukko';

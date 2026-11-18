@@ -92,8 +92,8 @@ interface HeaderProps {
     type?: string;
     targetUserId?: string;
     assetId?: string;
-    assetSubTab?: 'details' | 'history';
-    assetMode?: 'my' | 'catalog' | 'shared' | 'calendar';
+    assetSubTab?: 'details' | 'inspections' | 'history';
+    assetMode?: 'my' | 'catalog' | 'shared' | 'inspections' | 'calendar';
     assetCategory?: string;
     assetOffice?: string;
     assetAssignee?: string;

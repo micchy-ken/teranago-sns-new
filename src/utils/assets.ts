@@ -18,8 +18,10 @@ import {
   AssetAlertInfo,
   AssetCategory,
   AssetFieldDefinition,
+  AssetInspectionChecklistItem,
   AssetItem,
   AssetLogActionType,
+  AssetLogItem,
   AssetStatus,
   DivisionMaster,
   OfficeMaster,
@@ -78,20 +80,297 @@ export function formatAssetDateJa(dateStr?: string | null): string {
   return `${m[1]}年${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日`;
 }
 
+export const INSPECTION_SCHEDULE_FIELD_KEYS = new Set([
+  'nextInspectionDate',
+  'nextCheckDate',
+  'nextCalibrationDate'
+]);
+
+export const LAST_INSPECTION_FIELD_KEYS = new Set([
+  'lastInspectionDate',
+  'lastCalibrationDate'
+]);
+
+export const INSPECTION_VENDOR_FIELD_KEYS = new Set([
+  'inspectionVendor',
+  'maintenanceVendor'
+]);
+
+export const VEHICLE_DAILY_INSPECTION_PRESET: Array<{
+  key: string;
+  label: string;
+  method: string;
+}> = [
+  { key: 'ky_declaration', label: 'ＫＹ宣言の実施', method: '発声' },
+  { key: 'instruments_brake', label: '各計器・エンジン・ブレーキランプに異常はないか', method: '音・目視' },
+  { key: 'tire_groove_air', label: 'タイヤの溝・空気圧は十分か', method: '目視' },
+  { key: 'phone_drive_mode', label: '携帯電話をドライブモードに変更', method: '操作' },
+  { key: 'bluetooth_connect', label: 'Bluetooth等に接続', method: '操作' },
+  { key: 'engine_exhaust', label: 'エンジンの掛かり具合、排気は正常か', method: '目視' },
+  { key: 'lever_brake_light', label: 'レバー・ブレーキ・ライト・ウインカーに異常はないか', method: '目視・実測' },
+  { key: 'washer_coolant', label: 'ウォッシャー液・クーラント液は十分か', method: '実測' },
+  { key: 'engine_oil', label: 'エンジンオイルの油量', method: '実測' },
+  { key: 'battery', label: 'バッテリーは正常か', method: '実測' },
+  { key: 'wiper_belt', label: 'ワイパー・エンジンベルトに問題はないか', method: '目視' },
+  { key: 'air_pressure_kpa', label: '空気圧（2.0kpa～2.5kpa）', method: '実測' }
+];
+
+export function getDefaultInspectionChecklistPreset(
+  category?: AssetCategory | null
+): AssetInspectionChecklistItem[] {
+  const catId = category?.id || '';
+  const catName = category?.name || '';
+  if (catId === 'cat-vehicle' || catName.includes('車両')) {
+    return VEHICLE_DAILY_INSPECTION_PRESET.map((it, idx) => ({
+      id: `chk-${it.key}`,
+      label: it.label,
+      method: it.method,
+      sortOrder: idx + 1
+    }));
+  }
+  if (catId === 'cat-pc' || catName.toUpperCase().includes('PC')) {
+    return [
+      { id: 'chk-os-update', label: 'OS・セキュリティパッチの適用確認', method: '操作', sortOrder: 1 },
+      { id: 'chk-av-status', label: 'セキュリティソフト(ESET等)の稼働・定義最新化確認', method: '操作', sortOrder: 2 },
+      { id: 'chk-storage-health', label: 'ストレージ空き容量・動作速度の確認', method: '目視', sortOrder: 3 },
+      { id: 'chk-battery-cable', label: 'バッテリー膨張・ACアダプタ・外装の破損確認', method: '目視', sortOrder: 4 }
+    ];
+  }
+  if (catId === 'cat-tool' || catName.includes('工具')) {
+    return [
+      { id: 'chk-exterior', label: '本体・コード・プラグの破損・緩み確認', method: '目視', sortOrder: 1 },
+      { id: 'chk-operation', label: '動作確認・異音・異常発熱の有無', method: '作動', sortOrder: 2 },
+      { id: 'chk-calibration', label: '校正精度・計測値の正常確認', method: '実測', sortOrder: 3 },
+      { id: 'chk-accessories', label: '付属品・安全カバー・保管状態の確認', method: '目視', sortOrder: 4 }
+    ];
+  }
+  return [
+    { id: 'chk-power-conn', label: '電源・配線・ネットワーク接続の正常確認', method: '目視', sortOrder: 1 },
+    { id: 'chk-error-log', label: '本体エラー表示・警告ランプの有無', method: '目視', sortOrder: 2 },
+    { id: 'chk-consumables', label: '消耗品・清掃・メンテナンス実施確認', method: '実測', sortOrder: 3 }
+  ];
+}
+
+export function isScheduledInspectionLog(log?: AssetLogItem | null): boolean {
+  return Boolean(
+    log &&
+      log.actionType === 'inspection' &&
+      log.detail?.inspectionStatus === 'scheduled'
+  );
+}
+
+export function isConfirmedInspectionLog(log?: AssetLogItem | null): boolean {
+  return Boolean(
+    log &&
+      log.actionType === 'inspection' &&
+      (!log.detail?.inspectionStatus || log.detail?.inspectionStatus === 'completed')
+  );
+}
+
+export function isCancelledInspectionLog(log?: AssetLogItem | null): boolean {
+  return Boolean(
+    log &&
+      log.actionType === 'inspection' &&
+      log.detail?.inspectionStatus === 'cancelled'
+  );
+}
+
+export function isAuditChangeLog(log?: AssetLogItem | null): boolean {
+  return Boolean(
+    log &&
+      (log.actionType === 'register' ||
+        log.actionType === 'update' ||
+        log.actionType === 'assignee_change' ||
+        log.actionType === 'retire')
+  );
+}
+
+export function isDueOrOverdueJst(dateStr?: string | null, todayStr?: string): boolean {
+  if (!dateStr) return false;
+  const cleaned = String(dateStr).trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return false;
+  return cleaned <= (todayStr || getJstTodayStr());
+}
+
+export interface DerivedScheduledInspection {
+  logId?: string;
+  eventDate: string;
+  inspectionType?: string;
+  vendor?: string;
+  summary: string;
+  isDueOrOverdue: boolean;
+  source: 'log' | 'legacy_attribute';
+}
+
+export function getActiveScheduledInspection(
+  asset: AssetItem,
+  logs: AssetLogItem[],
+  todayStr?: string
+): DerivedScheduledInspection | null {
+  const today = todayStr || getJstTodayStr();
+  const assetScheduledLogs = (logs || [])
+    .filter((l) => String(l.assetId) === String(asset.id) && isScheduledInspectionLog(l))
+    .filter((l) => /^\d{4}-\d{2}-\d{2}$/.test(String(l.eventDate || '').slice(0, 10)))
+    .sort((a, b) => (a.eventDate || '').localeCompare(b.eventDate || ''));
+
+  if (assetScheduledLogs.length > 0) {
+    const first = assetScheduledLogs[0];
+    const eventDate = String(first.eventDate).slice(0, 10);
+    return {
+      logId: first.id,
+      eventDate,
+      inspectionType: first.detail?.inspectionType || asset.attributes?.inspectionType || undefined,
+      vendor:
+        first.detail?.vendor ||
+        asset.attributes?.inspectionVendor ||
+        asset.attributes?.maintenanceVendor ||
+        undefined,
+      summary: first.summary || '',
+      isDueOrOverdue: eventDate <= today,
+      source: 'log'
+    };
+  }
+
+  const legacyRaw =
+    asset.attributes?.nextInspectionDate ||
+    asset.attributes?.nextCheckDate ||
+    asset.attributes?.nextCalibrationDate;
+  const legacyDate = legacyRaw ? String(legacyRaw).trim().slice(0, 10) : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(legacyDate)) {
+    return {
+      eventDate: legacyDate,
+      inspectionType: asset.attributes?.inspectionType || undefined,
+      vendor: asset.attributes?.inspectionVendor || asset.attributes?.maintenanceVendor || undefined,
+      summary: `${asset.attributes?.inspectionType || '定期点検'}予定`,
+      isDueOrOverdue: legacyDate <= today,
+      source: 'legacy_attribute'
+    };
+  }
+
+  return null;
+}
+
+export function getConfirmedInspectionLogs(
+  assetId: string,
+  logs: AssetLogItem[]
+): AssetLogItem[] {
+  return (logs || [])
+    .filter((l) => String(l.assetId) === String(assetId) && isConfirmedInspectionLog(l))
+    .sort(
+      (a, b) =>
+        (b.eventDate || '').localeCompare(a.eventDate || '') ||
+        (b.createdAt || '').localeCompare(a.createdAt || '')
+    );
+}
+
 /**
- * 資産に紐づくすべてのアラートを算出 (点検1ヶ月前 / リース満了6ヶ月前 / 期限超過)
+ * 確定済み点検履歴のみから「最終点検日」を算出する（SSOT）
+ * 確定履歴が0件の資産は必ず空文字 ""（空白表示）を返す
+ */
+export function getDerivedLastInspectionDate(
+  asset: AssetItem,
+  logs: AssetLogItem[]
+): string {
+  const confirmed = getConfirmedInspectionLogs(asset.id, logs);
+  if (confirmed.length === 0) return '';
+  const dateStr = String(confirmed[0].eventDate || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : '';
+}
+
+export interface EffectiveMileageInfo {
+  value: number | null;
+  source: 'driving_log' | 'manual' | 'none';
+  date?: string;
+  reportId?: string;
+}
+
+export function getEffectiveAssetMileage(asset: AssetItem): EffectiveMileageInfo {
+  const dlMileage =
+    typeof asset.latestDrivingMileage === 'number' && Number.isFinite(asset.latestDrivingMileage)
+      ? asset.latestDrivingMileage
+      : null;
+  const dlDate = asset.latestDrivingMileageDate ? String(asset.latestDrivingMileageDate).slice(0, 10) : undefined;
+
+  const rawManual = asset.attributes?.mileage;
+  const manualNum =
+    rawManual !== undefined && rawManual !== null && rawManual !== ''
+      ? Number(String(rawManual).replace(/,/g, ''))
+      : null;
+  const hasManual = manualNum !== null && Number.isFinite(manualNum);
+  const manualDate = asset.attributes?.mileageManualUpdatedAt
+    ? String(asset.attributes.mileageManualUpdatedAt).slice(0, 10)
+    : undefined;
+
+  if (dlMileage !== null) {
+    if (hasManual && manualDate && dlDate && manualDate > dlDate && manualNum! >= dlMileage) {
+      return {
+        value: manualNum!,
+        source: 'manual',
+        date: manualDate
+      };
+    }
+    return {
+      value: dlMileage,
+      source: 'driving_log',
+      date: dlDate,
+      reportId: asset.latestDrivingReportId
+    };
+  }
+
+  if (hasManual) {
+    return {
+      value: manualNum!,
+      source: 'manual',
+      date: manualDate
+    };
+  }
+
+  return { value: null, source: 'none' };
+}
+
+/**
+ * 資産に紐づくすべてのアラートを算出 (点検予定SSOT / 点検1ヶ月前 / リース満了6ヶ月前 / 期限超過)
  */
 export function computeAssetAlerts(
   asset: AssetItem,
   category?: AssetCategory,
-  todayStr?: string
+  todayStr?: string,
+  logs?: AssetLogItem[]
 ): AssetAlertInfo[] {
   if (!asset || !category || asset.status === 'retired') return [];
   const today = todayStr || getJstTodayStr();
   const alerts: AssetAlertInfo[] = [];
 
+  const scheduled = logs ? getActiveScheduledInspection(asset, logs, today) : null;
+  const scheduleFieldDef = (category.fields || []).find((f) =>
+    INSPECTION_SCHEDULE_FIELD_KEYS.has(f.key)
+  );
+
+  if (logs && scheduled) {
+    const daysRemaining = diffDaysFromTodayJst(scheduled.eventDate, today);
+    const threshold = Number(scheduleFieldDef?.alertRule?.daysBefore) || 30;
+    if (daysRemaining !== null && daysRemaining <= threshold) {
+      const severity: AssetAlertInfo['severity'] =
+        daysRemaining < 0 ? 'overdue' : 'warning';
+      alerts.push({
+        assetId: asset.id,
+        fieldKey: scheduleFieldDef?.key || 'nextInspectionDate',
+        fieldLabel: scheduleFieldDef?.label || '点検予定',
+        kind: 'inspection',
+        ruleLabel: scheduled.isDueOrOverdue ? '点検実施確認待ち' : '点検アラート',
+        targetDate: scheduled.eventDate,
+        daysRemaining,
+        daysBefore: threshold,
+        severity
+      });
+    }
+  }
+
   for (const field of category.fields || []) {
     if (field.type !== 'date' || !field.alertRule) continue;
+    if (logs && INSPECTION_SCHEDULE_FIELD_KEYS.has(field.key)) {
+      continue;
+    }
     const rawVal = asset.attributes?.[field.key];
     if (!rawVal) continue;
     const daysRemaining = diffDaysFromTodayJst(String(rawVal), today);
@@ -326,6 +605,7 @@ export function exportAssetsToCsv(params: {
   users: User[];
   offices: OfficeMaster[];
   divisions: DivisionMaster[];
+  logs?: AssetLogItem[];
   selectedCategory?: AssetCategory | null;
   filenamePrefix?: string;
 }) {
@@ -335,6 +615,7 @@ export function exportAssetsToCsv(params: {
     users,
     offices,
     divisions,
+    logs = [],
     selectedCategory,
     filenamePrefix = '資産台帳'
   } = params;
@@ -383,7 +664,11 @@ export function exportAssetsToCsv(params: {
   const today = getJstTodayStr();
   const rows = assets.map((asset) => {
     const cat = categories.find((c) => c.id === asset.categoryId);
-    const alerts = computeAssetAlerts(asset, cat, today);
+    const alerts = computeAssetAlerts(asset, cat, today, logs);
+    const scheduled = getActiveScheduledInspection(asset, logs, today);
+    const derivedLastDate = getDerivedLastInspectionDate(asset, logs);
+    const effectiveMileage = getEffectiveAssetMileage(asset);
+
     const alertSummary =
       alerts.length > 0
         ? alerts
@@ -424,6 +709,15 @@ export function exportAssetsToCsv(params: {
       assignee,
       alertSummary,
       ...dynamicFields.map((f) => {
+        if (INSPECTION_SCHEDULE_FIELD_KEYS.has(f.key)) {
+          return scheduled?.eventDate || '';
+        }
+        if (LAST_INSPECTION_FIELD_KEYS.has(f.key)) {
+          return derivedLastDate;
+        }
+        if (f.key === 'mileage') {
+          return effectiveMileage.value ?? '';
+        }
         const val = asset.attributes?.[f.key];
         if (val === undefined || val === null) return '';
         if (f.type === 'checkbox') return val ? '対象' : '対象外';

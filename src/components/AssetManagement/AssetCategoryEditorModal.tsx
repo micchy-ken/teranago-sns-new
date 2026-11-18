@@ -9,7 +9,8 @@ import {
   BellRing,
   Eye,
   CheckSquare,
-  Settings2
+  Settings2,
+  Edit3
 } from 'lucide-react';
 import {
   AssetAlertKind,
@@ -19,6 +20,7 @@ import {
 } from '../../types';
 import {
   ASSET_ICON_OPTIONS,
+  LAST_INSPECTION_FIELD_KEYS,
   buildAlignedPcCategoryFields,
   getAssetIconComponent,
   getCategoryTheme
@@ -76,6 +78,8 @@ export function AssetCategoryEditorModal({
   const [icon, setIcon] = useState('Box');
   const [color, setColor] = useState('indigo');
   const [defaultShared, setDefaultShared] = useState(false);
+  const [allowInlineNotes, setAllowInlineNotes] = useState(true);
+  const [allowInlineAssignee, setAllowInlineAssignee] = useState(false);
   const [fields, setFields] = useState<AssetFieldDefinition[]>([]);
   const [optionsTextMap, setOptionsTextMap] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
@@ -91,6 +95,8 @@ export function AssetCategoryEditorModal({
       setIcon(category.icon || 'Box');
       setColor(category.color || 'indigo');
       setDefaultShared(Boolean(category.defaultShared));
+      setAllowInlineNotes(category.allowInlineNotes !== false);
+      setAllowInlineAssignee(Boolean(category.allowInlineAssignee));
       const sorted = [...(category.fields || [])].sort(
         (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
       );
@@ -105,6 +111,8 @@ export function AssetCategoryEditorModal({
       setIcon('Box');
       setColor('indigo');
       setDefaultShared(false);
+      setAllowInlineNotes(true);
+      setAllowInlineAssignee(false);
       const initialFields: AssetFieldDefinition[] = [
         {
           key: 'makerModel',
@@ -112,6 +120,7 @@ export function AssetCategoryEditorModal({
           type: 'text',
           showInList: true,
           showInMyAssets: true,
+          inlineEditable: false,
           sortOrder: 1
         },
         {
@@ -120,6 +129,7 @@ export function AssetCategoryEditorModal({
           type: 'date',
           showInList: true,
           showInMyAssets: true,
+          inlineEditable: true,
           alertRule: { kind: 'inspection', daysBefore: 30, label: '点検アラート' },
           sortOrder: 2
         }
@@ -243,6 +253,7 @@ export function AssetCategoryEditorModal({
           key: f.key.trim() || `field_${idx + 1}`,
           label: f.label.trim(),
           options: parsedOptions,
+          inlineEditable: LAST_INSPECTION_FIELD_KEYS.has(f.key) ? false : Boolean(f.inlineEditable),
           alertRule: f.type === 'date' ? f.alertRule : undefined,
           sortOrder: idx + 1
         };
@@ -257,6 +268,8 @@ export function AssetCategoryEditorModal({
         icon,
         color,
         defaultShared,
+        allowInlineNotes,
+        allowInlineAssignee,
         fields: sanitizedFields,
         sortOrder: category?.sortOrder ?? 99
       });
@@ -398,6 +411,39 @@ export function AssetCategoryEditorModal({
                 ))}
               </div>
             </div>
+
+            <div className="md:col-span-2 pt-2 border-t border-slate-200/80">
+              <div className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                基本列の表直接編集（インライン入力）設定
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={allowInlineNotes}
+                    onChange={(e) => setAllowInlineNotes(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">「備考」を表のまま直接編集する</div>
+                    <div className="text-[11px] text-slate-500">一覧の備考セルをクリックして直接入力できます</div>
+                  </div>
+                </label>
+                <label className="flex items-center gap-2.5 p-2.5 bg-white border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={allowInlineAssignee}
+                    onChange={(e) => setAllowInlineAssignee(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">「使用者」を表のまま直接変更する</div>
+                    <div className="text-[11px] text-slate-500">個人・専任資産の使用者プルダウンを表上で切替できます</div>
+                  </div>
+                </label>
+              </div>
+            </div>
           </div>
 
           {/* 動的パラメータ一覧 */}
@@ -498,7 +544,7 @@ export function AssetCategoryEditorModal({
                       </div>
 
                       {/* 単位・表示オプション */}
-                      <div className="md:col-span-4 flex flex-wrap items-center gap-3 pt-3 md:pt-0">
+                      <div className="md:col-span-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-3 md:pt-0">
                         {field.type === 'number' && (
                           <input
                             type="text"
@@ -508,7 +554,7 @@ export function AssetCategoryEditorModal({
                             className="w-20 px-2 py-1 text-xs border border-slate-300 rounded-md"
                           />
                         )}
-                        <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
+                        <label className="inline-flex items-center gap-1 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
                           <input
                             type="checkbox"
                             checked={field.showInList !== false}
@@ -520,7 +566,7 @@ export function AssetCategoryEditorModal({
                           <Eye className="w-3.5 h-3.5 text-slate-400" />
                           一覧列に表示
                         </label>
-                        <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
+                        <label className="inline-flex items-center gap-1 text-xs text-slate-700 cursor-pointer whitespace-nowrap">
                           <input
                             type="checkbox"
                             checked={Boolean(field.showInMyAssets)}
@@ -532,6 +578,27 @@ export function AssetCategoryEditorModal({
                           <CheckSquare className="w-3.5 h-3.5 text-slate-400" />
                           自分の資産に表示
                         </label>
+                        {LAST_INSPECTION_FIELD_KEYS.has(field.key) ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-semibold whitespace-nowrap"
+                            title="確定済み点検履歴から自動算出されるため、直接編集は行いません（未確定時は空白）"
+                          >
+                            確定履歴から自動反映
+                          </span>
+                        ) : (
+                          <label className="inline-flex items-center gap-1 text-xs text-indigo-800 font-semibold cursor-pointer whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(field.inlineEditable)}
+                              onChange={(e) =>
+                                handleUpdateField(idx, { inlineEditable: e.target.checked })
+                              }
+                              className="rounded border-indigo-300 text-indigo-600"
+                            />
+                            <Edit3 className="w-3.5 h-3.5 text-indigo-500" />
+                            表で直接編集
+                          </label>
+                        )}
                       </div>
 
                       {/* 削除 */}

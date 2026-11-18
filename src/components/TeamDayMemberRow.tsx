@@ -339,13 +339,13 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
             const isDraggedThis = draggedEventId === e.id;
             const evStartStr = getLocalDateStr(e.start);
             const evEndStr = e.end ? getLocalDateStr(e.end) : evStartStr;
-            const isSolidCard = !!e.isAllDay || evStartStr !== evEndStr;
+            const isSolidCard = (!!e.isAllDay || evStartStr !== evEndStr) && !e.isAssetInspection;
 
             return (
               <div
                 key={e.id}
                 data-event-card="true"
-                draggable={!e.isIcal && !isBeingResized}
+                draggable={!e.isIcal && !e.isAssetInspection && !isBeingResized}
                 onDragStart={(eDrag) => onDragStart(eDrag, e.id, member.id)}
                 onDragEnd={onDragEnd}
                 onMouseDown={(evt) => evt.stopPropagation()}
@@ -385,7 +385,7 @@ export const TeamDayMemberRow: React.FC<TeamDayMemberRowProps> = React.memo(({
                 )}
 
                 {/* 横方向リサイズハンドル */}
-                {!e.isIcal && !e.isAllDay && (
+                {!e.isIcal && !e.isAssetInspection && !e.isAllDay && (
                   <div
                     onMouseDown={(evt) => {
                       evt.stopPropagation();
