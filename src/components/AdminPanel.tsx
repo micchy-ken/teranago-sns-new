@@ -4,12 +4,16 @@ import { RECOMMEND_SERVER_JS, SERVER_CODE_HISTORY } from './RecommendServerCode'
 import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
 import { MaintenanceOfficeConfigAdmin } from './admin/MaintenanceOfficeConfigAdmin';
+import { DrivingLogOfficeConfigAdmin } from './admin/DrivingLogOfficeConfigAdmin';
+import { SingleMemberSelect } from './admin/SingleMemberSelect';
 import { 
   Shield, 
   Building2, 
   Sliders,
+  Car,
   MapPin, 
   Phone, 
+  Printer,
   User as UserIcon, 
   Users, 
   Plus, 
@@ -158,7 +162,7 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'inspection_items' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'driving_log_report' | 'inspection_items' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
   const [isInspectionMasterOpen, setIsInspectionMasterOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
@@ -570,6 +574,15 @@ export function AdminPanel({
     code: '',
     location: '',
     phone: '',
+    fax: '',
+    officeManagerId: '',
+    officeManagerName: '',
+    safeDrivingManagerId: '',
+    safeDrivingManagerName: '',
+    accountingManagerId: '',
+    accountingManagerName: '',
+    dispatchManagerId: '',
+    dispatchManagerName: '',
   });
 
   // Modal State for Division Master
@@ -1246,7 +1259,16 @@ export function AdminPanel({
         { name: 'type', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点種別 (例: branch, office)', isNew: true },
         { name: 'code', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点コード', isNew: true },
         { name: 'location', type: 'NVARCHAR(255)', constraint: 'NULL許可', desc: '拠点所在地・住所', isNew: true },
-        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '代表電話番号', isNew: true }
+        { name: 'phone', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: '代表電話番号', isNew: true },
+        { name: 'fax', type: 'NVARCHAR(50)', constraint: 'NULL許可', desc: 'FAX番号', isNew: true },
+        { name: 'officeManagerId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '拠点長ユーザーID (Users.id)', isNew: true },
+        { name: 'officeManagerName', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '拠点長氏名スナップショット', isNew: true },
+        { name: 'safeDrivingManagerId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '安全運転管理者ユーザーID (Users.id)', isNew: true },
+        { name: 'safeDrivingManagerName', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '安全運転管理者氏名スナップショット', isNew: true },
+        { name: 'accountingManagerId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '経理担当ユーザーID (Users.id)', isNew: true },
+        { name: 'accountingManagerName', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '経理担当氏名スナップショット', isNew: true },
+        { name: 'dispatchManagerId', type: 'VARCHAR(50)', constraint: 'NULL許可', desc: '出庫担当ユーザーID (Users.id)', isNew: true },
+        { name: 'dispatchManagerName', type: 'NVARCHAR(100)', constraint: 'NULL許可', desc: '出庫担当氏名スナップショット', isNew: true }
       ]
     },
     {
@@ -1403,6 +1425,19 @@ export function AdminPanel({
   };
 
   // --- OFFICE MASTER HANDLERS ---
+  const resolveOfficeRoleMemberId = (idVal?: string, nameVal?: string) => {
+    if (idVal) {
+      const foundById = allUsers.find((u) => String(u.id) === String(idVal));
+      if (foundById) return String(foundById.id);
+      return String(idVal);
+    }
+    if (nameVal) {
+      const foundByName = allUsers.find((u) => u.name === nameVal);
+      if (foundByName) return String(foundByName.id);
+    }
+    return '';
+  };
+
   const handleOpenAddOfficeModal = () => {
     setEditingOffice(null);
     setOfficeFormData({
@@ -1411,6 +1446,15 @@ export function AdminPanel({
       code: `OFF-${Date.now().toString().slice(-3)}`,
       location: '',
       phone: '',
+      fax: '',
+      officeManagerId: '',
+      officeManagerName: '',
+      safeDrivingManagerId: '',
+      safeDrivingManagerName: '',
+      accountingManagerId: '',
+      accountingManagerName: '',
+      dispatchManagerId: '',
+      dispatchManagerName: '',
     });
     setIsOfficeModalOpen(true);
   };
@@ -1423,6 +1467,15 @@ export function AdminPanel({
       code: off.code,
       location: off.location || '',
       phone: off.phone || '',
+      fax: off.fax || '',
+      officeManagerId: resolveOfficeRoleMemberId(off.officeManagerId, off.officeManagerName),
+      officeManagerName: off.officeManagerName || '',
+      safeDrivingManagerId: resolveOfficeRoleMemberId(off.safeDrivingManagerId, off.safeDrivingManagerName),
+      safeDrivingManagerName: off.safeDrivingManagerName || '',
+      accountingManagerId: resolveOfficeRoleMemberId(off.accountingManagerId, off.accountingManagerName),
+      accountingManagerName: off.accountingManagerName || '',
+      dispatchManagerId: resolveOfficeRoleMemberId(off.dispatchManagerId, off.dispatchManagerName),
+      dispatchManagerName: off.dispatchManagerName || '',
     });
     setIsOfficeModalOpen(true);
   };
@@ -1431,23 +1484,44 @@ export function AdminPanel({
     e.preventDefault();
     if (!officeFormData.name || !officeFormData.name.trim()) return;
 
+    const resolveMemberSnapshot = (userId: string, fallbackName: string) => {
+      if (!userId) return { id: '', name: '' };
+      const matched = allUsers.find((u) => String(u.id) === String(userId));
+      return {
+        id: String(userId),
+        name: matched ? matched.name : fallbackName || '',
+      };
+    };
+
+    const officeMgr = resolveMemberSnapshot(officeFormData.officeManagerId, officeFormData.officeManagerName);
+    const safeDrivingMgr = resolveMemberSnapshot(officeFormData.safeDrivingManagerId, officeFormData.safeDrivingManagerName);
+    const accountingMgr = resolveMemberSnapshot(officeFormData.accountingManagerId, officeFormData.accountingManagerName);
+    const dispatchMgr = resolveMemberSnapshot(officeFormData.dispatchManagerId, officeFormData.dispatchManagerName);
+
+    const payload = {
+      name: (officeFormData.name || '').trim(),
+      type: officeFormData.type,
+      code: (officeFormData.code || '').trim() || (editingOffice ? editingOffice.code : `OFF-${Date.now().toString().slice(-3)}`),
+      location: (officeFormData.location || '').trim(),
+      phone: (officeFormData.phone || '').trim(),
+      fax: (officeFormData.fax || '').trim(),
+      officeManagerId: officeMgr.id,
+      officeManagerName: officeMgr.name,
+      safeDrivingManagerId: safeDrivingMgr.id,
+      safeDrivingManagerName: safeDrivingMgr.name,
+      accountingManagerId: accountingMgr.id,
+      accountingManagerName: accountingMgr.name,
+      dispatchManagerId: dispatchMgr.id,
+      dispatchManagerName: dispatchMgr.name,
+    };
+
     if (editingOffice) {
       onUpdateOffice({
         ...editingOffice,
-        name: (officeFormData.name || '').trim(),
-        type: officeFormData.type,
-        code: (officeFormData.code || '').trim() || editingOffice.code,
-        location: (officeFormData.location || '').trim(),
-        phone: (officeFormData.phone || '').trim(),
+        ...payload,
       });
     } else {
-      onAddOffice({
-        name: (officeFormData.name || '').trim(),
-        type: officeFormData.type,
-        code: (officeFormData.code || '').trim() || `OFF-${Date.now().toString().slice(-3)}`,
-        location: (officeFormData.location || '').trim(),
-        phone: (officeFormData.phone || '').trim(),
-      });
+      onAddOffice(payload);
     }
     setIsOfficeModalOpen(false);
   };
@@ -2048,6 +2122,17 @@ export function AdminPanel({
           >
             <Sliders className="w-3.5 h-3.5" />
             保守日報様式（拠点別）
+          </button>
+          <button
+            onClick={() => setActiveSubTab('driving_log_report')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'driving_log_report'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
+            }`}
+          >
+            <Car className="w-3.5 h-3.5" />
+            運転記録簿様式（拠点別）
           </button>
           <button
             onClick={() => {
@@ -2986,15 +3071,72 @@ export function AdminPanel({
                           <span className="truncate">{off.location}</span>
                         </div>
                       )}
-                      {off.phone && (
-                        <div className="flex items-center gap-1.5">
-                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{off.phone}</span>
+                      {(off.phone || off.fax) && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          {off.phone && (
+                            <div className="flex items-center gap-1.5">
+                              <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>TEL: {off.phone}</span>
+                            </div>
+                          )}
+                          {off.fax && (
+                            <div className="flex items-center gap-1.5">
+                              <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>FAX: {off.fax}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
 
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                    {/* 拠点責任者・各種担当者表示 */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                      {[
+                        { label: '拠点長', id: off.officeManagerId, fallbackName: off.officeManagerName },
+                        { label: '安全運転管理者', id: off.safeDrivingManagerId, fallbackName: off.safeDrivingManagerName },
+                        { label: '経理担当', id: off.accountingManagerId, fallbackName: off.accountingManagerName },
+                        { label: '出庫担当', id: off.dispatchManagerId, fallbackName: off.dispatchManagerName },
+                      ].map((roleItem) => {
+                        const matchedUser = roleItem.id
+                          ? allUsers.find((u) => String(u.id) === String(roleItem.id))
+                          : roleItem.fallbackName
+                          ? allUsers.find((u) => u.name === roleItem.fallbackName)
+                          : undefined;
+                        const displayName = matchedUser?.name || roleItem.fallbackName || '';
+
+                        return (
+                          <div
+                            key={roleItem.label}
+                            className="bg-slate-50/80 border border-slate-100 rounded-lg px-2.5 py-1.5 min-w-0"
+                          >
+                            <div className="text-[10px] font-bold text-slate-400 leading-tight mb-0.5 truncate">
+                              {roleItem.label}
+                            </div>
+                            {displayName ? (
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {matchedUser ? (
+                                  <img
+                                    src={getAvatarUrl(matchedUser.avatarUrl)}
+                                    alt={matchedUser.name}
+                                    onError={handleAvatarError}
+                                    className="w-4 h-4 rounded-full object-cover shrink-0 border border-slate-200"
+                                  />
+                                ) : (
+                                  <UserIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                )}
+                                <span className="text-xs font-bold text-slate-800 truncate">
+                                  {displayName}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 font-medium">未設定</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
                       <span className="text-slate-500">所属メンバー数:</span>
                       <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-100">
                         {memberCount} 名
@@ -3011,6 +3153,11 @@ export function AdminPanel({
       {/* SUB TAB: MAINTENANCE REPORT OFFICE CONFIGS */}
       {activeSubTab === 'maintenance_report' && (
         <MaintenanceOfficeConfigAdmin offices={offices} />
+      )}
+
+      {/* SUB TAB: DRIVING LOG OFFICE CONFIGS */}
+      {activeSubTab === 'driving_log_report' && (
+        <DrivingLogOfficeConfigAdmin offices={offices} />
       )}
 
       {/* SUB TAB: INSPECTION ITEMS MASTER CONFIG */}
@@ -4301,7 +4448,16 @@ BEGIN
         type VARCHAR(50) NULL,
         code VARCHAR(50) NULL,
         location NVARCHAR(255) NULL,
-        phone NVARCHAR(50) NULL
+        phone NVARCHAR(50) NULL,
+        fax NVARCHAR(50) NULL,
+        officeManagerId VARCHAR(50) NULL,
+        officeManagerName NVARCHAR(100) NULL,
+        safeDrivingManagerId VARCHAR(50) NULL,
+        safeDrivingManagerName NVARCHAR(100) NULL,
+        accountingManagerId VARCHAR(50) NULL,
+        accountingManagerName NVARCHAR(100) NULL,
+        dispatchManagerId VARCHAR(50) NULL,
+        dispatchManagerName NVARCHAR(100) NULL
     );
 END;
 
@@ -4979,22 +5135,23 @@ END;`}
         >
           <div
             onClick={e => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden ring-1 ring-slate-900/5"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden ring-1 ring-slate-900/5"
           >
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-indigo-600" />
                 {editingOffice ? '拠点マスター編集' : '拠点マスター追加'}
               </h2>
               <button
+                type="button"
                 onClick={() => setIsOfficeModalOpen(false)}
-                className="p-1 text-slate-400 hover:bg-slate-200 rounded-full transition-colors"
+                className="p-1 text-slate-400 hover:bg-slate-200 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveOffice} autoComplete="off" className="p-6 space-y-4">
+            <form onSubmit={handleSaveOffice} autoComplete="off" className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   拠点名 <span className="text-red-500">*</span>
@@ -5050,29 +5207,132 @@ END;`}
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">代表電話番号</label>
-                <input
-                  type="text"
-                  autoComplete="off"
-                  placeholder="052-555-0192"
-                  value={officeFormData.phone}
-                  onChange={(e) => setOfficeFormData({ ...officeFormData, phone: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">代表電話番号</label>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder="052-555-0192"
+                    value={officeFormData.phone}
+                    onChange={(e) => setOfficeFormData({ ...officeFormData, phone: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">FAX番号</label>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder="052-555-0193"
+                    value={officeFormData.fax}
+                    onChange={(e) => setOfficeFormData({ ...officeFormData, fax: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* 拠点責任者・各種担当者 */}
+              <div className="pt-3 border-t border-slate-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">拠点責任者・各種担当者（メンバーから選択）</span>
+                  </div>
+                  {(editingOffice?.name || officeFormData.name) && (
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      ※同拠点メンバーを優先表示
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SingleMemberSelect
+                    label="拠点長"
+                    allUsers={allUsers}
+                    offices={offices}
+                    divisions={divisions}
+                    selectedUserId={officeFormData.officeManagerId}
+                    fallbackName={officeFormData.officeManagerName}
+                    preferredOfficeId={editingOffice?.id}
+                    preferredOfficeName={officeFormData.name || editingOffice?.name}
+                    onChange={(userId, user) =>
+                      setOfficeFormData((prev) => ({
+                        ...prev,
+                        officeManagerId: userId,
+                        officeManagerName: user ? user.name : '',
+                      }))
+                    }
+                  />
+
+                  <SingleMemberSelect
+                    label="安全運転管理者"
+                    allUsers={allUsers}
+                    offices={offices}
+                    divisions={divisions}
+                    selectedUserId={officeFormData.safeDrivingManagerId}
+                    fallbackName={officeFormData.safeDrivingManagerName}
+                    preferredOfficeId={editingOffice?.id}
+                    preferredOfficeName={officeFormData.name || editingOffice?.name}
+                    onChange={(userId, user) =>
+                      setOfficeFormData((prev) => ({
+                        ...prev,
+                        safeDrivingManagerId: userId,
+                        safeDrivingManagerName: user ? user.name : '',
+                      }))
+                    }
+                  />
+
+                  <SingleMemberSelect
+                    label="経理担当"
+                    allUsers={allUsers}
+                    offices={offices}
+                    divisions={divisions}
+                    selectedUserId={officeFormData.accountingManagerId}
+                    fallbackName={officeFormData.accountingManagerName}
+                    preferredOfficeId={editingOffice?.id}
+                    preferredOfficeName={officeFormData.name || editingOffice?.name}
+                    onChange={(userId, user) =>
+                      setOfficeFormData((prev) => ({
+                        ...prev,
+                        accountingManagerId: userId,
+                        accountingManagerName: user ? user.name : '',
+                      }))
+                    }
+                  />
+
+                  <SingleMemberSelect
+                    label="出庫担当"
+                    allUsers={allUsers}
+                    offices={offices}
+                    divisions={divisions}
+                    selectedUserId={officeFormData.dispatchManagerId}
+                    fallbackName={officeFormData.dispatchManagerName}
+                    preferredOfficeId={editingOffice?.id}
+                    preferredOfficeName={officeFormData.name || editingOffice?.name}
+                    onChange={(userId, user) =>
+                      setOfficeFormData((prev) => ({
+                        ...prev,
+                        dispatchManagerId: userId,
+                        dispatchManagerName: user ? user.name : '',
+                      }))
+                    }
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsOfficeModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 >
                   キャンセル
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm cursor-pointer"
                 >
                   {editingOffice ? '更新保存' : '追加する'}
                 </button>

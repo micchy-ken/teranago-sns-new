@@ -20,7 +20,7 @@ import {
   LAST_INSPECTION_FIELD_KEYS,
   computeAssetAlerts,
   formatAssetDateJa,
-  getActiveScheduledInspection,
+  getAllScheduledInspections,
   getAssetIconComponent,
   getJstTodayStr,
   isConfirmedInspectionLog
@@ -132,9 +132,9 @@ export function AssetCalendarView({
       const cat = categories.find((c) => c.id === asset.categoryId);
       if (!cat) continue;
 
-      // 1. SSOT アクティブ点検予定
-      const scheduled = getActiveScheduledInspection(asset, logs, todayStr);
-      if (scheduled) {
+      // 1. SSOT アクティブ点検予定（複数予定がある場合はすべて表示）
+      const scheduledList = getAllScheduledInspections(asset, logs, todayStr);
+      for (const scheduled of scheduledList) {
         addPlot({
           id: `${asset.id}-sched-${scheduled.logId || scheduled.eventDate}`,
           dateStr: scheduled.eventDate,

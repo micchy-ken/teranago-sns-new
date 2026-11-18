@@ -7417,6 +7417,7 @@ async function startServer() {
   const itemMastersFilePath = path.join(dataDir, 'item-masters.json');
   const approvalFlowsFilePath = path.join(dataDir, 'approval-flows.json');
   const maintenanceConfigsFilePath = path.join(dataDir, 'maintenance_office_configs.json');
+  const drivingLogConfigsFilePath = path.join(dataDir, 'driving_log_office_configs.json');
 
   const defaultOffices = [
     { id: 'off-1', name: '本社', type: 'headquarters', code: 'HQ', location: '愛知県名古屋市', phone: '052-000-0000' },
@@ -7479,6 +7480,20 @@ async function startServer() {
   };
 
   // 拠点マスター (Offices)
+  const normalizeOfficeMasterPayload = (item: any, id: string) => ({
+    ...item,
+    id,
+    fax: item.fax || '',
+    officeManagerId: item.officeManagerId || '',
+    officeManagerName: item.officeManagerName || '',
+    safeDrivingManagerId: item.safeDrivingManagerId || '',
+    safeDrivingManagerName: item.safeDrivingManagerName || '',
+    accountingManagerId: item.accountingManagerId || '',
+    accountingManagerName: item.accountingManagerName || '',
+    dispatchManagerId: item.dispatchManagerId || '',
+    dispatchManagerName: item.dispatchManagerName || '',
+  });
+
   app.get(['/api/masters/offices', '/api/masters/offices/', '/api/offices', '/api/offices/'], (req, res) => {
     res.json(loadJsonMaster(officesFilePath, defaultOffices));
   });
@@ -7487,7 +7502,7 @@ async function startServer() {
     const list = loadJsonMaster(officesFilePath, defaultOffices);
     const item = req.body || {};
     const id = item.id || `off-${Date.now()}`;
-    const newItem = { ...item, id };
+    const newItem = normalizeOfficeMasterPayload(item, id);
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(officesFilePath, list);
@@ -7498,7 +7513,7 @@ async function startServer() {
     const list = loadJsonMaster(officesFilePath, defaultOffices);
     const id = req.params.id;
     const item = req.body || {};
-    const newItem = { ...item, id };
+    const newItem = normalizeOfficeMasterPayload(item, id);
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(officesFilePath, list);
@@ -7513,47 +7528,79 @@ async function startServer() {
     res.json({ success: true, id });
   });
 
-  // 保守日報 拠点別カスタム様式・設定 (Maintenance Daily Report Office Configurations)
-  app.get(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], (req, res) => {
-    res.json(loadJsonMaster(maintenanceConfigsFilePath, []));
-  });
+  // 拠点別カスタム様式・設定（保守日報・運転記録簿 共通ヘルパー）
+  const registerInlineOfficeConfigRoutes = ({
+    getPaths,
+    postPaths,
+    putPaths,
+    filePath,
+    idPrefix,
+  }: {
+    getPaths: string[];
+    postPaths: string[];
+    putPaths: string[];
+    filePath: string;
+    idPrefix: string;
+  }) => {
+    app.get(getPaths, (req, res) => {
+      res.json(loadJsonMaster(filePath, []));
+    });
 
-  const saveMaintenanceConfigHandler = (req: any, res: any) => {
-    let list = loadJsonMaster(maintenanceConfigsFilePath, []);
-    const body = req.body || {};
-    const normBase = (raw?: string) => (raw || '').trim().replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '').trim();
-    if (Array.isArray(body)) {
-      list = body;
-    } else if (body && (body.officeId || body.officeName || body.id)) {
-      const officeName = body.officeName || req.params.officeName || body.id;
-      const officeId = body.officeId || undefined;
-      const targetNorm = normBase(officeName);
-      const index = list.findIndex((c: any) =>
-        (officeId && c.officeId && String(c.officeId) === String(officeId)) ||
-        (body.id && c.id === body.id) ||
-        c.officeName === officeName ||
-        (targetNorm && normBase(c.officeName) === targetNorm)
-      );
-      const newConfig = {
-        ...(index >= 0 ? list[index] : {}),
-        ...body,
-        officeId: officeId || (index >= 0 ? list[index].officeId : undefined),
-        officeName,
-        id: body.id || (officeId ? `cfg-office-${officeId}` : `cfg-office-${officeName}`),
-        updatedAt: new Date().toISOString()
-      };
-      if (index >= 0) {
-        list[index] = newConfig;
-      } else {
-        list.push(newConfig);
+    const saveConfigHandler = (req: any, res: any) => {
+      let list = loadJsonMaster(filePath, []);
+      const body = req.body || {};
+      const normBase = (raw?: string) => (raw || '').trim().replace(/(支店|営業所|本社|出張所|事務所|センター)$/, '').trim();
+      if (Array.isArray(body)) {
+        list = body;
+      } else if (body && (body.officeId || body.officeName || body.id)) {
+        const officeName = body.officeName || req.params.officeName || body.id;
+        const officeId = body.officeId || undefined;
+        const targetNorm = normBase(officeName);
+        const index = list.findIndex((c: any) =>
+          (officeId && c.officeId && String(c.officeId) === String(officeId)) ||
+          (body.id && c.id === body.id) ||
+          c.officeName === officeName ||
+          (targetNorm && normBase(c.officeName) === targetNorm)
+        );
+        const newConfig = {
+          ...(index >= 0 ? list[index] : {}),
+          ...body,
+          officeId: officeId || (index >= 0 ? list[index].officeId : undefined),
+          officeName,
+          id: body.id || (officeId ? `${idPrefix}${officeId}` : `${idPrefix}${officeName}`),
+          updatedAt: new Date().toISOString()
+        };
+        if (index >= 0) {
+          list[index] = newConfig;
+        } else {
+          list.push(newConfig);
+        }
       }
-    }
-    saveJsonMaster(maintenanceConfigsFilePath, list);
-    res.json({ success: true, configs: list });
+      saveJsonMaster(filePath, list);
+      res.json({ success: true, configs: list });
+    };
+
+    app.post(postPaths, saveConfigHandler);
+    app.put(putPaths, saveConfigHandler);
   };
 
-  app.post(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'], saveMaintenanceConfigHandler);
-  app.put(['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/', '/api/masters/maintenance-configs/:officeName', '/api/maintenance-configs/:officeName/'], saveMaintenanceConfigHandler);
+  // 保守日報 拠点別カスタム様式・設定 (Maintenance Daily Report Office Configurations)
+  registerInlineOfficeConfigRoutes({
+    getPaths: ['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'],
+    postPaths: ['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/'],
+    putPaths: ['/api/masters/maintenance-configs', '/api/masters/maintenance-configs/', '/api/maintenance-configs', '/api/maintenance-configs/', '/api/masters/maintenance-configs/:officeName', '/api/maintenance-configs/:officeName/'],
+    filePath: maintenanceConfigsFilePath,
+    idPrefix: 'cfg-office-'
+  });
+
+  // 運転記録簿 拠点別カスタム様式・設定 (Driving Log Office Configurations)
+  registerInlineOfficeConfigRoutes({
+    getPaths: ['/api/masters/driving-log-configs', '/api/masters/driving-log-configs/', '/api/driving-log-configs', '/api/driving-log-configs/'],
+    postPaths: ['/api/masters/driving-log-configs', '/api/masters/driving-log-configs/', '/api/driving-log-configs', '/api/driving-log-configs/'],
+    putPaths: ['/api/masters/driving-log-configs', '/api/masters/driving-log-configs/', '/api/driving-log-configs', '/api/driving-log-configs/', '/api/masters/driving-log-configs/:officeName', '/api/driving-log-configs/:officeName/'],
+    filePath: drivingLogConfigsFilePath,
+    idPrefix: 'drv-cfg-office-'
+  });
 
   // 部署マスター (Divisions)
   app.get(['/api/masters/divisions', '/api/masters/divisions/', '/api/divisions', '/api/divisions/'], (req, res) => {

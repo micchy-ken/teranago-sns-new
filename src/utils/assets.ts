@@ -98,23 +98,27 @@ export const INSPECTION_VENDOR_FIELD_KEYS = new Set([
 
 export const MILEAGE_FIELD_KEYS = new Set(['mileage']);
 
-export const VEHICLE_DAILY_INSPECTION_PRESET: Array<{
-  key: string;
-  label: string;
-  method: string;
-}> = [
-  { key: 'ky_declaration', label: 'ＫＹ宣言の実施', method: '発声' },
-  { key: 'instruments_brake', label: '各計器・エンジン・ブレーキランプに異常はないか', method: '音・目視' },
-  { key: 'tire_groove_air', label: 'タイヤの溝・空気圧は十分か', method: '目視' },
-  { key: 'phone_drive_mode', label: '携帯電話をドライブモードに変更', method: '操作' },
-  { key: 'bluetooth_connect', label: 'Bluetooth等に接続', method: '操作' },
-  { key: 'engine_exhaust', label: 'エンジンの掛かり具合、排気は正常か', method: '目視' },
-  { key: 'lever_brake_light', label: 'レバー・ブレーキ・ライト・ウインカーに異常はないか', method: '目視・実測' },
-  { key: 'washer_coolant', label: 'ウォッシャー液・クーラント液は十分か', method: '実測' },
-  { key: 'engine_oil', label: 'エンジンオイルの油量', method: '実測' },
-  { key: 'battery', label: 'バッテリーは正常か', method: '実測' },
-  { key: 'wiper_belt', label: 'ワイパー・エンジンベルトに問題はないか', method: '目視' },
-  { key: 'air_pressure_kpa', label: '空気圧（2.0kpa～2.5kpa）', method: '実測' }
+// 旧・運転記録簿日常点検項目が誤って資産管理「車両」に保存されている場合の自動移行判定用ID群
+const LEGACY_DRIVING_LOG_CHECKLIST_IDS = new Set([
+  'chk-ky_declaration',
+  'chk-phone_drive_mode',
+  'chk-bluetooth_connect'
+]);
+
+export function isLegacyDrivingLogChecklist(
+  items?: AssetInspectionChecklistItem[] | null
+): boolean {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.some((it) => it && LEGACY_DRIVING_LOG_CHECKLIST_IDS.has(String(it.id || '')));
+}
+
+export const VEHICLE_PERIODIC_INSPECTION_PRESET: AssetInspectionChecklistItem[] = [
+  { id: 'chk-veh-shaken', label: '車検有効期間・自動車検査証・自賠責保険証の確認', method: '目視', sortOrder: 1 },
+  { id: 'chk-veh-brake-tire', label: 'ブレーキ制動力・タイヤ残溝・摩耗/亀裂・空気圧確認', method: '目視・実測', sortOrder: 2 },
+  { id: 'chk-veh-oil-fluid', label: 'エンジンオイル・冷却水・ブレーキフルード交換時期確認', method: '実測', sortOrder: 3 },
+  { id: 'chk-veh-battery-light', label: 'バッテリー電圧・灯火類・保安部品の正常確認', method: '実測・目視', sortOrder: 4 },
+  { id: 'chk-veh-safety-equip', label: '発炎筒・停止表示板・ETC車載器・ドライブレコーダー動作', method: '作動・目視', sortOrder: 5 },
+  { id: 'chk-veh-body-clean', label: '車体外観（キズ・凹み・サビ）・車内積載物の整理確認', method: '目視', sortOrder: 6 }
 ];
 
 export function getDefaultInspectionChecklistPreset(
@@ -123,12 +127,7 @@ export function getDefaultInspectionChecklistPreset(
   const catId = category?.id || '';
   const catName = category?.name || '';
   if (catId === 'cat-vehicle' || catName.includes('車両')) {
-    return VEHICLE_DAILY_INSPECTION_PRESET.map((it, idx) => ({
-      id: `chk-${it.key}`,
-      label: it.label,
-      method: it.method,
-      sortOrder: idx + 1
-    }));
+    return VEHICLE_PERIODIC_INSPECTION_PRESET.map((it) => ({ ...it }));
   }
   if (catId === 'cat-pc' || catName.toUpperCase().includes('PC')) {
     return [
@@ -157,6 +156,12 @@ export function getCategoryInspectionItems(
   category?: AssetCategory | null
 ): AssetInspectionChecklistItem[] {
   if (category && Array.isArray(category.inspectionItems)) {
+    if (
+      (category.id === 'cat-vehicle' || (category.name || '').includes('車両')) &&
+      isLegacyDrivingLogChecklist(category.inspectionItems)
+    ) {
+      return getDefaultInspectionChecklistPreset(category);
+    }
     return [...category.inspectionItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   }
   return getDefaultInspectionChecklistPreset(category);
@@ -208,16 +213,17 @@ export interface DerivedScheduledInspection {
   eventDate: string;
   inspectionType?: string;
   vendor?: string;
+  memo?: string;
   summary: string;
   isDueOrOverdue: boolean;
   source: 'log' | 'legacy_attribute';
 }
 
-export function getActiveScheduledInspection(
+export function getAllScheduledInspections(
   asset: AssetItem,
   logs: AssetLogItem[],
   todayStr?: string
-): DerivedScheduledInspection | null {
+): DerivedScheduledInspection[] {
   const today = todayStr || getJstTodayStr();
   const assetScheduledLogs = (logs || [])
     .filter((l) => String(l.assetId) === String(asset.id) && isScheduledInspectionLog(l))
@@ -225,21 +231,23 @@ export function getActiveScheduledInspection(
     .sort((a, b) => (a.eventDate || '').localeCompare(b.eventDate || ''));
 
   if (assetScheduledLogs.length > 0) {
-    const first = assetScheduledLogs[0];
-    const eventDate = String(first.eventDate).slice(0, 10);
-    return {
-      logId: first.id,
-      eventDate,
-      inspectionType: first.detail?.inspectionType || asset.attributes?.inspectionType || undefined,
-      vendor:
-        first.detail?.vendor ||
-        asset.attributes?.inspectionVendor ||
-        asset.attributes?.maintenanceVendor ||
-        undefined,
-      summary: first.summary || '',
-      isDueOrOverdue: eventDate <= today,
-      source: 'log'
-    };
+    return assetScheduledLogs.map((slog) => {
+      const eventDate = String(slog.eventDate).slice(0, 10);
+      return {
+        logId: slog.id,
+        eventDate,
+        inspectionType: slog.detail?.inspectionType || asset.attributes?.inspectionType || undefined,
+        vendor:
+          slog.detail?.vendor ||
+          asset.attributes?.inspectionVendor ||
+          asset.attributes?.maintenanceVendor ||
+          undefined,
+        memo: slog.detail?.memo || undefined,
+        summary: slog.summary || '',
+        isDueOrOverdue: eventDate <= today,
+        source: 'log' as const
+      };
+    });
   }
 
   const legacyRaw =
@@ -248,17 +256,27 @@ export function getActiveScheduledInspection(
     asset.attributes?.nextCalibrationDate;
   const legacyDate = legacyRaw ? String(legacyRaw).trim().slice(0, 10) : '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(legacyDate)) {
-    return {
-      eventDate: legacyDate,
-      inspectionType: asset.attributes?.inspectionType || undefined,
-      vendor: asset.attributes?.inspectionVendor || asset.attributes?.maintenanceVendor || undefined,
-      summary: `${asset.attributes?.inspectionType || '定期点検'}予定`,
-      isDueOrOverdue: legacyDate <= today,
-      source: 'legacy_attribute'
-    };
+    return [
+      {
+        eventDate: legacyDate,
+        inspectionType: asset.attributes?.inspectionType || undefined,
+        vendor: asset.attributes?.inspectionVendor || asset.attributes?.maintenanceVendor || undefined,
+        summary: `${asset.attributes?.inspectionType || '定期点検'}予定`,
+        isDueOrOverdue: legacyDate <= today,
+        source: 'legacy_attribute' as const
+      }
+    ];
   }
 
-  return null;
+  return [];
+}
+
+export function getActiveScheduledInspection(
+  asset: AssetItem,
+  logs: AssetLogItem[],
+  todayStr?: string
+): DerivedScheduledInspection | null {
+  return getAllScheduledInspections(asset, logs, todayStr)[0] || null;
 }
 
 export function getConfirmedInspectionLogs(

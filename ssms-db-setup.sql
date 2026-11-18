@@ -18,7 +18,16 @@ BEGIN
         type VARCHAR(50) NULL,
         code VARCHAR(50) NULL,
         location NVARCHAR(255) NULL,
-        phone NVARCHAR(50) NULL
+        phone NVARCHAR(50) NULL,
+        fax NVARCHAR(50) NULL,
+        officeManagerId VARCHAR(50) NULL,
+        officeManagerName NVARCHAR(100) NULL,
+        safeDrivingManagerId VARCHAR(50) NULL,
+        safeDrivingManagerName NVARCHAR(100) NULL,
+        accountingManagerId VARCHAR(50) NULL,
+        accountingManagerName NVARCHAR(100) NULL,
+        dispatchManagerId VARCHAR(50) NULL,
+        dispatchManagerName NVARCHAR(100) NULL
     );
 END
 ELSE
@@ -27,6 +36,15 @@ BEGIN
     IF COL_LENGTH('dbo.OfficeMaster', 'code') IS NULL ALTER TABLE dbo.OfficeMaster ADD code VARCHAR(50) NULL;
     IF COL_LENGTH('dbo.OfficeMaster', 'location') IS NULL ALTER TABLE dbo.OfficeMaster ADD location NVARCHAR(255) NULL;
     IF COL_LENGTH('dbo.OfficeMaster', 'phone') IS NULL ALTER TABLE dbo.OfficeMaster ADD phone NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'fax') IS NULL ALTER TABLE dbo.OfficeMaster ADD fax NVARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'officeManagerId') IS NULL ALTER TABLE dbo.OfficeMaster ADD officeManagerId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'officeManagerName') IS NULL ALTER TABLE dbo.OfficeMaster ADD officeManagerName NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'safeDrivingManagerId') IS NULL ALTER TABLE dbo.OfficeMaster ADD safeDrivingManagerId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'safeDrivingManagerName') IS NULL ALTER TABLE dbo.OfficeMaster ADD safeDrivingManagerName NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'accountingManagerId') IS NULL ALTER TABLE dbo.OfficeMaster ADD accountingManagerId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'accountingManagerName') IS NULL ALTER TABLE dbo.OfficeMaster ADD accountingManagerName NVARCHAR(100) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'dispatchManagerId') IS NULL ALTER TABLE dbo.OfficeMaster ADD dispatchManagerId VARCHAR(50) NULL;
+    IF COL_LENGTH('dbo.OfficeMaster', 'dispatchManagerName') IS NULL ALTER TABLE dbo.OfficeMaster ADD dispatchManagerName NVARCHAR(100) NULL;
 END
 GO
 

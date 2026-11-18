@@ -4,6 +4,8 @@ import {
   DailyReport,
   DrivingLogData,
   DrivingLogRow,
+  DrivingLogOfficeConfig,
+  DrivingLogInspectionItem,
   User,
   OfficeMaster,
   DivisionMaster,
@@ -11,6 +13,16 @@ import {
   WorkReportStatus,
 } from '../types';
 import { AssetItem } from '../types/asset';
+import { API_BASE_URL } from '../config/api';
+import {
+  DRIVING_LOG_OFFICE_CONFIGS_CACHE_KEY,
+  DEFAULT_DRIVING_INSPECTION_ITEMS,
+  DEFAULT_KY_DECLARATION_LINES,
+  DEFAULT_DRIVING_LOG_LEGAL_NOTES,
+  DEFAULT_DRIVING_LOG_TOTAL_NOTICE,
+  createDefaultDrivingLogOfficeConfig,
+  normalizeDrivingLogOfficeConfig,
+} from './admin/DrivingLogOfficeConfigAdmin';
 import {
   Car,
   Printer,
@@ -34,55 +46,62 @@ import {
   Plus,
 } from 'lucide-react';
 import { getLocalDateStr } from '../utils/dateUtils';
-import { getUserOfficeName, getUserDivisionName } from '../utils/masterResolver';
+import {
+  getUserOfficeName,
+  getUserDivisionName,
+  findOfficeConfig,
+  resolveOffice,
+} from '../utils/masterResolver';
 
-export const DRIVING_INSPECTION_ITEMS = [
-  { key: 'ky_declaration', label: 'ＫＹ宣言の実施', method: '発声' },
-  { key: 'instruments_brake', label: '各計器・エンジン・ブレーキランプに異常はないか', method: '音・目視' },
-  { key: 'tire_groove_air', label: 'タイヤの溝・空気圧は十分か', method: '目視' },
-  { key: 'phone_drive_mode', label: '携帯電話をドライブモードに変更', method: '操作' },
-  { key: 'bluetooth_connect', label: 'Bluetooth等に接続', method: '操作' },
-  { key: 'engine_exhaust', label: 'エンジンの掛かり具合、排気は正常か', method: '目視' },
-  { key: 'lever_brake_light', label: 'レバー・ブレーキ・ライト・ウインカーに異常はないか', method: '目視・実測' },
-  { key: 'washer_coolant', label: 'ウォッシャー液・クーラント液は十分か', method: '実測' },
-  { key: 'engine_oil', label: 'エンジンオイルの油量', method: '実測' },
-  { key: 'battery', label: 'バッテリーは正常か', method: '実測' },
-  { key: 'wiper_belt', label: 'ワイパー・エンジンベルトに問題はないか', method: '目視' },
-  { key: 'air_pressure_kpa', label: '空気圧（2.0kpa～2.5kpa）', method: '実測' },
-] as const;
+export const DRIVING_INSPECTION_ITEMS = DEFAULT_DRIVING_INSPECTION_ITEMS;
+export const KY_DECLARATION_LINES = DEFAULT_KY_DECLARATION_LINES;
 
-export const KY_DECLARATION_LINES = [
-  '1.制限速度厳守よし！',
-  '1.交通標識厳守よし！',
-  '1.信号厳守！',
-  '1.無理な追い越し厳禁！',
-  '1.シートベルト着用よし！',
-];
-
-// JST基準で「今日」が属する月度（26日以降は翌月度）を算出
-export function getDefaultDrivingPeriod(now: Date = new Date()): { year: number; month: number } {
+// JST基準で「今日」が属する月度（締日翌日以降は翌月度）を算出
+export function getDefaultDrivingPeriod(
+  now: Date = new Date(),
+  closingDay: number = 25
+): { year: number; month: number } {
   const ymd = getLocalDateStr(now);
   const [y, m, d] = ymd.split('-').map(Number);
-  if (d >= 26) {
+  if (closingDay < 28 && d > closingDay) {
     if (m === 12) return { year: y + 1, month: 1 };
     return { year: y, month: m + 1 };
   }
   return { year: y, month: m };
 }
 
-// 対象年月度（例: 2026年11月度）から前月26日〜当月25日の日付配列（JST）を生成
-export function generateDrivingPeriodDates(targetYear: number, targetMonth: number): {
+// 対象年月度（例: 2026年11月度）と締日から期間日付配列（JST）を生成
+export function generateDrivingPeriodDates(
+  targetYear: number,
+  targetMonth: number,
+  closingDay: number = 25
+): {
   periodStart: string;
   periodEnd: string;
   periodLabel: string;
   dates: { date: string; month: number; day: number; monthDayLabel: string; weekday: string }[];
 } {
-  const prevYear = targetMonth === 1 ? targetYear - 1 : targetYear;
-  const prevMonth = targetMonth === 1 ? 12 : targetMonth - 1;
   const pad = (n: number) => String(n).padStart(2, '0');
+  const lastDayOfMonth = (yr: number, mo: number) => new Date(yr, mo, 0).getDate();
 
-  const startStr = `${prevYear}-${pad(prevMonth)}-26`;
-  const endStr = `${targetYear}-${pad(targetMonth)}-25`;
+  let startStr: string;
+  let endStr: string;
+  let periodLabel: string;
+
+  if (closingDay >= 28) {
+    const endDay = lastDayOfMonth(targetYear, targetMonth);
+    startStr = `${targetYear}-${pad(targetMonth)}-01`;
+    endStr = `${targetYear}-${pad(targetMonth)}-${pad(endDay)}`;
+    periodLabel = `${targetMonth}月1日～${targetMonth}月${endDay}日`;
+  } else {
+    const prevYear = targetMonth === 1 ? targetYear - 1 : targetYear;
+    const prevMonth = targetMonth === 1 ? 12 : targetMonth - 1;
+    const startDay = Math.min(closingDay + 1, lastDayOfMonth(prevYear, prevMonth));
+    const endDay = Math.min(closingDay, lastDayOfMonth(targetYear, targetMonth));
+    startStr = `${prevYear}-${pad(prevMonth)}-${pad(startDay)}`;
+    endStr = `${targetYear}-${pad(targetMonth)}-${pad(endDay)}`;
+    periodLabel = `${prevMonth}月${startDay}日～${targetMonth}月${endDay}日`;
+  }
 
   const startMs = new Date(`${startStr}T12:00:00+09:00`).getTime();
   const endMs = new Date(`${endStr}T12:00:00+09:00`).getTime();
@@ -106,7 +125,7 @@ export function generateDrivingPeriodDates(targetYear: number, targetMonth: numb
   return {
     periodStart: startStr,
     periodEnd: endStr,
-    periodLabel: `${prevMonth}月26日～${targetMonth}月25日`,
+    periodLabel,
     dates,
   };
 }
@@ -130,9 +149,35 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
   calendarEvents = [],
   onSaveReport,
 }) => {
-  const defaultPeriod = useMemo(() => getDefaultDrivingPeriod(), []);
-  const [targetYear, setTargetYear] = useState<number>(defaultPeriod.year);
-  const [targetMonth, setTargetMonth] = useState<number>(defaultPeriod.month);
+  const [officeConfigs, setOfficeConfigs] = useState<DrivingLogOfficeConfig[]>(() => {
+    try {
+      const cached = localStorage.getItem(DRIVING_LOG_OFFICE_CONFIGS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/masters/driving-log-configs`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isMounted) return;
+        if (Array.isArray(data)) {
+          setOfficeConfigs(data);
+          try {
+            localStorage.setItem(DRIVING_LOG_OFFICE_CONFIGS_CACHE_KEY, JSON.stringify(data));
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 自分の担当車両を優先し、なければ全車両から選択可能
   const myVehicles = useMemo(() => {
@@ -171,9 +216,42 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
     [selectableVehicles, selectedVehicleId]
   );
 
+  // 対象車両の所属拠点または使用者の所属拠点から拠点別様式設定を解決
+  const resolvedOffice = useMemo(() => {
+    const vehicleOfficeKey = selectedVehicle?.officeId || selectedVehicle?.office;
+    if (vehicleOfficeKey) {
+      const matched = resolveOffice(vehicleOfficeKey, offices);
+      if (matched) return matched;
+    }
+    const userOfficeKey = getUserOfficeName(currentUser, offices) || currentUser.officeId || currentUser.office;
+    if (userOfficeKey) {
+      const matched = resolveOffice(userOfficeKey, offices);
+      if (matched) return matched;
+    }
+    return offices[0] || { id: undefined, name: selectedVehicle?.office || currentUser.office || '名古屋支店' };
+  }, [selectedVehicle, currentUser, offices]);
+
+  const currentOfficeConfig = useMemo<DrivingLogOfficeConfig>(() => {
+    const found = findOfficeConfig(
+      officeConfigs,
+      resolvedOffice.id || resolvedOffice.name,
+      offices
+    );
+    return normalizeDrivingLogOfficeConfig(
+      found || createDefaultDrivingLogOfficeConfig(resolvedOffice.name, resolvedOffice.id),
+      resolvedOffice.name,
+      resolvedOffice.id
+    );
+  }, [officeConfigs, resolvedOffice, offices]);
+
+  const closingDay = currentOfficeConfig.defaultSettings.closingDay || 25;
+  const defaultPeriod = useMemo(() => getDefaultDrivingPeriod(new Date(), closingDay), [closingDay]);
+  const [targetYear, setTargetYear] = useState<number>(() => defaultPeriod.year);
+  const [targetMonth, setTargetMonth] = useState<number>(() => defaultPeriod.month);
+
   const periodInfo = useMemo(
-    () => generateDrivingPeriodDates(targetYear, targetMonth),
-    [targetYear, targetMonth]
+    () => generateDrivingPeriodDates(targetYear, targetMonth, closingDay),
+    [targetYear, targetMonth, closingDay]
   );
 
   // 該当車両（または自分）＆該当月度の既存運転記録簿を検索
@@ -193,6 +271,46 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
       }) || null
     );
   }, [reports, targetYear, targetMonth, selectedVehicleId, currentUser.id]);
+
+  // 実際にフォーム・帳票で使用する日常点検項目 / KY宣言 / 確認印ラベル
+  const savedLogSnapshot: DrivingLogData | undefined =
+    existingReport?.drivingLogData ||
+    (existingReport?.constructionData?.__kind === 'driving_log'
+      ? (existingReport.constructionData as unknown as DrivingLogData)
+      : undefined);
+
+  const isLockedSubmitted =
+    existingReport?.status === 'submitted' || existingReport?.status === 'reviewed';
+
+  const activeInspectionItems = useMemo<DrivingLogInspectionItem[]>(() => {
+    if (
+      isLockedSubmitted &&
+      savedLogSnapshot?.inspectionItemsSnapshot &&
+      savedLogSnapshot.inspectionItemsSnapshot.length > 0
+    ) {
+      return savedLogSnapshot.inspectionItemsSnapshot.filter((it) => it.enabled !== false);
+    }
+    return currentOfficeConfig.inspectionItems.filter((it) => it.enabled !== false);
+  }, [isLockedSubmitted, savedLogSnapshot, currentOfficeConfig]);
+
+  const activeKyTitle =
+    isLockedSubmitted && savedLogSnapshot?.kyDeclarationTitleSnapshot
+      ? savedLogSnapshot.kyDeclarationTitleSnapshot
+      : currentOfficeConfig.kyDeclarationTitle || 'K Y 宣 言';
+
+  const activeKyLines = useMemo<string[]>(() => {
+    if (
+      isLockedSubmitted &&
+      savedLogSnapshot?.kyDeclarationLinesSnapshot &&
+      savedLogSnapshot.kyDeclarationLinesSnapshot.length > 0
+    ) {
+      return savedLogSnapshot.kyDeclarationLinesSnapshot;
+    }
+    return currentOfficeConfig.kyDeclarationLines;
+  }, [isLockedSubmitted, savedLogSnapshot, currentOfficeConfig]);
+
+  const activeStampLabels = currentOfficeConfig.stampLabels;
+  const defaultSettings = currentOfficeConfig.defaultSettings;
 
   // 拠点・部署・車種・登録番号の初期値導出
   const defaultHeaderValues = useMemo(() => {
@@ -295,9 +413,11 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
       setRegistrationNumber(defaultHeaderValues.registrationNumber);
       setReportDate(todayStr);
       const initialChecks: Record<string, boolean> = {};
-      DRIVING_INSPECTION_ITEMS.forEach((item) => {
-        initialChecks[item.key] = true;
-      });
+      if (defaultSettings.autoCheckAllInspectionOnNew) {
+        activeInspectionItems.forEach((item) => {
+          initialChecks[item.key] = true;
+        });
+      }
       setInspectionChecks(initialChecks);
       setCashTollAmount('');
       setCashFuelAmount('');
@@ -322,7 +442,7 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
 
     const inPeriod = periodInfo.dates.some((d) => d.date === todayStr);
     setSelectedDayStr(inPeriod ? todayStr : periodInfo.dates[0]?.date || todayStr);
-  }, [existingReport?.id, targetYear, targetMonth, selectedVehicleId, defaultHeaderValues, periodInfo, todayStr]);
+  }, [existingReport?.id, targetYear, targetMonth, selectedVehicleId, defaultHeaderValues, periodInfo, todayStr, defaultSettings.autoCheckAllInspectionOnNew, activeInspectionItems]);
 
   // 選択中の日の行データと前日までの最終メーター
   const activeRowIndex = useMemo(
@@ -395,10 +515,10 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
       }
     }
     updateRow(dateStr, {
-      alcoholPresence: current.alcoholPresence || '無',
-      alcoholValue: current.alcoholValue || '0.00',
+      alcoholPresence: current.alcoholPresence || defaultSettings.defaultAlcoholPresence || '無',
+      alcoholValue: current.alcoholValue || defaultSettings.defaultAlcoholValue || '0.00',
       driverName: current.driverName || driverAssigneeName || currentUser.name,
-      departureTime: current.departureTime || '08:30',
+      departureTime: current.departureTime || defaultSettings.defaultDepartureTime || '08:30',
       departureMeter: prevMeter,
     });
   };
@@ -441,8 +561,8 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
   }, [rows]);
 
   const checkedCount = useMemo(
-    () => DRIVING_INSPECTION_ITEMS.filter((i) => inspectionChecks[i.key]).length,
-    [inspectionChecks]
+    () => activeInspectionItems.filter((i) => inspectionChecks[i.key]).length,
+    [activeInspectionItems, inspectionChecks]
   );
 
   // 月度前後移動
@@ -475,11 +595,16 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
         periodEnd: periodInfo.periodEnd,
         reportDate: reportDate || todayStr,
         vehicleAssetId: selectedVehicleId || undefined,
+        officeId: resolvedOffice.id,
+        officeName: resolvedOffice.name,
         officeAndDepartment,
         driverAssigneeName,
         vehicleModel,
         registrationNumber,
         inspectionChecks,
+        inspectionItemsSnapshot: activeInspectionItems.map((it) => ({ ...it })),
+        kyDeclarationTitleSnapshot: activeKyTitle,
+        kyDeclarationLinesSnapshot: [...activeKyLines],
         rows,
         cashTollAmount,
         cashFuelAmount,
@@ -797,22 +922,25 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
           </div>
         </div>
 
-        {/* 右：点検項目（12項目）＆ KY宣言 */}
+        {/* 右：日常点検項目＆ KY宣言（拠点別様式連動） */}
         <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-4 flex flex-col justify-between">
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5 mb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-xs font-bold text-slate-800">
-                  日常点検項目（{checkedCount}/{DRIVING_INSPECTION_ITEMS.length} 確認済）
+                  日常点検項目（{checkedCount}/{activeInspectionItems.length} 確認済）
                 </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/80 whitespace-nowrap">
+                  {currentOfficeConfig.officeName} 様式
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     const allChecked: Record<string, boolean> = {};
-                    DRIVING_INSPECTION_ITEMS.forEach((i) => {
+                    activeInspectionItems.forEach((i) => {
                       allChecked[i.key] = true;
                     });
                     setInspectionChecks(allChecked);
@@ -832,7 +960,7 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {DRIVING_INSPECTION_ITEMS.map((item) => {
+              {activeInspectionItems.map((item) => {
                 const checked = Boolean(inspectionChecks[item.key]);
                 return (
                   <button
@@ -863,9 +991,9 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
-            <span className="font-bold text-slate-700">KY宣言：</span>
+            <span className="font-bold text-slate-700">{activeKyTitle.replace(/\s+/g, '')}：</span>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {KY_DECLARATION_LINES.map((line, idx) => (
+              {activeKyLines.map((line, idx) => (
                 <span key={idx}>{line}</span>
               ))}
             </div>
@@ -906,7 +1034,7 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
                 className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                初期値セット（アルコール無0.00・運転者・前回メーター）
+                初期値セット（アルコール{defaultSettings.defaultAlcoholPresence || '無'}{defaultSettings.defaultAlcoholValue || '0.00'}・運転者・前回メーター）
               </button>
               {previousArrivalMeter !== '' && (
                 <span className="text-[11px] text-slate-600">
@@ -1439,73 +1567,81 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
                   </tbody>
                 </table>
 
-                {/* 点検項目（12行） + KY宣言 + 4承認印欄 */}
-                <table className="w-full border-collapse driving-log-table border-[1.5px] border-black mb-[-1px] text-[9.5px]">
-                  <tbody>
-                    {DRIVING_INSPECTION_ITEMS.map((item, idx) => {
-                      const isChecked = Boolean(inspectionChecks[item.key]);
-                      return (
-                        <tr key={item.key} className="h-[14.5px]">
-                          {idx === 0 && (
-                            <th
-                              rowSpan={12}
-                              className="w-[6%] text-center font-normal align-middle leading-snug"
-                            >
-                              点<br />検<br />項<br />目
-                            </th>
-                          )}
-                          <td className="w-[49%] text-center px-1">{item.label}</td>
-                          <td className="w-[7%] text-center whitespace-nowrap px-0.5">
-                            <span className={isChecked ? 'font-semibold' : 'text-neutral-500'}>
-                              {item.method}
-                            </span>
-                          </td>
-
-                          {/* 右側：1〜5行目がKY宣言、6行目が印鑑ヘッダー、7〜12行目が印鑑枠 */}
-                          {idx === 0 && (
+                {/* 点検項目（可変行数対応） + KY宣言 + 4承認印欄 */}
+                <div className="w-full border-[1.5px] border-black mb-[-1px] flex items-stretch text-[9.5px]">
+                  {/* 左62%: 日常点検チェックリスト */}
+                  <table className="w-[62%] border-collapse text-[9.5px] shrink-0">
+                    <tbody>
+                      {activeInspectionItems.map((item, idx) => {
+                        const isChecked = Boolean(inspectionChecks[item.key]);
+                        const isLastRow = idx === activeInspectionItems.length - 1;
+                        return (
+                          <tr key={item.key} className="h-[14.5px]">
+                            {idx === 0 && (
+                              <th
+                                rowSpan={activeInspectionItems.length}
+                                className="w-[9.5%] text-center font-normal align-middle leading-snug border-r border-black"
+                              >
+                                点<br />検<br />項<br />目
+                              </th>
+                            )}
                             <td
-                              colSpan={4}
-                              rowSpan={5}
-                              className="w-[38%] align-top p-0"
+                              className={`w-[79%] text-center px-1 border-r border-black ${
+                                isLastRow ? '' : 'border-b border-black'
+                              }`}
                             >
-                              <div className="bg-neutral-300 border-b border-black py-0.5 text-center font-bold tracking-[0.4em] text-[11px]">
-                                K Y 宣 言
-                              </div>
-                              <div className="py-0.5 px-2 text-center text-[9.5px] leading-[1.28]">
-                                {KY_DECLARATION_LINES.map((l, i) => (
-                                  <div key={i}>{l}</div>
-                                ))}
-                              </div>
+                              {item.label}
                             </td>
-                          )}
+                            <td
+                              className={`w-[11.5%] text-center whitespace-nowrap px-0.5 ${
+                                isLastRow ? '' : 'border-b border-black'
+                              }`}
+                            >
+                              <span className={isChecked ? 'font-semibold' : 'text-neutral-500'}>
+                                {item.method}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
 
-                          {idx === 5 && (
-                            <>
-                              <th className="w-[9.5%] text-center font-normal">担当者</th>
-                              <th className="w-[9.5%] text-center font-normal">所属長</th>
-                              <th className="w-[9.5%] text-center font-normal">拠点長</th>
-                              <th className="w-[9.5%] text-center font-normal">安全運転管理者</th>
-                            </>
-                          )}
-
-                          {idx === 6 && (
-                            <>
-                              <td rowSpan={6} className="text-center align-middle p-0.5">
-                                {renderStampCircle(
-                                  driverAssigneeName || currentUser.name,
-                                  (reportDate || todayStr).replace(/-/g, '.')
-                                )}
-                              </td>
-                              <td rowSpan={6} className="text-center align-middle p-0.5"></td>
-                              <td rowSpan={6} className="text-center align-middle p-0.5"></td>
-                              <td rowSpan={6} className="text-center align-middle p-0.5"></td>
-                            </>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  {/* 右38%: KY宣言 + 4確認印ヘッダー + 印鑑枠 */}
+                  <div className="w-[38%] flex flex-col border-l border-black">
+                    <div className="bg-neutral-300 border-b border-black py-0.5 text-center font-bold tracking-[0.4em] text-[11px]">
+                      {activeKyTitle}
+                    </div>
+                    <div className="py-1 px-2 text-center text-[9.5px] leading-[1.28] border-b border-black">
+                      {activeKyLines.map((l, i) => (
+                        <div key={i}>{l}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-4 border-b border-black text-[9px] text-center bg-white">
+                      <div className="py-0.5 border-r border-black truncate px-0.5">
+                        {activeStampLabels.slot1}
+                      </div>
+                      <div className="py-0.5 border-r border-black truncate px-0.5">
+                        {activeStampLabels.slot2}
+                      </div>
+                      <div className="py-0.5 border-r border-black truncate px-0.5">
+                        {activeStampLabels.slot3}
+                      </div>
+                      <div className="py-0.5 truncate px-0.5">{activeStampLabels.slot4}</div>
+                    </div>
+                    <div className="grid grid-cols-4 flex-1 min-h-[54px] bg-white">
+                      <div className="border-r border-black flex items-center justify-center p-0.5">
+                        {renderStampCircle(
+                          driverAssigneeName || currentUser.name,
+                          (reportDate || todayStr).replace(/-/g, '.')
+                        )}
+                      </div>
+                      <div className="border-r border-black flex items-center justify-center p-0.5"></div>
+                      <div className="border-r border-black flex items-center justify-center p-0.5"></div>
+                      <div className="flex items-center justify-center p-0.5"></div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* 31行の日次運転記録テーブル */}
                 <table className="w-full border-collapse driving-log-table border-[1.5px] border-black text-[9px]">
@@ -1698,16 +1834,15 @@ export const DrivingLogReportView: React.FC<DrivingLogReportProps> = ({
 
                 {/* 下部注記 ＆ 現金払い枠 */}
                 <div className="text-right font-bold underline text-[10.5px] mt-1 mb-1">
-                  ※走行距離、給油量、給油金額の合計を必ず記入下さい。
+                  {defaultSettings.footerTotalNoticeText || DEFAULT_DRIVING_LOG_TOTAL_NOTICE}
                 </div>
 
                 <div className="flex items-start justify-between gap-4 mt-1">
                   <div className="text-[8.5px] leading-snug max-w-[60%]">
-                    <div>【2022年　新たに義務化されること】</div>
-                    <div>＊2022/4～：運転前後の運転者の状態を目視等で確認</div>
-                    <div>
-                      ＊2022/10～：運転前後の運転者に対して、その運転者の状態を目視等で確認し、国家公安委員会が定めるアルコール検知器を用いて、酒気帯びの有無を確認
-                    </div>
+                    {defaultSettings.showLegalNotesOnPrint &&
+                      (defaultSettings.legalNotesText || DEFAULT_DRIVING_LOG_LEGAL_NOTES)
+                        .split('\n')
+                        .map((line, i) => <div key={i}>{line}</div>)}
                   </div>
 
                   <div className="w-[34%]">

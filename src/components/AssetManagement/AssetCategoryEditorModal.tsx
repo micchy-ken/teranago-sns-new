@@ -784,10 +784,10 @@ export function AssetCategoryEditorModal({
               <div>
                 <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                   <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-                  点検チェックリスト項目（{name.trim() || category?.name || 'この資産種類'} 共通・{inspectionItems.length}項目）
+                  資産 定期点検チェックリスト項目（{name.trim() || category?.name || 'この資産種類'} 共通・{inspectionItems.length}項目）
                 </h4>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  ここで設定した点検項目は、この種類（{name.trim() || category?.name || '例: 車両'}）に属するすべての資産の点検実施確認時に共通で使用されます
+                  ここで設定した点検項目は、この種類（{name.trim() || category?.name || '例: 車両'}）の定期点検・メンテナンス実施確認時に使用されます（※運転記録簿の乗務前日常点検は管理者メニュー「運転記録簿様式（拠点別）」で設定します）
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">

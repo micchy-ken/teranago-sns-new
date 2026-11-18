@@ -178,7 +178,11 @@ export function AssetManagement({
   const [categoryModalOpen, setCategoryModalOpen] = useState<boolean>(false);
   const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
   const [csvImportModalOpen, setCsvImportModalOpen] = useState<boolean>(false);
-  const [confirmModalAsset, setConfirmModalAsset] = useState<AssetItem | null>(null);
+  const [confirmModalState, setConfirmModalState] = useState<{
+    asset: AssetItem;
+    targetLog?: AssetLogItem | null;
+    directMode?: boolean;
+  } | null>(null);
 
   // Inline table cell editing states
   const [inlineEditCell, setInlineEditCell] = useState<{
@@ -784,6 +788,87 @@ export function AssetManagement({
     });
   };
 
+  const handleCreateScheduledInspection = async (params: {
+    assetId: string;
+    eventDate: string;
+    inspectionType?: string;
+    vendor?: string;
+    memo?: string;
+  }) => {
+    const res = await fetch(
+      `${API_BASE_URL}/assets/${encodeURIComponent(params.assetId)}/logs`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'inspection',
+          eventDate: params.eventDate,
+          summary: `${params.inspectionType || '定期点検'} 予定`,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          detail: {
+            inspectionStatus: 'scheduled',
+            inspectionType: params.inspectionType || '定期点検',
+            vendor: params.vendor || undefined,
+            memo: params.memo || undefined
+          }
+        })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || '点検予定の登録に失敗しました');
+    }
+    await refreshAssetsAndLogs();
+  };
+
+  const handleCancelScheduledInspection = async (assetId: string, logId?: string) => {
+    if (logId) {
+      const targetLog = logs.find((l) => String(l.id) === String(logId));
+      const res = await fetch(
+        `${API_BASE_URL}/assets/logs/${encodeURIComponent(logId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            summary: `${targetLog?.detail?.inspectionType || '点検'}予定を取り消しました`,
+            detail: {
+              ...(targetLog?.detail || {}),
+              inspectionStatus: 'cancelled',
+              cancellationReason: '予定取消'
+            }
+          })
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || '点検予定の取消に失敗しました');
+      }
+      await refreshAssetsAndLogs();
+      return;
+    }
+
+    const res = await fetch(
+      `${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/scheduled-inspection`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventDate: '',
+          actorId: currentUser.id,
+          actorName: currentUser.name
+        })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || '点検予定の取消に失敗しました');
+    }
+    await refreshAssetsAndLogs();
+  };
+
   const handleSaveScheduledInspection = async (params: {
     assetId: string;
     logId?: string;
@@ -792,6 +877,53 @@ export function AssetManagement({
     vendor?: string;
     memo?: string;
   }) => {
+    if (params.logId) {
+      if (!params.eventDate || !params.eventDate.trim()) {
+        await handleCancelScheduledInspection(params.assetId, params.logId);
+        return;
+      }
+      const targetLog = logs.find((l) => String(l.id) === String(params.logId));
+      const nextType =
+        params.inspectionType !== undefined
+          ? params.inspectionType.trim()
+          : targetLog?.detail?.inspectionType || '定期点検';
+      const nextVendor =
+        params.vendor !== undefined
+          ? params.vendor.trim()
+          : targetLog?.detail?.vendor;
+      const nextMemo =
+        params.memo !== undefined
+          ? params.memo.trim()
+          : targetLog?.detail?.memo;
+
+      const res = await fetch(
+        `${API_BASE_URL}/assets/logs/${encodeURIComponent(params.logId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            eventDate: params.eventDate.trim(),
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            summary: `${nextType || '定期点検'} 予定`,
+            detail: {
+              ...(targetLog?.detail || {}),
+              inspectionStatus: 'scheduled',
+              inspectionType: nextType || undefined,
+              vendor: nextVendor || undefined,
+              memo: nextMemo || undefined
+            }
+          })
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || '点検予定の更新に失敗しました');
+      }
+      await refreshAssetsAndLogs();
+      return;
+    }
+
     const res = await fetch(
       `${API_BASE_URL}/assets/${encodeURIComponent(params.assetId)}/scheduled-inspection`,
       {
@@ -812,6 +944,62 @@ export function AssetManagement({
   };
 
   const handleConfirmInspection = async (payload: ConfirmInspectionPayload) => {
+    if (payload.directMode) {
+      const res = await fetch(
+        `${API_BASE_URL}/assets/${encodeURIComponent(payload.assetId)}/logs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actionType: 'inspection',
+            eventDate: payload.actualDate,
+            summary: `${payload.inspectionType || '定期点検'} 実施確定`,
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            detail: {
+              inspectionStatus: 'completed',
+              inspectionType: payload.inspectionType || '定期点検',
+              vendor: payload.vendor || undefined,
+              cost: payload.cost,
+              mileage: payload.mileage,
+              checklistResults: payload.checklistResults,
+              memo: payload.memo || undefined,
+              confirmedAt: new Date().toISOString(),
+              confirmedById: currentUser.id,
+              confirmedByName: currentUser.name
+            }
+          })
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || '点検実績の保存に失敗しました');
+      }
+      if (payload.nextScheduledDate) {
+        await fetch(
+          `${API_BASE_URL}/assets/${encodeURIComponent(payload.assetId)}/logs`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              actionType: 'inspection',
+              eventDate: payload.nextScheduledDate,
+              summary: `${payload.nextInspectionType || '次回点検'} 予定`,
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              detail: {
+                inspectionStatus: 'scheduled',
+                inspectionType: payload.nextInspectionType || '定期点検',
+                vendor: payload.vendor || undefined
+              }
+            })
+          }
+        );
+      }
+      await refreshAssetsAndLogs();
+      return;
+    }
+
     const res = await fetch(
       `${API_BASE_URL}/assets/${encodeURIComponent(payload.assetId)}/inspections/confirm`,
       {
@@ -829,14 +1017,6 @@ export function AssetManagement({
       throw new Error(err.error || '点検実施の確定保存に失敗しました');
     }
     await refreshAssetsAndLogs();
-  };
-
-  const handleCancelScheduledInspection = async (assetId: string, logId?: string) => {
-    await handleSaveScheduledInspection({
-      assetId,
-      logId,
-      eventDate: ''
-    });
   };
 
   const handleDeleteAsset = async (assetId: string) => {
@@ -900,7 +1080,7 @@ export function AssetManagement({
     );
     if (!res.ok) return;
     setLogs((prev) => prev.filter((l) => l.id !== logId));
-    window.dispatchEvent(new CustomEvent('teranago:assets-updated'));
+    await refreshAssetsAndLogs();
   };
 
   const handleExportCsv = () => {
@@ -1858,7 +2038,7 @@ export function AssetManagement({
               <button
                 key={a.id}
                 type="button"
-                onClick={() => setConfirmModalAsset(a)}
+                onClick={() => setConfirmModalState({ asset: a })}
                 className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-rose-300 text-rose-800 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
               >
                 {a.name} を確認
@@ -1891,14 +2071,19 @@ export function AssetManagement({
           logs={logs}
           users={allUsers}
           offices={offices}
+          currentUser={currentUser}
+          onCreateScheduledInspection={handleCreateScheduledInspection}
           onSaveScheduledInspection={handleSaveScheduledInspection}
-          onSaveAssetInline={handleSaveAssetInline}
-          onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
+          onCancelScheduledInspection={handleCancelScheduledInspection}
+          onDeleteTransactionLog={handleDeleteLog}
+          onOpenConfirmModal={(asset, options) =>
+            setConfirmModalState({
+              asset,
+              targetLog: options?.targetLog || null,
+              directMode: Boolean(options?.directMode)
+            })
+          }
           onOpenDetailModal={(asset, subTab) => openEditModal(asset, subTab || 'inspections')}
-          onOpenCategoryEditor={(cat) => {
-            setEditingCategory(cat);
-            setCategoryModalOpen(true);
-          }}
         />
       ) : mainMode === 'calendar' ? (
         <AssetCalendarView
@@ -2492,7 +2677,7 @@ export function AssetManagement({
         onAddLog={handleAddLog}
         onDeleteLog={handleDeleteLog}
         onSaveScheduledInspection={handleSaveScheduledInspection}
-        onOpenConfirmModal={(asset) => setConfirmModalAsset(asset)}
+        onOpenConfirmModal={(asset) => setConfirmModalState({ asset })}
         onOpenCategoryEditor={(cat) => {
           setEditingCategory(cat);
           setCategoryModalOpen(true);
@@ -2501,11 +2686,17 @@ export function AssetManagement({
       />
 
       <AssetInspectionConfirmModal
-        isOpen={Boolean(confirmModalAsset)}
-        onClose={() => setConfirmModalAsset(null)}
-        asset={confirmModalAsset}
-        category={confirmModalAsset ? categoryMap.get(confirmModalAsset.categoryId) || null : null}
+        isOpen={Boolean(confirmModalState)}
+        onClose={() => setConfirmModalState(null)}
+        asset={confirmModalState?.asset || null}
+        category={
+          confirmModalState?.asset
+            ? categoryMap.get(confirmModalState.asset.categoryId) || null
+            : null
+        }
         logs={logs}
+        targetLog={confirmModalState?.targetLog || null}
+        directMode={Boolean(confirmModalState?.directMode)}
         onConfirmInspection={handleConfirmInspection}
         onRescheduleInspection={(p: RescheduleInspectionPayload) => handleSaveScheduledInspection(p)}
         onCancelSchedule={handleCancelScheduledInspection}

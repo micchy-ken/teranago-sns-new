@@ -38,6 +38,7 @@ export interface ConfirmInspectionPayload {
   memo: string;
   nextScheduledDate?: string;
   nextInspectionType?: string;
+  directMode?: boolean;
 }
 
 export interface RescheduleInspectionPayload {
@@ -55,6 +56,8 @@ interface AssetInspectionConfirmModalProps {
   asset: AssetItem | null;
   category?: AssetCategory | null;
   logs: AssetLogItem[];
+  targetLog?: AssetLogItem | null;
+  directMode?: boolean;
   onConfirmInspection: (payload: ConfirmInspectionPayload) => Promise<void>;
   onRescheduleInspection?: (payload: RescheduleInspectionPayload) => Promise<void>;
   onCancelSchedule?: (assetId: string, logId?: string) => Promise<void>;
@@ -77,6 +80,8 @@ export function AssetInspectionConfirmModal({
   asset,
   category,
   logs,
+  targetLog,
+  directMode = false,
   onConfirmInspection,
   onRescheduleInspection,
   onCancelSchedule
@@ -96,9 +101,27 @@ export function AssetInspectionConfirmModal({
   const [error, setError] = useState('');
 
   const scheduled = useMemo(() => {
-    if (!asset) return null;
+    if (!asset || directMode) return null;
+    if (targetLog) {
+      const eventDate = String(targetLog.eventDate || '').slice(0, 10);
+      return {
+        logId: targetLog.id,
+        eventDate,
+        inspectionType:
+          targetLog.detail?.inspectionType || asset.attributes?.inspectionType || undefined,
+        vendor:
+          targetLog.detail?.vendor ||
+          asset.attributes?.inspectionVendor ||
+          asset.attributes?.maintenanceVendor ||
+          undefined,
+        memo: targetLog.detail?.memo || undefined,
+        summary: targetLog.summary || '',
+        isDueOrOverdue: Boolean(eventDate && eventDate <= todayStr),
+        source: 'log' as const
+      };
+    }
     return getActiveScheduledInspection(asset, logs, todayStr);
-  }, [asset, logs, todayStr]);
+  }, [asset, logs, todayStr, targetLog, directMode]);
 
   const checklistDefs: AssetInspectionChecklistItem[] = useMemo(() => {
     if (!asset) return [];
@@ -129,7 +152,7 @@ export function AssetInspectionConfirmModal({
     );
     setCost('');
     setMileage(effectiveMileage.value !== null ? String(effectiveMileage.value) : '');
-    setMemo('');
+    setMemo(scheduled?.memo || '');
     setNextScheduledDate('');
     setCheckResults(
       checklistDefs.map((item) => ({
@@ -197,7 +220,8 @@ export function AssetInspectionConfirmModal({
         checklistResults: checkResults,
         memo: memo.trim(),
         nextScheduledDate: nextScheduledDate || undefined,
-        nextInspectionType: inspectionType.trim() || undefined
+        nextInspectionType: undefined,
+        directMode: Boolean(directMode)
       });
       onClose();
     } catch (err: any) {
@@ -266,7 +290,7 @@ export function AssetInspectionConfirmModal({
                 <span>{asset.name} — 点検実施の確認・確定</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                実施を確認すると点検予定をクリアし、確定履歴として保存して「最終点検日」に反映します
+                実施を確認すると点検予定・点検内容をクリアし、確定履歴として保存して「最終点検日」に反映します
               </p>
             </div>
           </div>
@@ -410,6 +434,11 @@ export function AssetInspectionConfirmModal({
                       <option value={inspectionType}>{inspectionType}</option>
                     )}
                   </select>
+                  {inspectionType.trim() === '車検' && (
+                    <p className="mt-1 text-[11px] font-semibold text-indigo-700">
+                      ※「車検」確定時、車検満期が実施確定日で更新され、点検内容は空白になります
+                    </p>
+                  )}
                 </div>
 
                 <div>

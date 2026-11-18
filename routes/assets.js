@@ -1,7 +1,7 @@
 /**
  * routes/assets.js
  * 寺岡オートドアSNS 資産管理モジュール (車両・PC・工具・共用機器・動的スキーマ・履歴・点検予定/確定SSOT・運転記録簿連動)
- * 最終更新: 2026年11月18日 (点検チェックリスト項目を資産種類単位での一括管理に変更)
+ * 最終更新: 2026年11月18日 (点検予定確定時に点検内容を空白化し、車検確定時は車検満期を確定日で更新)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -105,18 +105,12 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'insuranceInfo', label: 'リース・保険会社', type: 'text', showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 13 }
     ],
     inspectionItems: [
-      { id: 'chk-ky_declaration', label: 'ＫＹ宣言の実施', method: '発声', sortOrder: 1 },
-      { id: 'chk-instruments_brake', label: '各計器・エンジン・ブレーキランプに異常はないか', method: '音・目視', sortOrder: 2 },
-      { id: 'chk-tire_groove_air', label: 'タイヤの溝・空気圧は十分か', method: '目視', sortOrder: 3 },
-      { id: 'chk-phone_drive_mode', label: '携帯電話をドライブモードに変更', method: '操作', sortOrder: 4 },
-      { id: 'chk-bluetooth_connect', label: 'Bluetooth等に接続', method: '操作', sortOrder: 5 },
-      { id: 'chk-engine_exhaust', label: 'エンジンの掛かり具合、排気は正常か', method: '目視', sortOrder: 6 },
-      { id: 'chk-lever_brake_light', label: 'レバー・ブレーキ・ライト・ウインカーに異常はないか', method: '目視・実測', sortOrder: 7 },
-      { id: 'chk-washer_coolant', label: 'ウォッシャー液・クーラント液は十分か', method: '実測', sortOrder: 8 },
-      { id: 'chk-engine_oil', label: 'エンジンオイルの油量', method: '実測', sortOrder: 9 },
-      { id: 'chk-battery', label: 'バッテリーは正常か', method: '実測', sortOrder: 10 },
-      { id: 'chk-wiper_belt', label: 'ワイパー・エンジンベルトに問題はないか', method: '目視', sortOrder: 11 },
-      { id: 'chk-air_pressure_kpa', label: '空気圧（2.0kpa～2.5kpa）', method: '実測', sortOrder: 12 }
+      { id: 'chk-veh-shaken', label: '車検有効期間・自動車検査証・自賠責保険証の確認', method: '目視', sortOrder: 1 },
+      { id: 'chk-veh-brake-tire', label: 'ブレーキ制動力・タイヤ残溝・摩耗/亀裂・空気圧確認', method: '目視・実測', sortOrder: 2 },
+      { id: 'chk-veh-oil-fluid', label: 'エンジンオイル・冷却水・ブレーキフルード交換時期確認', method: '実測', sortOrder: 3 },
+      { id: 'chk-veh-battery-light', label: 'バッテリー電圧・灯火類・保安部品の正常確認', method: '実測・目視', sortOrder: 4 },
+      { id: 'chk-veh-safety-equip', label: '発炎筒・停止表示板・ETC車載器・ドライブレコーダー動作', method: '作動・目視', sortOrder: 5 },
+      { id: 'chk-veh-body-clean', label: '車体外観（キズ・凹み・サビ）・車内積載物の整理確認', method: '目視', sortOrder: 6 }
     ]
   },
   {
@@ -424,12 +418,33 @@ async function ensureAssetTables(pool) {
 // ---------------------------------------------------------------------------
 // 行マッパー (SQL Row -> Frontend JSON Model)
 // ---------------------------------------------------------------------------
+const LEGACY_DRIVING_LOG_CHECKLIST_IDS = new Set([
+  'chk-ky_declaration',
+  'chk-phone_drive_mode',
+  'chk-bluetooth_connect'
+]);
+
+function isLegacyDrivingLogChecklist(items) {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.some((it) => it && LEGACY_DRIVING_LOG_CHECKLIST_IDS.has(String(it.id || '')));
+}
+
 function mapCategoryRow(row) {
   const fields = normalizeCategoryFields(safeParseJSON(row.fieldsJson || row.fields, []));
-  const inspectionItems = safeParseJSON(row.inspectionItemsJson || row.inspectionItems, undefined);
+  let inspectionItems = safeParseJSON(row.inspectionItemsJson || row.inspectionItems, undefined);
+  const idStr = String(row.id);
+  const nameStr = String(row.name || '');
+  if (
+    (idStr === 'cat-vehicle' || nameStr.includes('車両')) &&
+    Array.isArray(inspectionItems) &&
+    isLegacyDrivingLogChecklist(inspectionItems)
+  ) {
+    const vehicleDefault = DEFAULT_ASSET_CATEGORIES.find((c) => c.id === 'cat-vehicle');
+    inspectionItems = vehicleDefault ? vehicleDefault.inspectionItems.map((it) => ({ ...it })) : inspectionItems;
+  }
   return {
-    id: String(row.id),
-    name: String(row.name || ''),
+    id: idStr,
+    name: nameStr,
     icon: row.icon || 'Box',
     color: row.color || 'indigo',
     defaultShared: Boolean(row.defaultShared),
@@ -679,7 +694,31 @@ async function fetchAllCategories(pool) {
     try {
       await ensureAssetTables(pool);
       const res = await pool.request().query('SELECT * FROM dbo.AssetCategories ORDER BY sortOrder ASC, createdAt ASC');
-      const list = (res.recordset || []).map(mapCategoryRow);
+      const rawRows = res.recordset || [];
+      const list = rawRows.map(mapCategoryRow);
+      // 既存の DB レコードに旧運転記録簿項目が残っていた場合は1回だけ定期点検プリセットへ更新
+      for (let i = 0; i < rawRows.length; i++) {
+        const rawItems = safeParseJSON(rawRows[i].inspectionItemsJson || rawRows[i].inspectionItems, undefined);
+        const mapped = list[i];
+        if (
+          mapped &&
+          (mapped.id === 'cat-vehicle' || (mapped.name || '').includes('車両')) &&
+          Array.isArray(rawItems) &&
+          isLegacyDrivingLogChecklist(rawItems) &&
+          Array.isArray(mapped.inspectionItems)
+        ) {
+          try {
+            await pool.request()
+              .input('id', sql.NVarChar(100), mapped.id)
+              .input('inspectionItemsJson', sql.NVarChar(sql.MAX), JSON.stringify(mapped.inspectionItems))
+              .query(`
+                UPDATE dbo.AssetCategories
+                SET inspectionItemsJson = @inspectionItemsJson, updatedAt = SYSDATETIME()
+                WHERE id = @id
+              `);
+          } catch (_) {}
+        }
+      }
       if (list.length > 0) {
         saveJsonArray(categoriesFilePath, list);
         return list;
@@ -688,7 +727,22 @@ async function fetchAllCategories(pool) {
       console.warn('[Assets] fetchAllCategories DB fallback to JSON:', e.message);
     }
   }
-  const local = loadJsonArray(categoriesFilePath).map((c) => mapCategoryRow(c));
+  const localRaw = loadJsonArray(categoriesFilePath);
+  let migratedLocal = false;
+  const local = localRaw.map((c) => {
+    const mapped = mapCategoryRow(c);
+    if (
+      (mapped.id === 'cat-vehicle' || (mapped.name || '').includes('車両')) &&
+      Array.isArray(c.inspectionItems) &&
+      isLegacyDrivingLogChecklist(c.inspectionItems)
+    ) {
+      migratedLocal = true;
+    }
+    return mapped;
+  });
+  if (migratedLocal) {
+    saveJsonArray(categoriesFilePath, local);
+  }
   return local.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 }
 
@@ -1276,9 +1330,24 @@ router.post(['/:assetId/logs', '/logs'], async (req, res) => {
       ]);
       if (currentAsset) {
         const cat = cats.find((c) => c.id === currentAsset.categoryId);
-        const nextAlertDate = computeNextAlertDateWithLogs(currentAsset, cat, assetLogs);
+        let nextAttrs = currentAsset.attributes || {};
+        if (body.detail?.inspectionStatus === 'completed') {
+          nextAttrs = stripLegacyInspectionDateAttrs(currentAsset.attributes);
+          delete nextAttrs.inspectionType;
+          const completedType = String(body.detail?.inspectionType || '').trim();
+          const completedDate = normalizeDateStr(body.eventDate) || getJstTodayStr();
+          if (completedType === '車検' && completedDate) {
+            nextAttrs.shakenExpiryDate = completedDate;
+          }
+        }
+        const nextAlertDate = computeNextAlertDateWithLogs(
+          { ...currentAsset, attributes: nextAttrs },
+          cat,
+          assetLogs
+        );
         await persistAssetUpdate(pool, {
           ...currentAsset,
+          attributes: nextAttrs,
           nextAlertDate: nextAlertDate || undefined,
           updatedAt: getJstNowIso()
         });
@@ -1597,22 +1666,23 @@ router.post(['/logs/:logId/confirm', '/:assetId/inspections/confirm'], async (re
         actorId,
         actorName,
         eventDate: nextScheduledDate,
-        summary: `${body.nextInspectionType || inspectionType || '次回点検'} 予定`,
+        summary: `${body.nextInspectionType || '次回点検'} 予定`,
         detail: {
           inspectionStatus: 'scheduled',
-          inspectionType: body.nextInspectionType || inspectionType || '定期点検',
+          inspectionType: body.nextInspectionType || '定期点検',
           vendor: vendor || undefined
         }
       });
     }
 
-    // 最終点検日・予定日属性をクリアし、SSOT（確定履歴 / アクティブ予定ログ）を唯一の正解とする
+    const cat = cats.find((c) => c.id === currentAsset.categoryId);
+    // 最終点検日・予定日属性および実施済み点検内容をクリアし、SSOT（確定履歴 / アクティブ予定ログ）を唯一の正解とする
     const cleanedAttrs = stripLegacyInspectionDateAttrs(currentAsset.attributes);
-    if (inspectionType) {
-      cleanedAttrs.inspectionType = inspectionType;
+    delete cleanedAttrs.inspectionType;
+    if (inspectionType === '車検' && actualDate) {
+      cleanedAttrs.shakenExpiryDate = actualDate;
     }
     if (vendor) {
-      const cat = cats.find((c) => c.id === currentAsset.categoryId);
       const hasMaintVendor = cat?.fields?.some((f) => f.key === 'maintenanceVendor');
       const hasInspVendor = cat?.fields?.some((f) => f.key === 'inspectionVendor');
       if (hasMaintVendor && !hasInspVendor) {
@@ -1623,7 +1693,6 @@ router.post(['/logs/:logId/confirm', '/:assetId/inspections/confirm'], async (re
     }
 
     const refreshedLogs = await fetchAllLogsRaw(pool, currentAsset.id);
-    const cat = cats.find((c) => c.id === currentAsset.categoryId);
     const nextAlertDate = computeNextAlertDateWithLogs(
       { ...currentAsset, attributes: cleanedAttrs },
       cat,

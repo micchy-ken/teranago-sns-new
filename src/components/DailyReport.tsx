@@ -630,10 +630,10 @@ export function DailyReportView({
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    車両 運転記録簿（26日〜翌25日・A4縦PDF出力対応）
+                    車両 運転記録簿（A4縦PDF出力対応）
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    資産台帳の担当車両と自動連動し、日常点検12項目・アルコール検知数値・走行距離・給油記録を管理してA4帳票に出力します
+                    資産台帳の担当車両および拠点別運転記録簿様式と自動連動し、日常点検・アルコール検知数値・走行距離・給油記録を管理してA4帳票に出力します
                   </p>
                 </div>
               </div>

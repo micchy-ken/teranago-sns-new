@@ -191,6 +191,15 @@ export interface OfficeMaster {
   code: string;
   location?: string;
   phone?: string;
+  fax?: string;
+  officeManagerId?: string;
+  officeManagerName?: string;
+  safeDrivingManagerId?: string;
+  safeDrivingManagerName?: string;
+  accountingManagerId?: string;
+  accountingManagerName?: string;
+  dispatchManagerId?: string;
+  dispatchManagerName?: string;
 }
 
 export interface DivisionMaster {
@@ -632,6 +641,43 @@ export interface DrivingLogRow {
   fuelAmount: number | '';              // 給油金額 (円)
 }
 
+export interface DrivingLogInspectionItem {
+  key: string;       // 例: 'ky_declaration'
+  label: string;     // 例: 'ＫＹ宣言の実施'
+  method: string;    // 例: '発声'
+  enabled?: boolean; // 有効/無効フラグ (標準 true)
+}
+
+export interface DrivingLogStampLabels {
+  slot1: string; // 例: '担当者'
+  slot2: string; // 例: '所属長'
+  slot3: string; // 例: '拠点長'
+  slot4: string; // 例: '安全運転管理者'
+}
+
+export interface DrivingLogDefaultSettings {
+  closingDay: number;                   // 月度締日 (標準: 25 -> 前月26日〜当月25日)
+  defaultAlcoholPresence: '無' | '有' | ''; // クイック入力時の標準酒気帯び判定
+  defaultAlcoholValue: string;          // クイック入力時の標準検知機数値 (例: '0.00')
+  defaultDepartureTime: string;         // クイック入力時の標準出発時刻 (例: '08:30')
+  autoCheckAllInspectionOnNew: boolean; // 新規月度作成時に点検項目を標準で一括ONにするか
+  showLegalNotesOnPrint: boolean;       // A4帳票下部のアルコール検知義務注記を表示するか
+  legalNotesText?: string;              // 注記テキスト
+  footerTotalNoticeText?: string;       // 合計欄注記テキスト
+}
+
+export interface DrivingLogOfficeConfig {
+  id: string;                      // 例: 'drv-cfg-office-off-1'
+  officeId?: string;               // 拠点マスターID
+  officeName: string;              // 拠点表示名スナップショット
+  inspectionItems: DrivingLogInspectionItem[]; // 日常点検チェックリスト項目
+  kyDeclarationTitle: string;      // KY宣言欄の見出し (標準: 'K Y 宣 言')
+  kyDeclarationLines: string[];    // KY宣言文言リスト
+  stampLabels: DrivingLogStampLabels; // 承認印4枠の名称
+  defaultSettings: DrivingLogDefaultSettings; // 初期値・締日・印刷オプション
+  updatedAt?: string;
+}
+
 export interface DrivingLogData {
   targetYear: number;                   // 対象年度 (例: 2026)
   targetMonth: number;                  // 対象月度 (例: 11 -> 10月26日〜11月25日)
@@ -639,11 +685,16 @@ export interface DrivingLogData {
   periodEnd: string;                    // YYYY-MM-DD (例: '2026-11-25')
   reportDate: string;                   // 報告日 YYYY-MM-DD
   vehicleAssetId?: string;              // 資産管理の車両ID
+  officeId?: string;                    // 適用拠点マスターID
+  officeName?: string;                  // 適用拠点名
   officeAndDepartment: string;          // 拠点・部署名 (例: '名古屋支店 工務課')
   driverAssigneeName: string;           // 車両担当者 (例: '安藤 浩靖')
   vehicleModel: string;                 // 車種 (例: 'レジアスエース')
   registrationNumber: string;           // 登録番号 (例: '名古屋401ま8977')
-  inspectionChecks: Record<string, boolean>; // 点検項目12個の実施チェック
+  inspectionChecks: Record<string, boolean>; // 日常点検項目の実施チェック
+  inspectionItemsSnapshot?: DrivingLogInspectionItem[]; // 保存時の点検項目構成スナップショット
+  kyDeclarationTitleSnapshot?: string;  // 保存時のKY宣言見出し
+  kyDeclarationLinesSnapshot?: string[]; // 保存時のKY宣言文言
   rows: DrivingLogRow[];                // 期間内の日別記録 (最大31行)
   cashTollAmount?: number | '';         // 現金払い: 通行料
   cashFuelAmount?: number | '';         // 現金払い: 給油代
