@@ -139,11 +139,12 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchCode = site.siteCode.toLowerCase().includes(q);
+        const matchCode = (site.siteCode || '').toLowerCase().includes(q);
+        const matchOrderNo = (site.orderNo || '').toLowerCase().includes(q);
         const matchName = site.siteName.toLowerCase().includes(q);
         const matchCust = (site.customerName || '').toLowerCase().includes(q);
         const matchAddr = (site.address || '').toLowerCase().includes(q);
-        if (!matchCode && !matchName && !matchCust && !matchAddr) return false;
+        if (!matchCode && !matchOrderNo && !matchName && !matchCust && !matchAddr) return false;
       }
       return true;
     });
@@ -268,7 +269,7 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="現場コード、現場名、元請名で検索..."
+                placeholder="現場コード、図面番号、現場名、元請名で検索..."
                 className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
@@ -324,26 +325,33 @@ export const SiteManagement: React.FC<SiteManagementProps> = ({
                     className="bg-white rounded-xl border border-slate-200 hover:border-indigo-300 p-4 shadow-2xs hover:shadow-sm transition-all cursor-pointer flex flex-col justify-between gap-3 group"
                   >
                     <div>
-                      {/* コード & ステータス */}
+                      {/* コード・図面番号 & ステータス */}
                       <div className="flex items-center justify-between gap-2 mb-2">
-                        {site.siteCode ? (
-                          <a
-                            href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(site.siteCode.trim())}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 font-extrabold text-xs text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/90 border border-indigo-200 hover:border-indigo-300 px-2 py-0.5 rounded shadow-2xs transition-all cursor-pointer group/code"
-                            title={`現場コード「${site.siteCode}」の外部データを新規ウインドウで開く`}
-                          >
-                            <span>{site.siteCode}</span>
-                            <ExternalLink className="w-3 h-3 text-indigo-500 group-hover/code:text-indigo-800 transition-colors" />
-                          </a>
-                        ) : (
-                          <span className="font-extrabold text-xs text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded shadow-2xs">
-                            コード未設定
-                          </span>
-                        )}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {site.siteCode ? (
+                            <a
+                              href={`https://sql.teranago.synology.me/genba?code=${encodeURIComponent(site.siteCode.trim())}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 font-extrabold text-xs text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/90 border border-indigo-200 hover:border-indigo-300 px-2 py-0.5 rounded shadow-2xs transition-all cursor-pointer group/code"
+                              title={`現場コード「${site.siteCode}」の外部データを新規ウインドウで開く`}
+                            >
+                              <span>{site.siteCode}</span>
+                              <ExternalLink className="w-3 h-3 text-indigo-500 group-hover/code:text-indigo-800 transition-colors" />
+                            </a>
+                          ) : (
+                            <span className="font-extrabold text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded shadow-2xs">
+                              コード未連携
+                            </span>
+                          )}
+                          {site.orderNo && (
+                            <span className="text-[11px] font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded truncate max-w-[180px]" title={`図面番号: ${site.orderNo}`}>
+                              図面: {site.orderNo}
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                           site.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
                           site.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
                           site.status === 'on_hold' ? 'bg-rose-100 text-rose-800' :

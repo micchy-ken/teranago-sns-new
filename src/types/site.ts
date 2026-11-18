@@ -54,12 +54,12 @@ export interface SiteAttachment {
 
 export interface Site {
   id: string;
-  siteCode: string;          // 現場コード (例: NHQ136A)
+  siteCode: string;          // 現場コード (例: NHQ136A / 先行登録時は未定・空欄可)
   siteName: string;          // 現場名
   egCount: number;           // EG台数
   customerName?: string;     // 取引先・元請
   address?: string;          // 現場住所
-  orderNo?: string;          // 発注No / 受注No
+  orderNo?: string;          // 図面番号（旧: 発注No / 受注No）
   status: SiteStatus;        // 全体進捗
   startDate?: string;        // 着工日 / 現場開始日
   endDate?: string;          // 現場完了予定日
@@ -82,6 +82,7 @@ export interface Site {
 
 // 在庫DBから返される現場情報の形式
 export interface ExternalSiteLookupResult {
+  isFallback?: boolean;      // 外部DB未接続時のフォールバック判定フラグ
   code?: string;             // 外部DBのコードプロパティ名
   siteCode?: string;         // 本SNS標準のコードプロパティ名
   name?: string;             // 外部DBの現場名プロパティ名
@@ -90,7 +91,8 @@ export interface ExternalSiteLookupResult {
   customerName?: string;     // 得意先・元請名
   customer?: string;
   address?: string;          // 現場住所
-  orderNo?: string;          // 発注No / 受注No
+  orderNo?: string;          // 図面番号（旧: 発注No / 受注No）
+  drawingNo?: string;        // 外部DBの図面番号プロパティ名
   period?: string;           // 工期テキスト (例: "2026/10/10 ～ 2026/10/20")
   scheduledStartDate?: string;
   scheduledEndDate?: string;

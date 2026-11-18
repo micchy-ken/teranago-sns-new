@@ -4,6 +4,7 @@ import { Site, SiteMainPart, SiteSubPart, ExternalSiteLookupResult } from '../..
 import { User } from '../../types';
 import { API_BASE_URL } from '../../config/api';
 import { normalizeDrawingPath, validateAndResolveDrawingPath } from './SiteDetailModal';
+import { expandExternalSitePayload, deriveInventoryPartStatus, normalizeExternalDate } from '../../utils/siteUtils';
 
 interface SiteFormModalProps {
   isOpen: boolean;
@@ -51,6 +52,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
 
   // モーダルオープン時の初期化
   useEffect(() => {
@@ -58,6 +60,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       setSearchQuery('');
       setSearchResults([]);
       setSearchError(null);
+      setImportNotice(null);
       setSiteCode('');
       setSiteName('');
       setEgCount(1);
@@ -114,6 +117,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
             egCount: typeof item.egCount === 'number' ? item.egCount : (parseInt(item.egCount, 10) || 0),
             customerName: item.customerName || item.customer || '',
             address: item.address || '',
+            orderNo: item.drawingNo || item.orderNo || '',
             period: period,
             scheduledStartDate: sStart,
             scheduledEndDate: sEnd
@@ -129,18 +133,19 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
       }
     } catch (err: any) {
       console.warn('External search error, trying direct or fallback:', err);
-      setSearchError('在庫DBからの取得に失敗しました。手動で入力することも可能です。');
+      setSearchError('在庫DBからの取得に失敗しました。現場名・図面番号のみで先行登録することも可能です。');
     } finally {
       setIsSearching(false);
     }
   };
 
-  // 現場コード指定で詳細・部品を取得してフォームに展開
+  // 現場コード指定で詳細・部品を取得してフォームに展開（先行入力済みの現場名・図面番号・住所は上書きせず保持）
   const handleSelectExternalSite = async (item: ExternalSiteLookupResult) => {
     setIsSearching(true);
     setSearchError(null);
+    setImportNotice(null);
 
-    const targetCode = item.code || item.siteCode || '';
+    const targetCode = (item.code || item.siteCode || '').trim();
 
     try {
       let detailData: any = item;
@@ -153,127 +158,75 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
           } else if (json.site) {
             detailData = json.site;
           }
-        }
-      }
-
-      // siteオブジェクトの内包に対応
-      const siteObj = (detailData.site && typeof detailData.site === 'object') ? detailData.site : detailData;
-
-      // 基本情報の反映 (code / siteCode, name / siteName のどちらでも取得)
-      const finalCode = siteObj.code || siteObj.siteCode || item.code || item.siteCode || '';
-      const finalName = siteObj.name || siteObj.siteName || item.name || item.siteName || '';
-      const finalCustomer = siteObj.customerName || siteObj.client || siteObj.customer || item.customerName || item.customer || '';
-      const finalAddress = siteObj.address || item.address || '';
-      const finalOrderNo = siteObj.orderNo || item.orderNo || '';
-      const finalPeriod = siteObj.period || item.period || '';
-
-      // 部品の展開処理
-      const rawParts = detailData.parts || siteObj.parts || item.parts || [];
-      const expandedMains: SiteMainPart[] = [];
-      const subs: SiteSubPart[] = [];
-
-      // 主要部品のみカウントして総台数を算出
-      const majorParts = rawParts.filter((p: any) => p.category === 'major' || p.type === 'main' || p.isMain === true || (!p.type && p.category !== 'sub'));
-      const totalMajorUnits = majorParts.reduce((sum: number, p: any) => sum + Math.max(1, parseInt(String(p.quantity || p.count || p.qty || 1), 10)), 0);
-
-      let finalEgCount = typeof siteObj.egCount === 'number' ? siteObj.egCount : (typeof item.egCount === 'number' ? item.egCount : (parseInt(String(siteObj.egCount || item.egCount || '0'), 10) || 0));
-      if (finalEgCount <= 0) {
-        finalEgCount = totalMajorUnits > 0 ? totalMajorUnits : 1;
-      }
-
-      setSiteCode(finalCode);
-      setSiteName(finalName);
-      setEgCount(finalEgCount > 0 ? finalEgCount : 1);
-      setCustomerName(finalCustomer);
-      setAddress(finalAddress);
-      setOrderNo(finalOrderNo);
-
-      let sDate = siteObj.scheduledStartDate || detailData.scheduledStartDate || item.scheduledStartDate || '';
-      let eDate = siteObj.scheduledEndDate || detailData.scheduledEndDate || item.scheduledEndDate || '';
-      if (finalPeriod && (!sDate || !eDate)) {
-        const pParts = finalPeriod.split(/[～~-]/);
-        if (pParts[0] && !sDate) sDate = pParts[0].trim().replace(/\//g, '-');
-        if (pParts[1] && !eDate) eDate = pParts[1].trim().replace(/\//g, '-');
-      }
-
-      if (sDate) {
-        setStartDate(sDate);
-        setConstructionDate(sDate);
-      }
-      if (eDate) setEndDate(eDate);
-      if (detailData.drawingUrl || siteObj.drawingUrl) setDrawingUrl(detailData.drawingUrl || siteObj.drawingUrl);
-
-      const totalUnits = Math.max(finalEgCount, totalMajorUnits);
-      let globalMainIdx = 0;
-
-      rawParts.forEach((p: any, idx: number) => {
-        const pCode = String(p.partCode || p.modelNumber || p.code || p.model || '').trim();
-        const pName = String(p.partName || p.name || '主要部品').trim();
-        const isMain = p.category === 'major' || p.type === 'main' || p.isMain === true || (!p.type && p.category !== 'sub');
-        const qty = Math.max(1, parseInt(String(p.quantity || p.count || p.qty || 1), 10));
-        const inDate = p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || '';
-        const outDate = p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || '';
-
-        if (isMain) {
-          const pFittingNo = String(p.fittingNo || p.建具番号 || p.tateguNo || p.tategu_no || p.tategu || p.建具符号 || p.fitting_no || p.fitting || '').trim();
-          const pPartSpec = String(p.partSpec || p.部品規格 || '').trim();
-          const pCode = String(p.partCode || p.modelNumber || p.code || p.model || pPartSpec || p.部品手配コード || '').trim();
-          const pName = String(p.partName || p.name || p.品名 || '主要部品').trim();
-
-          // 品名から号機番号を抽出 (例: "(1号機)" -> 1)
-          const noteStr = p.note || p.bikou || p.stockStatus || '';
-          const machineMatch = (pName + ' ' + noteStr).match(/[(（]?(\d+)\s*(?:号機|台目|号)[)）]?/);
-          const detectedUnitIndex = machineMatch ? parseInt(machineMatch[1], 10) : null;
-
-          // ★重要: 「型番 2台」の分割、および複数台現場（1台ずつ別行）の号機・総台数付与
-          for (let i = 1; i <= qty; i++) {
-            globalMainIdx++;
-            const unitIndex = (qty === 1 && detectedUnitIndex) ? detectedUnitIndex : (qty > 1 ? i : (totalUnits > 1 ? globalMainIdx : 1));
-            const originalQuantity = totalUnits > 1 ? totalUnits : Math.max(qty, 1);
-
-            expandedMains.push({
-              id: p.id ? `${p.id}-${i}` : `part-${Date.now()}-${idx}-${i}`,
-              partCode: pCode,
-              partName: pName,
-              fittingNo: pFittingNo || undefined,
-              partSpec: pPartSpec || pCode || undefined,
-              originalQuantity,
-              unitIndex,
-              quantity: 1,
-              unit: p.unit || '台',
-              inStockDate: inDate,
-              outStockDate: outDate,
-              constructionDate: sDate || '',
-              workerId: primaryWorkerId,
-              workerName: allUsers.find(u => u.id === primaryWorkerId)?.name || currentUser.name,
-              status: outDate ? 'stock_out' : (inDate ? 'stock_in' : 'waiting_stock'),
-              note: p.note || (pFittingNo ? `建具: ${pFittingNo}` : '')
-            });
+          if (json.isFallback && detailData && typeof detailData === 'object') {
+            detailData.isFallback = true;
           }
-        } else {
-          // 付属部品は都度参照
-          subs.push({
-            id: p.id ? String(p.id) : `sub-${idx}`,
-            partCode: pCode,
-            partName: pName,
-            quantity: qty,
-            unit: p.unit || '個',
-            inStockDate: inDate,
-            outStockDate: outDate,
-            note: p.note || p.bikou || p.stockStatus || ''
-          });
         }
+      }
+
+      const primaryUser = allUsers.find(u => u.id === primaryWorkerId) || currentUser;
+      const expanded = expandExternalSitePayload(detailData, {
+        primaryWorkerId: primaryUser.id,
+        primaryWorkerName: primaryUser.name,
+        defaultConstructionDate: constructionDate || startDate || ''
       });
 
-      setMainParts(expandedMains);
-      setSubPartsPreview(subs);
+      if (expanded.isFallback) {
+        setSearchError(`現場コード「${targetCode}」の在庫データを外部DBから取得できませんでした（通信未接続または未登録）。`);
+        return;
+      }
+
+      // 先行入力済みの現場名・図面番号・取引先・住所がある場合は保持し、未入力項目を在庫DBで補完
+      if (expanded.siteCode || targetCode) {
+        setSiteCode(expanded.siteCode || targetCode);
+      }
+      if (expanded.siteName) {
+        setSiteName(prev => prev.trim() ? prev : expanded.siteName);
+      }
+      if (expanded.customerName) {
+        setCustomerName(prev => prev.trim() ? prev : expanded.customerName);
+      }
+      if (expanded.address) {
+        setAddress(prev => prev.trim() ? prev : expanded.address);
+      }
+      if (expanded.orderNo) {
+        setOrderNo(prev => prev.trim() ? prev : expanded.orderNo);
+      }
+      setEgCount(expanded.egCount > 0 ? expanded.egCount : 1);
+
+      if (expanded.startDate) {
+        setStartDate(prev => prev || expanded.startDate);
+        setConstructionDate(prev => prev || expanded.startDate);
+      }
+      if (expanded.endDate) {
+        setEndDate(prev => prev || expanded.endDate);
+      }
+      if (expanded.drawingUrl) {
+        setDrawingUrl(prev => prev || expanded.drawingUrl);
+      }
+
+      setMainParts(expanded.mainParts);
+      setSubPartsPreview(expanded.subParts);
       setSearchResults([]); // 検索リストを閉じる
+      setImportNotice(
+        `現場コード「${expanded.siteCode || targetCode}」の在庫情報（主要部品 ${expanded.mainParts.length}台 / 付属部品 ${expanded.subParts.length}件）を取り込みました。`
+      );
     } catch (err: any) {
       console.error('Error fetching site detail:', err);
       setSearchError('現場詳細・部品情報の展開に失敗しました。');
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // 入力欄の現場コードから直接在庫情報を取込
+  const handleImportByDirectCode = async () => {
+    const trimmedCode = siteCode.trim();
+    if (!trimmedCode) {
+      setSearchError('在庫を取り込む現場コードを入力してください。');
+      return;
+    }
+    await handleSelectExternalSite({ code: trimmedCode, siteCode: trimmedCode });
   };
 
   // 主要部品の手動追加
@@ -302,11 +255,18 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
     });
   };
 
-  // 主要部品の更新
+  // 主要部品の更新（入庫日・出庫日の手動編集時はステータスも連動）
   const handleUpdatePart = (index: number, updates: Partial<SiteMainPart>) => {
     setMainParts(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], ...updates };
+      const current = copy[index];
+      const merged: SiteMainPart = { ...current, ...updates };
+      if ((updates.inStockDate !== undefined || updates.outStockDate !== undefined) && updates.status === undefined) {
+        if (current.status !== 'constructed' && current.status !== 'inspected') {
+          merged.status = deriveInventoryPartStatus(merged.inStockDate, merged.outStockDate);
+        }
+      }
+      copy[index] = merged;
       return copy;
     });
   };
@@ -316,11 +276,11 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
     setMainParts(prev => prev.filter((_, i) => i !== index));
   };
 
-  // 現場登録の実行
+  // 現場登録の実行（現場コード未定の先行登録も許可）
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!siteCode.trim() || !siteName.trim()) {
-      setSubmitError('現場コードと現場名は必須です。');
+    if (!siteName.trim()) {
+      setSubmitError('現場名は必須です。');
       return;
     }
 
@@ -390,7 +350,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
             <div>
               <h3 className="font-bold text-lg text-slate-900">現場新規登録</h3>
               <p className="text-xs text-slate-500">
-                在庫データベースからの参照・部品分割展開 または 手動登録
+                現場名・図面番号での先行登録 または 在庫DBからの参照・部品展開
               </p>
             </div>
           </div>
@@ -406,13 +366,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* 1. 在庫DB 連携検索セクション */}
           <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
                 <Database className="w-3.5 h-3.5 text-indigo-600" />
-                在庫データベースから現場情報を自動取得
+                在庫データベースから現場情報を自動取得（任意）
               </label>
               <span className="text-[11px] text-indigo-600">
-                ※ 現場コード（例: NHQ136A）または 現場名で検索
+                ※ 現場コード未定の場合は、下の「現場名・図面番号・住所」のみで先行登録できます
               </span>
             </div>
 
@@ -446,6 +406,12 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
 
             {searchError && (
               <p className="text-xs text-rose-600 font-medium">{searchError}</p>
+            )}
+            {importNotice && (
+              <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{importNotice}</span>
+              </div>
             )}
 
             {/* 検索候補リスト */}
@@ -515,7 +481,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-semibold text-slate-600">
-                    現場コード <span className="text-rose-500">*</span>
+                    現場コード <span className="text-[10px] font-normal text-slate-400">(空欄可)</span>
                   </label>
                   {siteCode.trim() && (
                     <a
@@ -530,14 +496,27 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                     </a>
                   )}
                 </div>
-                <input
-                  type="text"
-                  required
-                  value={siteCode}
-                  onChange={(e) => setSiteCode(e.target.value)}
-                  placeholder="例: NHQ136A"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:bg-white focus:ring-1 focus:ring-indigo-500"
-                />
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={siteCode}
+                    onChange={(e) => setSiteCode(e.target.value)}
+                    placeholder="未定時は空欄 (例: NHQ136A)"
+                    className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                  />
+                  {siteCode.trim() && (
+                    <button
+                      type="button"
+                      onClick={handleImportByDirectCode}
+                      disabled={isSearching}
+                      className="px-2.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold whitespace-nowrap flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                      title="入力した現場コードから在庫DBの部品情報を直接取り込みます"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSearching ? 'animate-spin' : ''}`} />
+                      在庫取込
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="sm:col-span-2">
@@ -556,14 +535,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  EG台数
+                  図面番号
                 </label>
                 <input
-                  type="number"
-                  min="1"
-                  value={egCount}
-                  onChange={(e) => setEgCount(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:bg-white"
+                  type="text"
+                  value={orderNo}
+                  onChange={(e) => setOrderNo(e.target.value)}
+                  placeholder="例: DRW-2026-001 / N-26-158S"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-800 focus:bg-white"
                 />
               </div>
 
@@ -582,13 +561,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  発注No / 受注No
+                  EG台数
                 </label>
                 <input
-                  type="text"
-                  value={orderNo}
-                  onChange={(e) => setOrderNo(e.target.value)}
-                  placeholder="例: ORD-2026-001"
+                  type="number"
+                  min="1"
+                  value={egCount}
+                  onChange={(e) => setEgCount(parseInt(e.target.value, 10) || 1)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:bg-white"
                 />
               </div>
@@ -743,12 +722,22 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                      <div>
+                        <label className="text-[10px] text-slate-500 font-semibold block">入庫日</label>
+                        <input
+                          type="date"
+                          value={normalizeExternalDate(part.inStockDate) || ''}
+                          onChange={(e) => handleUpdatePart(index, { inStockDate: e.target.value })}
+                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px]"
+                        />
+                      </div>
+
                       <div>
                         <label className="text-[10px] text-slate-500 font-semibold block">出庫日</label>
                         <input
                           type="date"
-                          value={part.outStockDate || ''}
+                          value={normalizeExternalDate(part.outStockDate) || ''}
                           onChange={(e) => handleUpdatePart(index, { outStockDate: e.target.value })}
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px]"
                         />
@@ -820,8 +809,9 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({
                   <div key={i} className="bg-white p-2 rounded border border-slate-200 text-xs">
                     <div className="font-bold text-slate-800">{sub.partCode}</div>
                     <div className="text-[11px] text-slate-500 truncate">{sub.partName}</div>
-                    <div className="text-[10px] text-slate-400 mt-1">
-                      数量: {sub.quantity}{sub.unit} / 出庫: {sub.outStockDate || '未定'}
+                    <div className="text-[10px] text-slate-400 mt-1 space-y-0.5">
+                      <div>数量: {sub.quantity}{sub.unit}</div>
+                      <div>入庫: {sub.inStockDate || '未定'} / 出庫: {sub.outStockDate || '未定'}</div>
                     </div>
                   </div>
                 ))}

@@ -1,7 +1,7 @@
 /**
  * routes/sites.js
  * 寺岡オートドアSNS 現場管理・施工スケジュール・在庫DB部品連携 APIモジュール
- * 最終更新: 2026年10月23日 (tateguNo建具番号バインド強化・自動同期・既存データ自動補正)
+ * 最終更新: 2026年11月18日 (現場名・図面番号での先行登録対応、図面番号検索・外部DBフォールバック識別対応)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -257,7 +257,7 @@ router.get(['/', '/sites'], async (req, res) => {
         request.input('siteCode', sql.NVarChar, siteCode);
       }
       if (q) {
-        query += ` AND (siteCode LIKE @q OR siteName LIKE @q OR customerName LIKE @q)`;
+        query += ` AND (siteCode LIKE @q OR siteName LIKE @q OR customerName LIKE @q OR orderNo LIKE @q)`;
         request.input('q', sql.NVarChar, `%${q}%`);
       }
 
@@ -284,7 +284,8 @@ router.get(['/', '/sites'], async (req, res) => {
       sites = sites.filter(s => 
         (s.siteCode && s.siteCode.toLowerCase().includes(queryLower)) ||
         (s.siteName && s.siteName.toLowerCase().includes(queryLower)) ||
-        (s.customerName && s.customerName.toLowerCase().includes(queryLower))
+        (s.customerName && s.customerName.toLowerCase().includes(queryLower)) ||
+        (s.orderNo && s.orderNo.toLowerCase().includes(queryLower))
       );
     }
 
@@ -297,6 +298,16 @@ router.get(['/', '/sites'], async (req, res) => {
 });
 
 // 外部在庫DBからのレスポンスを標準形式 (siteCode, siteName, partsなど) に正規化
+function normalizeExternalDateStr(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (!s || s === '未定' || s === '-' || s.toLowerCase() === 'null') return '';
+  const norm = s.replace(/\//g, '-');
+  const m = norm.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return s;
+  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+}
+
 function normalizeExternalItem(item) {
   if (!item || typeof item !== 'object') return item;
 
@@ -307,6 +318,7 @@ function normalizeExternalItem(item) {
   const siteName = String(siteObj.name || siteObj.siteName || item.name || item.siteName || '').trim();
   const customerName = String(siteObj.client || siteObj.customerName || siteObj.customer || item.customerName || item.customer || '').trim();
   const address = String(siteObj.address || item.address || '').trim();
+  const orderNo = String(siteObj.drawingNo || siteObj.orderNo || item.drawingNo || item.orderNo || '').trim();
   let egCount = typeof siteObj.egCount === 'number' ? siteObj.egCount : (parseInt(siteObj.egCount, 10) || 0);
   if (!egCount && typeof item.egCount === 'number') egCount = item.egCount;
   if (!egCount && item.egCount) egCount = parseInt(item.egCount, 10) || 0;
@@ -336,8 +348,8 @@ function normalizeExternalItem(item) {
       partSpec: String(p.partSpec || p.部品規格 || '').trim(),
       quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || p.注文数量 || 1, 10) || 1),
       unit: p.unit || (isMajor ? '台' : '個'),
-      inStockDate: p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || p.入庫日 || '',
-      outStockDate: p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || p.出庫日 || '',
+      inStockDate: normalizeExternalDateStr(p.inboundDate || p.inStockDate || p.nyukoDate || p.inDate || p.入庫日 || ''),
+      outStockDate: normalizeExternalDateStr(p.outboundDate || p.outStockDate || p.syukkoDate || p.outDate || p.出庫日 || ''),
       note: p.note || p.bikou || p.stockStatus || ''
     };
   }) : [];
@@ -356,6 +368,7 @@ function normalizeExternalItem(item) {
     siteName: siteName,
     customerName,
     address,
+    orderNo: orderNo || undefined,
     egCount: egCount > 0 ? egCount : (majorPartsCount > 0 ? majorPartsCount : 1),
     period,
     scheduledStartDate,
@@ -423,7 +436,9 @@ router.get(['/lookup/external', '/sites/lookup/external', '/external/lookup'], a
     if (code) {
       return res.json({
         success: true,
+        isFallback: true,
         data: {
+          isFallback: true,
           code: code,
           siteCode: code,
           name: `${code} 現場（通信フォールバック）`,
@@ -488,14 +503,14 @@ router.get(['/:id', '/sites/:id'], async (req, res) => {
 router.post(['/', '/sites'], async (req, res) => {
   try {
     const body = req.body || {};
-    if (!body.siteCode || !body.siteName) {
-      return res.status(400).json({ success: false, error: 'siteCode と siteName は必須です' });
+    if (!body.siteName || !String(body.siteName).trim()) {
+      return res.status(400).json({ success: false, error: '現場名 (siteName) は必須です' });
     }
 
     const nowIso = new Date().toISOString();
     const id = body.id || `site-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    const egCountNum = parseInt(body.egCount || '1', 10);
+    const egCountNum = parseInt(body.egCount || '1', 10) || 1;
 
     // 主要部品の1台ずつ分割展開処理 (型番 2台 -> 1台×2台、および複数台現場の総数反映)
     let processedMainParts = [];
@@ -527,9 +542,9 @@ router.post(['/', '/sites'], async (req, res) => {
 
     const newSite = {
       id,
-      siteCode: String(body.siteCode).trim(),
+      siteCode: body.siteCode ? String(body.siteCode).trim() : '',
       siteName: String(body.siteName).trim(),
-      egCount: parseInt(body.egCount || '1', 10),
+      egCount: egCountNum,
       customerName: body.customerName || '',
       address: body.address || '',
       orderNo: body.orderNo || '',

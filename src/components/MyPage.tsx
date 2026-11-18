@@ -101,6 +101,7 @@ import {
   HelpCircle,
   FolderKanban,
   Circle,
+  ClipboardList,
 } from 'lucide-react';
 import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
 import { TopicDetailModal } from './TopicDetailModal';
@@ -2784,40 +2785,52 @@ export function MyPage({
         </div>
       )}
 
-      {/* 未読・要対応通知サマリーカード（クリックで各機能ページへ直接遷移） */}
+      {/* 未読・要対応通知サマリーカード（カード幅140px以上で通常カード、140px未満でアイコン＋バッジに自動切替） */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 sm:gap-3">
         {/* スケジュール */}
         <div
           onClick={() => onChangeTab?.('calendar')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-amber-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-amber-400 group ${
             unreadEvents.length > 0
               ? 'bg-amber-50/70 border-amber-300 text-amber-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="スケジュール画面へ移動"
+          title={unreadEvents.length > 0 ? `スケジュール（未確認 ${unreadEvents.length}件）` : 'スケジュール（確認済）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('calendar');
-            }}
-            className="p-1.5 sm:p-2 bg-amber-100 group-hover:bg-amber-200 text-amber-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="スケジュール画面を開く"
-          >
-            <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-amber-800 transition-colors truncate">スケジュール</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('calendar');
+              }}
+              className="relative p-2 bg-amber-100 group-hover:bg-amber-200 text-amber-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <CalendarIcon className="w-5 h-5" />
               {unreadEvents.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full animate-pulse shadow-2xs">
-                  未確認 {unreadEvents.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-rose-500 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white animate-pulse">
+                  {unreadEvents.length > 99 ? '99+' : unreadEvents.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  確認済
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-amber-800 transition-colors truncate whitespace-nowrap">
+                スケジュール
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {unreadEvents.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-rose-500 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap animate-pulse shadow-2xs">
+                    未確認 {unreadEvents.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    確認済
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2825,35 +2838,47 @@ export function MyPage({
         {/* 掲示板 */}
         <div
           onClick={() => onChangeTab?.('board')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-indigo-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-indigo-400 group ${
             unreadTopics.length > 0
               ? 'bg-indigo-50/70 border-indigo-300 text-indigo-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="掲示板画面へ移動"
+          title={unreadTopics.length > 0 ? `掲示板（未読 ${unreadTopics.length}件）` : '掲示板（既読）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('board');
-            }}
-            className="p-1.5 sm:p-2 bg-indigo-100 group-hover:bg-indigo-200 text-indigo-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="掲示板画面を開く"
-          >
-            <Monitor className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-indigo-800 transition-colors truncate">掲示板</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('board');
+              }}
+              className="relative p-2 bg-indigo-100 group-hover:bg-indigo-200 text-indigo-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <Monitor className="w-5 h-5" />
               {unreadTopics.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-indigo-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未読 {unreadTopics.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-indigo-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {unreadTopics.length > 99 ? '99+' : unreadTopics.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  既読
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-indigo-800 transition-colors truncate whitespace-nowrap">
+                掲示板
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {unreadTopics.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-indigo-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    未読 {unreadTopics.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    既読
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2861,35 +2886,47 @@ export function MyPage({
         {/* 伝言メモ */}
         <div
           onClick={() => onChangeTab?.('memo')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-rose-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-rose-400 group ${
             unhandledMemos.length > 0
               ? 'bg-rose-50/70 border-rose-300 text-rose-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="伝言メモ画面へ移動"
+          title={unhandledMemos.length > 0 ? `伝言メモ（未対応 ${unhandledMemos.length}件）` : '伝言メモ（対応済）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('memo');
-            }}
-            className="p-1.5 sm:p-2 bg-rose-100 group-hover:bg-rose-200 text-rose-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="伝言メモ画面を開く"
-          >
-            <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-rose-800 transition-colors truncate">伝言メモ</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('memo');
+              }}
+              className="relative p-2 bg-rose-100 group-hover:bg-rose-200 text-rose-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <Phone className="w-5 h-5" />
               {unhandledMemos.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未対応 {unhandledMemos.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-rose-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {unhandledMemos.length > 99 ? '99+' : unhandledMemos.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  対応済
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-rose-800 transition-colors truncate whitespace-nowrap">
+                伝言メモ
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {unhandledMemos.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    未対応 {unhandledMemos.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    対応済
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2897,35 +2934,47 @@ export function MyPage({
         {/* ワークフロー */}
         <div
           onClick={() => onChangeTab?.('workflow')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-purple-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-purple-400 group ${
             pendingApprovals.length > 0
               ? 'bg-purple-50/70 border-purple-300 text-purple-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="ワークフロー画面へ移動"
+          title={pendingApprovals.length > 0 ? `ワークフロー（要承認 ${pendingApprovals.length}件）` : 'ワークフロー（処理済）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('workflow');
-            }}
-            className="p-1.5 sm:p-2 bg-purple-100 group-hover:bg-purple-200 text-purple-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="ワークフロー画面を開く"
-          >
-            <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-purple-800 transition-colors truncate">ワークフロー</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('workflow');
+              }}
+              className="relative p-2 bg-purple-100 group-hover:bg-purple-200 text-purple-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <FileText className="w-5 h-5" />
               {pendingApprovals.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-purple-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  要承認 {pendingApprovals.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-purple-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {pendingApprovals.length > 99 ? '99+' : pendingApprovals.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  処理済
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-purple-800 transition-colors truncate whitespace-nowrap">
+                ワークフロー
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {pendingApprovals.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-purple-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    要承認 {pendingApprovals.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    処理済
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2933,35 +2982,47 @@ export function MyPage({
         {/* チャット */}
         <div
           onClick={() => onChangeTab?.('chat')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-blue-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-blue-400 group ${
             unreadChatRooms.length > 0
               ? 'bg-blue-50/70 border-blue-300 text-blue-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="チャットルーム画面へ移動"
+          title={unreadChatRooms.length > 0 ? `チャットルーム（未読 ${unreadChatRooms.length}件）` : 'チャットルーム（既読）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('chat');
-            }}
-            className="p-1.5 sm:p-2 bg-blue-100 group-hover:bg-blue-200 text-blue-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="チャットルーム画面を開く"
-          >
-            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-blue-800 transition-colors truncate">チャットルーム</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('chat');
+              }}
+              className="relative p-2 bg-blue-100 group-hover:bg-blue-200 text-blue-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <MessageSquare className="w-5 h-5" />
               {unreadChatRooms.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-blue-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未読 {unreadChatRooms.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-blue-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {unreadChatRooms.length > 99 ? '99+' : unreadChatRooms.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  既読
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-blue-800 transition-colors truncate whitespace-nowrap">
+                チャットルーム
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {unreadChatRooms.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-blue-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    未読 {unreadChatRooms.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    既読
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2969,35 +3030,47 @@ export function MyPage({
         {/* 日報・週報 */}
         <div
           onClick={() => onChangeTab?.('daily_report')}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-teal-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-teal-400 group ${
             unreadReports.length > 0
               ? 'bg-teal-50/70 border-teal-300 text-teal-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="日報・週報画面へ移動"
+          title={unreadReports.length > 0 ? `日報・週報（未確認 ${unreadReports.length}件）` : '日報・週報（確認済）'}
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onChangeTab?.('daily_report');
-            }}
-            className="p-1.5 sm:p-2 bg-teal-100 group-hover:bg-teal-200 text-teal-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="日報・週報画面を開く"
-          >
-            <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-teal-800 transition-colors truncate">日報・週報</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeTab?.('daily_report');
+              }}
+              className="relative p-2 bg-teal-100 group-hover:bg-teal-200 text-teal-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <ClipboardList className="w-5 h-5" />
               {unreadReports.length > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-teal-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未確認 {unreadReports.length}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-teal-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {unreadReports.length > 99 ? '99+' : unreadReports.length}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  確認済
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-teal-800 transition-colors truncate whitespace-nowrap">
+                日報・週報
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {unreadReports.length > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-teal-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    未確認 {unreadReports.length}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    確認済
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -3011,45 +3084,67 @@ export function MyPage({
               onChangeTab?.('projects');
             }
           }}
-          className={`flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3.5 rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-emerald-400 group ${
+          className={`@container rounded-xl border shadow-xs transition-all cursor-pointer hover:shadow-md hover:border-emerald-400 group ${
             myProjectSummary.overdueCount > 0
               ? 'bg-rose-50/70 border-rose-300 text-rose-950'
               : myProjectSummary.myPendingCount > 0
               ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
               : 'bg-white border-slate-200 text-slate-800'
           }`}
-          title="プロジェクト・マイタスク画面へ移動"
+          title={
+            myProjectSummary.overdueCount > 0
+              ? `プロジェクト・マイタスク（期限超過 ${myProjectSummary.overdueCount}件）`
+              : myProjectSummary.myPendingCount > 0
+              ? `プロジェクト・マイタスク（未完了 ${myProjectSummary.myPendingCount}件）`
+              : 'プロジェクト・マイタスク（完了済）'
+          }
         >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onNavigateToContent) {
-                onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
-              } else {
-                onChangeTab?.('projects');
-              }
-            }}
-            className="p-1.5 sm:p-2 bg-emerald-100 group-hover:bg-emerald-200 text-emerald-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
-            title="プロジェクト・マイタスクを開く"
-          >
-            <FolderKanban className="w-4 h-4 sm:w-5 sm:h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-emerald-800 transition-colors truncate">プロジェクト</div>
-            <div className="mt-0.5 sm:mt-1">
+          <div className="flex items-center justify-center @[140px]:justify-start gap-2.5 p-2.5 @[140px]:p-3">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onNavigateToContent) {
+                  onNavigateToContent({ tab: 'projects', projectView: 'mytasks' });
+                } else {
+                  onChangeTab?.('projects');
+                }
+              }}
+              className="relative p-2 bg-emerald-100 group-hover:bg-emerald-200 text-emerald-700 rounded-lg shrink-0 transition-transform group-hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <FolderKanban className="w-5 h-5" />
               {myProjectSummary.overdueCount > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  期限超過 {myProjectSummary.overdueCount}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-rose-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white animate-pulse">
+                  {myProjectSummary.overdueCount > 99 ? '99+' : myProjectSummary.overdueCount}
                 </span>
               ) : myProjectSummary.myPendingCount > 0 ? (
-                <span className="inline-flex items-center px-2 py-0.5 bg-emerald-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full shadow-2xs">
-                  未完了 {myProjectSummary.myPendingCount}
+                <span className="flex @[140px]:hidden absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 bg-emerald-600 text-white font-extrabold text-[10px] rounded-full items-center justify-center shadow-xs ring-2 ring-white">
+                  {myProjectSummary.myPendingCount > 99 ? '99+' : myProjectSummary.myPendingCount}
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full">
-                  完了済
+                <span className="flex @[140px]:hidden absolute -bottom-1 -right-1 w-4 h-4 bg-slate-100 text-slate-500 rounded-full items-center justify-center ring-2 ring-white">
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               )}
+            </div>
+            <div className="hidden @[140px]:block flex-1 min-w-0">
+              <div className="text-[11px] sm:text-xs font-bold text-slate-600 group-hover:text-emerald-800 transition-colors truncate whitespace-nowrap">
+                プロジェクト
+              </div>
+              <div className="mt-0.5 sm:mt-1">
+                {myProjectSummary.overdueCount > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-rose-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    期限超過 {myProjectSummary.overdueCount}
+                  </span>
+                ) : myProjectSummary.myPendingCount > 0 ? (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-emerald-600 text-white font-extrabold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap shadow-2xs">
+                    未完了 {myProjectSummary.myPendingCount}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 font-bold text-[10px] sm:text-[11px] rounded-full whitespace-nowrap">
+                    完了済
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

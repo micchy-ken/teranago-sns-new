@@ -3,16 +3,16 @@ import {
   X, Layers, Calendar, User as UserIcon, Building, MapPin, 
   ExternalLink, MessageSquare, Send, CheckCircle2, Clock, 
   FileText, Paperclip, Trash2, Edit3, Save, RefreshCw, AlertCircle, FileSpreadsheet, Download, Eye, HardHat,
-  Camera, Upload, UploadCloud, Image as ImageIcon, Loader2
+  Camera, Upload, UploadCloud, Image as ImageIcon, Loader2, Database, Search
 } from 'lucide-react';
-import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus, SiteAttachment } from '../../types/site';
+import { Site, SiteMainPart, SiteSubPart, SiteComment, SiteStatus, PartStatus, SiteAttachment, ExternalSiteLookupResult } from '../../types/site';
 import { User, AttachmentFile, CalendarEvent } from '../../types';
 import { getAvatarUrl, handleAvatarError } from '../../utils/avatar';
 import { triggerOpenUserModal } from '../../utils/userModal';
 import { API_BASE_URL, appendAuthTokenToUrl } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
-import { getFittingLabel, cleanPartName } from '../../utils/siteUtils';
+import { getFittingLabel, cleanPartName, mergeInventorySyncWithSite, deriveInventoryPartStatus, normalizeExternalDate } from '../../utils/siteUtils';
 import { uploadFile, resolveFileUrl } from '../../utils/fileUpload';
 
 interface SiteDetailModalProps {
@@ -198,9 +198,23 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isDragOverDrawing, setIsDragOverDrawing] = useState(false);
 
-  // 付属部品の外部在庫DBリアルタイム取得
+  // 付属部品の外部在庫DBリアルタイム取得・入出庫ステータス監視
   const [subParts, setSubParts] = useState<SiteSubPart[]>(site?.subPartsCache || []);
   const [isLoadingSubParts, setIsLoadingSubParts] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<{
+    type: 'success' | 'info' | 'warning';
+    message: string;
+    timestamp: string;
+  } | null>(null);
+
+  // 後付け現場コード連携・在庫検索ステート
+  const [showInventoryLinker, setShowInventoryLinker] = useState(false);
+  const [inventoryCodeInput, setInventoryCodeInput] = useState(site?.siteCode || '');
+  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
+  const [inventorySearchResults, setInventorySearchResults] = useState<ExternalSiteLookupResult[]>([]);
+  const [isSearchingInventory, setIsSearchingInventory] = useState(false);
+  const [inventoryLookupError, setInventoryLookupError] = useState<string | null>(null);
 
   // 添付ファイル・現場写真アップロード用
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -208,18 +222,45 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const [isDragOverAttachment, setIsDragOverAttachment] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+  const lastOpenedSiteIdRef = React.useRef<string>('');
 
   const [infoForm, setInfoForm] = useState<Partial<Site>>({});
 
   useEffect(() => {
-    if (site) {
+    if (!isOpen || !site) {
+      lastOpenedSiteIdRef.current = '';
+      return;
+    }
+
+    // モーダル新規オープンまたは別現場への切り替え時のみ初期化＆在庫ステータス自動監視を実行
+    if (lastOpenedSiteIdRef.current !== site.id) {
+      lastOpenedSiteIdRef.current = site.id;
       setCurrentSite(site);
       setInfoForm(site);
       setIsEditingInfo(false);
       setActiveTab('info');
-      fetchLiveSubParts(site.siteCode);
+      setSyncNotice(null);
+      setLastSyncedAt(null);
+      setSubParts(site.subPartsCache || []);
+      setInventoryCodeInput(site.siteCode || '');
+      setInventorySearchQuery('');
+      setInventorySearchResults([]);
+      setInventoryLookupError(null);
+      setShowInventoryLinker(!site.siteCode || (site.mainParts || []).length === 0);
+
+      if (site.siteCode && site.siteCode.trim()) {
+        syncInventoryStatus(site, { silentIfNoChange: true });
+      }
+    } else if (!isEditingInfo) {
+      setCurrentSite(prev => {
+        if (!prev || prev.id !== site.id || prev.updatedAt !== site.updatedAt) {
+          return site;
+        }
+        return prev;
+      });
     }
-  }, [site]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, site]);
 
   const handleStartEditInfo = () => {
     if (currentSite) {
@@ -249,64 +290,137 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     setIsEditingInfo(false);
   };
 
-  // 在庫DBから付属部品および最新の建具番号(tateguNo)・規格を取得して同期
-  const fetchLiveSubParts = async (code: string) => {
-    if (!code) return;
+  // 在庫DBから入庫日・出庫日・ステータス・未取込部品・付属部品を監視＆同期
+  const syncInventoryStatus = async (
+    targetSite: Site,
+    options?: {
+      overrideSiteCode?: string;
+      manual?: boolean;
+      silentIfNoChange?: boolean;
+    }
+  ) => {
+    const lookupCode = (options?.overrideSiteCode || targetSite.siteCode || '').trim();
+    if (!lookupCode) {
+      if (options?.manual) {
+        setInventoryLookupError('在庫を取り込む現場コードを入力または選択してください。');
+      }
+      return;
+    }
+
     setIsLoadingSubParts(true);
+    setInventoryLookupError(null);
+
     try {
-      const res = await fetch(`${API_BASE_URL}/sites/lookup/external?code=${encodeURIComponent(code)}`);
-      if (res.ok) {
-        const json = await res.json();
-        const rawParts = json.data?.parts || (Array.isArray(json.data) ? json.data[0]?.parts : []) || [];
-        const subs: SiteSubPart[] = rawParts
-          .filter((p: any) => p.type === 'sub' || p.isMain === false || p.category === 'sub')
-          .map((p: any, idx: number) => ({
-            id: `sub-live-${idx}`,
-            partCode: String(p.partCode || p.code || p.modelNumber || '').trim(),
-            partName: String(p.partName || p.name || '付属部品').trim(),
-            quantity: typeof p.quantity === 'number' ? p.quantity : (parseInt(p.count || p.qty || p.quantity || 1, 10) || 1),
-            unit: p.unit || '個',
-            inStockDate: p.inStockDate || p.nyukoDate || p.inDate || p.inboundDate || '',
-            outStockDate: p.outStockDate || p.syukkoDate || p.outDate || p.outboundDate || '',
-            note: p.note || p.bikou || ''
-          }));
-        setSubParts(subs);
-
-        // ★主要部品の建具番号 (tateguNo) と部品規格 (modelNumber / partSpec) の自動同期
-        const liveMajors = rawParts.filter((p: any) => p.type === 'main' || p.category === 'major' || p.isMain === true || (!p.type && p.category !== 'sub'));
-        if (liveMajors.length > 0 && currentSite && currentSite.mainParts && currentSite.mainParts.length > 0) {
-          let updatedMains = false;
-          const newMainParts = currentSite.mainParts.map((mp, idx) => {
-            const matchedLive = liveMajors.find((lp: any) => lp.id === mp.id) || liveMajors[idx] || liveMajors[0];
-            const liveTategu = matchedLive?.tateguNo || matchedLive?.tategu_no || matchedLive?.tategu || matchedLive?.fittingNo || matchedLive?.建具番号;
-            const liveSpec = matchedLive?.partSpec || matchedLive?.modelNumber || matchedLive?.部品規格;
-
-            let changes: Partial<SiteMainPart> = {};
-            if (liveTategu && (!mp.fittingNo || mp.fittingNo !== liveTategu)) {
-              changes.fittingNo = String(liveTategu).trim();
-            }
-            if (liveSpec && (!mp.partSpec || mp.partSpec !== liveSpec)) {
-              changes.partSpec = String(liveSpec).trim();
-            }
-            if (Object.keys(changes).length > 0) {
-              updatedMains = true;
-              return { ...mp, ...changes };
-            }
-            return mp;
-          });
-
-          if (updatedMains) {
-            const updatedSite = { ...currentSite, mainParts: newMainParts };
-            setCurrentSite(updatedSite);
-            saveSiteChanges(updatedSite);
-          }
-        }
+      const res = await fetch(`${API_BASE_URL}/sites/lookup/external?code=${encodeURIComponent(lookupCode)}`);
+      if (!res.ok) {
+        throw new Error(`在庫DB照会に失敗しました (${res.status})`);
       }
 
-    } catch (e) {
-      console.warn('Failed to fetch live sub parts / tateguNo:', e);
+      const json = await res.json();
+      let detailData: any = json.data
+        ? (Array.isArray(json.data) ? json.data[0] : json.data)
+        : (json.site || json);
+
+      if (!detailData || typeof detailData !== 'object') {
+        detailData = {};
+      }
+      if (json.isFallback) {
+        detailData = { ...detailData, isFallback: true };
+      }
+
+      const nowTimeJst = new Date().toLocaleTimeString('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      const syncResult = mergeInventorySyncWithSite(targetSite, detailData, {
+        siteCodeOverride: lookupCode,
+      });
+
+      if (syncResult.isFallback) {
+        if (options?.manual) {
+          setSyncNotice({
+            type: 'warning',
+            message: `現場コード「${lookupCode}」の外部在庫DBへ接続できないか未登録のため、現在のデータを維持しました。`,
+            timestamp: nowTimeJst,
+          });
+          setInventoryLookupError(`現場コード「${lookupCode}」の在庫情報が見つからないか、外部DBに接続できませんでした。`);
+        }
+        return;
+      }
+
+      setSubParts(syncResult.subParts);
+      setLastSyncedAt(nowTimeJst);
+
+      if (syncResult.hasChanges) {
+        setCurrentSite(syncResult.updatedSite);
+        setInfoForm(syncResult.updatedSite);
+        setInventoryCodeInput(syncResult.updatedSite.siteCode || lookupCode);
+        await saveSiteChanges(syncResult.updatedSite);
+        setShowInventoryLinker(false);
+        setSyncNotice({
+          type: 'success',
+          message: syncResult.summaryMessage || `現場コード「${lookupCode}」の在庫情報・入出庫ステータスを最新化しました。`,
+          timestamp: nowTimeJst,
+        });
+      } else if (options?.manual || !options?.silentIfNoChange) {
+        setSyncNotice({
+          type: 'info',
+          message: `在庫DBを確認しました（現場コード「${lookupCode}」の入庫日・出庫日・進捗は最新です）。`,
+          timestamp: nowTimeJst,
+        });
+      }
+    } catch (e: any) {
+      console.warn('Failed to sync inventory status:', e);
+      if (options?.manual) {
+        setInventoryLookupError(e.message || '在庫DBとの同期に失敗しました。');
+      }
     } finally {
       setIsLoadingSubParts(false);
+    }
+  };
+
+  // 後付け現場コード検索（詳細モーダル内）
+  const handleSearchInventoryForSite = async () => {
+    const q = inventorySearchQuery.trim();
+    if (!q) return;
+    setIsSearchingInventory(true);
+    setInventoryLookupError(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/sites/lookup/external?q=${encodeURIComponent(q)}&limit=10`);
+      if (!res.ok) {
+        throw new Error(`検索に失敗しました (${res.status})`);
+      }
+      const json = await res.json();
+      const rawResults = Array.isArray(json.data)
+        ? json.data
+        : Array.isArray(json.sites)
+          ? json.sites
+          : Array.isArray(json)
+            ? json
+            : [];
+
+      const normalized: ExternalSiteLookupResult[] = rawResults.map((item: any) => ({
+        ...item,
+        code: String(item.code || item.siteCode || '').trim(),
+        siteCode: String(item.code || item.siteCode || '').trim(),
+        name: String(item.name || item.siteName || '').trim(),
+        siteName: String(item.name || item.siteName || '').trim(),
+        orderNo: item.drawingNo || item.orderNo || '',
+      }));
+
+      setInventorySearchResults(normalized);
+      if (normalized.length === 0) {
+        setInventoryLookupError('該当する在庫データが見つかりませんでした。');
+      }
+    } catch (err: any) {
+      console.warn('Detail external search error:', err);
+      setInventoryLookupError('在庫DBの検索に失敗しました。');
+    } finally {
+      setIsSearchingInventory(false);
     }
   };
 
@@ -323,14 +437,24 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     if (!currentSite) return;
     const newMainParts = currentSite.mainParts.map(p => {
       if (p.id === partId) {
-        return { ...p, ...updates };
+        const merged: SiteMainPart = { ...p, ...updates };
+        if ((updates.inStockDate !== undefined || updates.outStockDate !== undefined) && updates.status === undefined) {
+          if (p.status !== 'constructed' && p.status !== 'inspected') {
+            merged.status = deriveInventoryPartStatus(merged.inStockDate, merged.outStockDate);
+          }
+        }
+        return merged;
       }
       return p;
     });
 
-    // 部品すべてが施工済なら全体ステータスも完了に近づける
-    const allConstructed = newMainParts.every(p => p.status === 'constructed' || p.status === 'inspected');
-    const newSiteStatus: SiteStatus = allConstructed ? 'completed' : (newMainParts.some(p => p.status !== 'waiting_stock') ? 'in_progress' : currentSite.status);
+    // 部品すべてが施工済なら全体ステータスも完了に近づける（部品0件時は完了扱いにしない）
+    const allConstructed = newMainParts.length > 0 && newMainParts.every(p => p.status === 'constructed' || p.status === 'inspected');
+    const newSiteStatus: SiteStatus = allConstructed
+      ? 'completed'
+      : (newMainParts.some(p => p.status !== 'waiting_stock') && currentSite.status === 'not_started'
+          ? 'in_progress'
+          : currentSite.status);
 
     const updated = {
       ...currentSite,
@@ -495,13 +619,14 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
   const handleExportCsv = () => {
     if (!currentSite) return;
     const rows = [
-      ['現場コード', '現場名', 'EG台数', '号機/台数', '元請', '工期開始', '工期終了', '施工日', '主担当', '部品型番', '品名', '出庫日', '部品施工日', '部品担当', '進捗状況'],
+      ['現場コード', '図面番号', '現場名', 'EG台数', '号機/台数', '元請', '工期開始', '工期終了', '施工日', '主担当', '部品型番', '品名', '入庫日', '出庫日', '部品施工日', '部品担当', '進捗状況'],
       ...currentSite.mainParts.map((p, idx) => {
         const total = p.originalQuantity && p.originalQuantity > 1 ? p.originalQuantity : (currentSite.egCount > 1 ? currentSite.egCount : (currentSite.mainParts.length > 1 ? currentSite.mainParts.length : 1));
         const uIdx = p.unitIndex || (idx + 1);
         const unitLabel = total > 1 ? `${uIdx}/${total}台目` : `${uIdx}台目`;
         return [
-          currentSite.siteCode,
+          currentSite.siteCode || '',
+          currentSite.orderNo || '',
           currentSite.siteName,
           currentSite.egCount,
           unitLabel,
@@ -512,6 +637,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
           currentSite.primaryWorkerName || '',
           p.partCode,
           p.partName,
+          p.inStockDate || '',
           p.outStockDate || '',
           p.constructionDate || '',
           p.workerName || '',
@@ -524,7 +650,8 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `現場_${currentSite.siteCode}_施工データ.csv`);
+    const fileKey = currentSite.siteCode || currentSite.orderNo || currentSite.siteName;
+    link.setAttribute("download", `現場_${fileKey}_施工データ.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -550,13 +677,18 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                 <ExternalLink className="w-3.5 h-3.5 text-indigo-500 group-hover/code:text-indigo-800 transition-colors" />
               </a>
             ) : (
-              <span className="font-extrabold text-sm text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg shadow-2xs">
-                コード未設定
+              <span className="font-extrabold text-sm text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg shadow-2xs">
+                コード未連携
               </span>
             )}
             <div>
-              <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+              <h3 className="font-bold text-lg text-slate-900 flex flex-wrap items-center gap-2">
                 <span>{currentSite.siteName}</span>
+                {currentSite.orderNo && (
+                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                    図面番号: {currentSite.orderNo}
+                  </span>
+                )}
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
                   EG {currentSite.egCount}台
                 </span>
@@ -678,9 +810,90 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
             </div>
           )}
 
+          {/* 在庫DB入出庫監視・同期バナー */}
+          {syncNotice && (
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                syncNotice.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : syncNotice.type === 'warning'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-800'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                {syncNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                ) : syncNotice.type === 'warning' ? (
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                ) : (
+                  <Database className="w-4 h-4 shrink-0 text-indigo-600" />
+                )}
+                <span>{syncNotice.message}</span>
+                <span className="text-[10px] font-mono opacity-75">({syncNotice.timestamp} JST確認)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSyncNotice(null)}
+                className="p-1 rounded hover:bg-black/5 cursor-pointer shrink-0"
+                title="閉じる"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* TAB 1: 主要部品 & 付属部品 */}
           {activeTab === 'parts' && (
             <div className="space-y-6">
+              {/* 在庫DB入出庫ステータス監視バー */}
+              <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 text-indigo-900">
+                  <Database className="w-4 h-4 text-indigo-600 shrink-0" />
+                  {currentSite.siteCode ? (
+                    <span>
+                      <strong>在庫入出庫監視:</strong> 現場コード{' '}
+                      <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-indigo-200">
+                        {currentSite.siteCode}
+                      </span>
+                      {lastSyncedAt && (
+                        <span className="text-[11px] text-indigo-700 ml-2">
+                          最終確認: {lastSyncedAt} JST
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-amber-800 font-semibold">
+                      現場コードが未連携のため、入庫日・出庫日の自動監視は停止中です。
+                    </span>
+                  )}
+                </div>
+
+                {currentSite.siteCode ? (
+                  <button
+                    type="button"
+                    onClick={() => syncInventoryStatus(currentSite, { manual: true })}
+                    disabled={isLoadingSubParts}
+                    className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSubParts ? 'animate-spin' : ''}`} />
+                    <span>入庫日・出庫日を最新確認</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('info');
+                      setShowInventoryLinker(true);
+                    }}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    <span>現場コードを連携して在庫取込</span>
+                  </button>
+                )}
+              </div>
+
               {/* 主要部品 (1台ずつ分割管理) */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -690,114 +903,147 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                       主要部品施工管理（1台ごと展開）
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      各主要部品の出庫・施工予定日、担当者、施工状況を個別に更新できます。
+                      現場コード連携時はモーダルを開くたびに入庫日・出庫日・進捗を監視して自動更新します。
                     </p>
                   </div>
                 </div>
 
-                <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 shadow-2xs">
-                  {currentSite.mainParts.map((part, idx) => (
-                    <div key={part.id || idx} className="p-3 bg-white hover:bg-slate-50/50 transition-colors">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          {/* 建具番号 (tateguNo) バッジ & インライン編集 */}
-                          <div className="relative group shrink-0">
-                            <input
-                              type="text"
-                              value={part.fittingNo || ''}
-                              placeholder={getFittingLabel(part, idx, currentSite.egCount)}
-                              title="建具番号 (例: AD1, W-1) をクリックして変更・編集可能"
-                              onChange={(e) => handleUpdatePart(part.id, { fittingNo: e.target.value })}
-                              className="w-20 px-2 py-1 text-center font-bold text-xs text-indigo-700 bg-indigo-50/90 hover:bg-white focus:bg-white border border-indigo-200 focus:border-indigo-500 rounded-md shadow-2xs transition-all focus:ring-1 focus:ring-indigo-400 outline-none cursor-pointer"
-                            />
-                            <span className="text-[9px] font-bold text-indigo-500 absolute -top-2 left-1.5 px-0.5 bg-white scale-90 origin-left pointer-events-none">
-                              建具
-                            </span>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                            <span className="text-sm font-bold text-slate-900">
-                              {cleanPartName(part.partName)}
-                            </span>
-                            {(part.partSpec || part.partCode) && (
-                              <span className="text-xs font-mono text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium">
-                                {part.partSpec || part.partCode}
+                {currentSite.mainParts.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl space-y-2">
+                    <p className="text-xs font-semibold text-slate-600">
+                      主要部品はまだ登録されていません。
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      「現場詳細情報・竣工予定」タブから現場コードを連携すると、在庫データベースから主要部品・付属部品を自動取り込みできます。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('info');
+                        setShowInventoryLinker(true);
+                      }}
+                      className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      <Database className="w-3.5 h-3.5" />
+                      <span>現場コードから在庫を取り込む</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 shadow-2xs">
+                    {currentSite.mainParts.map((part, idx) => (
+                      <div key={part.id || idx} className="p-3 bg-white hover:bg-slate-50/50 transition-colors">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            {/* 建具番号 (tateguNo) バッジ & インライン編集 */}
+                            <div className="relative group shrink-0">
+                              <input
+                                type="text"
+                                value={part.fittingNo || ''}
+                                placeholder={getFittingLabel(part, idx, currentSite.egCount)}
+                                title="建具番号 (例: AD1, W-1) をクリックして変更・編集可能"
+                                onChange={(e) => handleUpdatePart(part.id, { fittingNo: e.target.value })}
+                                className="w-20 px-2 py-1 text-center font-bold text-xs text-indigo-700 bg-indigo-50/90 hover:bg-white focus:bg-white border border-indigo-200 focus:border-indigo-500 rounded-md shadow-2xs transition-all focus:ring-1 focus:ring-indigo-400 outline-none cursor-pointer"
+                              />
+                              <span className="text-[9px] font-bold text-indigo-500 absolute -top-2 left-1.5 px-0.5 bg-white scale-90 origin-left pointer-events-none">
+                                建具
                               </span>
-                            )}
-                            {part.serialNo && (
-                              <span className="text-[10px] text-slate-400 font-mono">機番: {part.serialNo}</span>
-                            )}
-                          </div>
-                        </div>
+                            </div>
 
-                        {/* 各部品の施工設定コントロール */}
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          {/* 出庫日 */}
-                          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded">
-                            <span className="text-[10px] text-slate-500 font-semibold">出庫:</span>
-                            <input
-                              type="date"
-                              value={part.outStockDate || ''}
-                              onChange={(e) => handleUpdatePart(part.id, { outStockDate: e.target.value })}
-                              className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer text-slate-700"
-                            />
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                              <span className="text-sm font-bold text-slate-900">
+                                {cleanPartName(part.partName)}
+                              </span>
+                              {(part.partSpec || part.partCode) && (
+                                <span className="text-xs font-mono text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium">
+                                  {part.partSpec || part.partCode}
+                                </span>
+                              )}
+                              {part.serialNo && (
+                                <span className="text-[10px] text-slate-400 font-mono">機番: {part.serialNo}</span>
+                              )}
+                            </div>
                           </div>
 
-                          {/* 施工日 */}
-                          <div className="flex items-center gap-1 bg-indigo-50/60 border border-indigo-200 px-2 py-1 rounded">
-                            <span className="text-[10px] text-indigo-700 font-bold">施工:</span>
-                            <input
-                              type="date"
-                              value={part.constructionDate || ''}
-                              onChange={(e) => handleUpdatePart(part.id, { constructionDate: e.target.value })}
-                              className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-bold text-indigo-900"
-                            />
-                          </div>
+                          {/* 各部品の施工設定コントロール */}
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {/* 入庫日 */}
+                            <div className="flex items-center gap-1 bg-amber-50/60 border border-amber-200 px-2 py-1 rounded">
+                              <span className="text-[10px] text-amber-700 font-semibold">入庫:</span>
+                              <input
+                                type="date"
+                                value={normalizeExternalDate(part.inStockDate) || ''}
+                                onChange={(e) => handleUpdatePart(part.id, { inStockDate: e.target.value })}
+                                className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer text-slate-700"
+                              />
+                            </div>
 
-                          {/* 担当者 */}
-                          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded">
-                            <span className="text-[10px] text-slate-500 font-semibold">担当:</span>
+                            {/* 出庫日 */}
+                            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded">
+                              <span className="text-[10px] text-slate-500 font-semibold">出庫:</span>
+                              <input
+                                type="date"
+                                value={normalizeExternalDate(part.outStockDate) || ''}
+                                onChange={(e) => handleUpdatePart(part.id, { outStockDate: e.target.value })}
+                                className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer text-slate-700"
+                              />
+                            </div>
+
+                            {/* 施工日 */}
+                            <div className="flex items-center gap-1 bg-indigo-50/60 border border-indigo-200 px-2 py-1 rounded">
+                              <span className="text-[10px] text-indigo-700 font-bold">施工:</span>
+                              <input
+                                type="date"
+                                value={normalizeExternalDate(part.constructionDate) || ''}
+                                onChange={(e) => handleUpdatePart(part.id, { constructionDate: e.target.value })}
+                                className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-bold text-indigo-900"
+                              />
+                            </div>
+
+                            {/* 担当者 */}
+                            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1 rounded">
+                              <span className="text-[10px] text-slate-500 font-semibold">担当:</span>
+                              <select
+                                value={part.workerId || currentSite.primaryWorkerId || ''}
+                                onChange={(e) => {
+                                  const u = allUsers.find(x => x.id === e.target.value);
+                                  handleUpdatePart(part.id, {
+                                    workerId: e.target.value,
+                                    workerName: u?.name || ''
+                                  });
+                                }}
+                                className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium text-slate-800"
+                              >
+                                <option value="">未割当</option>
+                                {allUsers.map(u => (
+                                  <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* 進捗ステータス */}
                             <select
-                              value={part.workerId || currentSite.primaryWorkerId || ''}
-                              onChange={(e) => {
-                                const u = allUsers.find(x => x.id === e.target.value);
-                                handleUpdatePart(part.id, {
-                                  workerId: e.target.value,
-                                  workerName: u?.name || ''
-                                });
-                              }}
-                              className="text-[11px] bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium text-slate-800"
+                              value={part.status}
+                              onChange={(e) => handleUpdatePart(part.id, { status: e.target.value as PartStatus })}
+                              className={`text-xs font-bold px-2 py-1 rounded border cursor-pointer ${
+                                part.status === 'constructed' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
+                                part.status === 'inspected' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                part.status === 'stock_out' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                part.status === 'stock_in' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                'bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
                             >
-                              <option value="">未割当</option>
-                              {allUsers.map(u => (
-                                <option key={u.id} value={u.id}>{u.name}</option>
-                              ))}
+                              <option value="waiting_stock">入庫待ち</option>
+                              <option value="stock_in">入庫済</option>
+                              <option value="stock_out">出庫済</option>
+                              <option value="constructed">施工済</option>
+                              <option value="inspected">自主検査済</option>
                             </select>
                           </div>
-
-                          {/* 進捗ステータス */}
-                          <select
-                            value={part.status}
-                            onChange={(e) => handleUpdatePart(part.id, { status: e.target.value as PartStatus })}
-                            className={`text-xs font-bold px-2 py-1 rounded border cursor-pointer ${
-                              part.status === 'constructed' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
-                              part.status === 'inspected' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                              part.status === 'stock_out' ? 'bg-blue-100 text-blue-800 border-blue-300' :
-                              part.status === 'stock_in' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                              'bg-slate-100 text-slate-600 border-slate-200'
-                            }`}
-                          >
-                            <option value="waiting_stock">入庫待ち</option>
-                            <option value="stock_in">入庫済</option>
-                            <option value="stock_out">出庫済</option>
-                            <option value="constructed">施工済</option>
-                            <option value="inspected">自主検査済</option>
-                          </select>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 付属部品 (在庫DB都度照会・表示) */}
@@ -805,14 +1051,14 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <h5 className="font-bold text-xs text-slate-700">
-                      付属部品一覧 (在庫データベース連携・都度照会)
+                      付属部品一覧 (在庫データベース連携・自動監視)
                     </h5>
                     {isLoadingSubParts && (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    ※ 付属部品は本SNSデータベースには保存せず、都度在庫DBから取得して表示されます
+                    ※ 現場コード連動時に入庫日・出庫日を最新化します
                   </span>
                 </div>
 
@@ -822,16 +1068,34 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {subParts.map((sub, i) => (
-                      <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-2xs">
-                        <div className="font-bold text-slate-800">{sub.partCode}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{sub.partName}</div>
-                        <div className="text-[10px] text-slate-400 mt-1 flex justify-between">
-                          <span>数量: {sub.quantity}{sub.unit}</span>
-                          <span>出庫: {sub.outStockDate || '未定'}</span>
+                    {subParts.map((sub, i) => {
+                      const subStatus = deriveInventoryPartStatus(sub.inStockDate, sub.outStockDate);
+                      return (
+                        <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs shadow-2xs space-y-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="font-bold text-slate-800 truncate">{sub.partCode || '型番未設定'}</div>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                subStatus === 'stock_out'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : subStatus === 'stock_in'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {subStatus === 'stock_out' ? '出庫済' : subStatus === 'stock_in' ? '入庫済' : '入庫待ち'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">{sub.partName}</div>
+                          <div className="text-[10px] text-slate-500 pt-0.5 space-y-0.5">
+                            <div>数量: {sub.quantity}{sub.unit}</div>
+                            <div className="text-slate-400">
+                              入庫: {normalizeExternalDate(sub.inStockDate) || '未定'} / 出庫: {normalizeExternalDate(sub.outStockDate) || '未定'}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1431,7 +1695,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                     </div>
                     <div><strong>現場名:</strong> <span className="font-bold text-slate-900 ml-1">{currentSite.siteName}</span></div>
                     <div><strong>元請 / 取引先:</strong> <span className="ml-1 text-slate-800">{currentSite.customerName || '未設定'}</span></div>
-                    <div><strong>発注No:</strong> <span className="ml-1 text-slate-800">{currentSite.orderNo || '未設定'}</span></div>
+                    <div><strong>図面番号:</strong> <span className="ml-1 font-mono text-slate-800">{currentSite.orderNo || '未設定'}</span></div>
                     <div className="sm:col-span-2"><strong>施工場所:</strong> <span className="ml-1 text-slate-800">{currentSite.address || '未設定'}</span></div>
                     <div><strong>EG台数:</strong> <span className="ml-1 font-bold text-indigo-700">{currentSite.egCount} 台</span></div>
                     <div>
@@ -1482,12 +1746,36 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                             </a>
                           )}
                         </div>
-                        <input
-                          type="text"
-                          value={infoForm.siteCode || ''}
-                          onChange={(e) => setInfoForm(prev => ({ ...prev, siteCode: e.target.value }))}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-indigo-900 focus:ring-1 focus:ring-indigo-500"
-                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={infoForm.siteCode || ''}
+                            onChange={(e) => setInfoForm(prev => ({ ...prev, siteCode: e.target.value }))}
+                            placeholder="未連携時は空欄可"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-indigo-900 focus:ring-1 focus:ring-indigo-500"
+                          />
+                          {(infoForm.siteCode || '').trim() && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const codeVal = (infoForm.siteCode || '').trim();
+                                if (codeVal) {
+                                  setIsEditingInfo(false);
+                                  syncInventoryStatus(
+                                    { ...currentSite, ...infoForm, siteCode: codeVal } as Site,
+                                    { overrideSiteCode: codeVal, manual: true }
+                                  );
+                                }
+                              }}
+                              disabled={isLoadingSubParts}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold whitespace-nowrap flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              title="入力した現場コードで在庫DBから部品を取り込みます"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isLoadingSubParts ? 'animate-spin' : ''}`} />
+                              在庫取込
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-slate-700 mb-0.5">現場名</label>
@@ -1512,13 +1800,13 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">発注No / 受注No</label>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-0.5">図面番号</label>
                         <input
                           type="text"
                           value={infoForm.orderNo || ''}
                           onChange={(e) => setInfoForm(prev => ({ ...prev, orderNo: e.target.value }))}
-                          placeholder="例: PO-2026-001"
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                          placeholder="例: DRW-2026-001"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
@@ -1620,6 +1908,153 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 現場コード連携・在庫データベース情報取り込みカード */}
+              <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200/80 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <div>
+                      <h5 className="font-bold text-sm text-indigo-950">
+                        現場コード連携・在庫情報取り込み / 入出庫同期
+                      </h5>
+                      <p className="text-[11px] text-indigo-700">
+                        {currentSite.siteCode
+                          ? `現在「${currentSite.siteCode}」と連携中です（画面を開くたびに入庫日・出庫日を監視して自動更新します）。`
+                          : '先行登録された現場に後から現場コードを紐づけ、在庫DBから部品・入出庫情報を一括取り込みできます。'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {currentSite.siteCode && (
+                      <button
+                        type="button"
+                        onClick={() => syncInventoryStatus(currentSite, { manual: true })}
+                        disabled={isLoadingSubParts}
+                        className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSubParts ? 'animate-spin' : ''}`} />
+                        <span>今すぐ入出庫を同期</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowInventoryLinker(prev => !prev)}
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      {showInventoryLinker ? '閉じる' : (currentSite.siteCode ? '別コードで取込・変更' : '現場コードを検索/連携')}
+                    </button>
+                  </div>
+                </div>
+
+                {showInventoryLinker && (
+                  <div className="pt-2 border-t border-indigo-200/80 space-y-3">
+                    {/* 直接現場コード指定取込 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-bold text-indigo-900">
+                          ① 現場コードを直接指定して在庫取込
+                        </label>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={inventoryCodeInput}
+                            onChange={(e) => setInventoryCodeInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                syncInventoryStatus(currentSite, { overrideSiteCode: inventoryCodeInput, manual: true });
+                              }
+                            }}
+                            placeholder="例: NHQ136A"
+                            className="flex-1 px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-mono font-bold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => syncInventoryStatus(currentSite, { overrideSiteCode: inventoryCodeInput, manual: true })}
+                            disabled={isLoadingSubParts || !inventoryCodeInput.trim()}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer"
+                          >
+                            {isLoadingSubParts ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                            <span>取込実行</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* キーワード検索で現場コードを探索 */}
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-bold text-indigo-900">
+                          ② 在庫DBから現場名・コードで検索して連携
+                        </label>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={inventorySearchQuery}
+                            onChange={(e) => setInventorySearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSearchInventoryForSite();
+                              }
+                            }}
+                            placeholder={currentSite.siteName || '現場名やコードを入力...'}
+                            className="flex-1 px-2.5 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSearchInventoryForSite}
+                            disabled={isSearchingInventory || !inventorySearchQuery.trim()}
+                            className="px-3 py-1.5 bg-white hover:bg-indigo-100 disabled:opacity-50 text-indigo-700 border border-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer"
+                          >
+                            {isSearchingInventory ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                            <span>検索</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {inventoryLookupError && (
+                      <p className="text-xs text-rose-600 font-semibold">{inventoryLookupError}</p>
+                    )}
+
+                    {inventorySearchResults.length > 0 && (
+                      <div className="bg-white border border-indigo-200 rounded-lg p-2 max-h-44 overflow-y-auto space-y-1">
+                        <div className="text-[11px] font-bold text-slate-500 px-2 py-0.5">
+                          在庫DB検索結果 ({inventorySearchResults.length}件) - クリックで現場コード連携＆在庫取込:
+                        </div>
+                        {inventorySearchResults.map((res, i) => {
+                          const codeVal = res.code || res.siteCode || '';
+                          const nameVal = res.name || res.siteName || '（名称未設定）';
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                if (codeVal) {
+                                  setInventoryCodeInput(codeVal);
+                                  setInventorySearchResults([]);
+                                  syncInventoryStatus(currentSite, { overrideSiteCode: codeVal, manual: true });
+                                }
+                              }}
+                              className="w-full text-left p-2 hover:bg-indigo-50 rounded-lg flex items-center justify-between gap-2 border border-slate-100 hover:border-indigo-200 transition-colors cursor-pointer"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                                  {codeVal || '(コードなし)'}
+                                </span>
+                                <span className="font-bold text-slate-800">{nameVal}</span>
+                                {res.customerName && <span className="text-slate-500">({res.customerName})</span>}
+                                {res.egCount ? <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">EG: {res.egCount}台</span> : null}
+                              </div>
+                              <span className="text-indigo-600 font-bold shrink-0">連携・取込 →</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
