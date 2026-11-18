@@ -45,6 +45,7 @@ import {
   ASSET_STATUS_META,
   INSPECTION_SCHEDULE_FIELD_KEYS,
   LAST_INSPECTION_FIELD_KEYS,
+  MILEAGE_FIELD_KEYS,
   computeAssetAlerts,
   formatAlertRuleSummary,
   formatAssetDateJa,
@@ -361,13 +362,7 @@ export function AssetDetailModal({
   };
 
   const handleAttrChange = (key: string, value: any) => {
-    setAttributes((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === 'mileage') {
-        next.mileageManualUpdatedAt = todayStr;
-      }
-      return next;
-    });
+    setAttributes((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -414,10 +409,12 @@ export function AssetDetailModal({
       ? users.find((u) => String(u.id) === String(assigneeUserId))
       : undefined;
 
-    // 最終点検日・予定日はSSOT（AssetLogs）管理のため、属性には重複保存しない
+    // 最終点検日・走行距離はそれぞれ SSOT（確定履歴 / 運転記録簿）から自動算出するため、属性には重複保存しない
     const cleanedAttributes = { ...attributes };
     delete cleanedAttributes.lastInspectionDate;
     delete cleanedAttributes.lastCalibrationDate;
+    delete cleanedAttributes.mileage;
+    delete cleanedAttributes.mileageManualUpdatedAt;
 
     setSaving(true);
     setError('');
@@ -633,6 +630,30 @@ export function AssetDetailModal({
       );
     }
 
+    // 3. 走行距離（運転記録簿の最新記録から自動取得・未記録時は空白）
+    if (MILEAGE_FIELD_KEYS.has(field.key)) {
+      return (
+        <div className="space-y-1">
+          <div className="w-full px-3 py-2 text-sm bg-slate-100/80 border border-slate-200 rounded-lg text-slate-800 min-h-[38px] flex items-center justify-between tabular-nums">
+            <span>
+              {effectiveMileage.value !== null
+                ? `${effectiveMileage.value.toLocaleString()} ${field.unit || 'km'}`
+                : ''}
+            </span>
+            {effectiveMileage.value !== null && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700">
+                <Gauge className="w-3 h-3" />
+                運転記録簿連動{effectiveMileage.date ? ` (${effectiveMileage.date})` : ''}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-500">
+            ※「運転記録簿」の最新記録から自動取得します（未記録時は空白）
+          </div>
+        </div>
+      );
+    }
+
     const val = attributes[field.key];
     switch (field.type) {
       case 'select': {
@@ -692,39 +713,23 @@ export function AssetDetailModal({
       }
       case 'number':
         return (
-          <div className="space-y-1">
-            <div className="relative flex items-center">
-              <input
-                type="number"
-                value={
-                  val !== undefined && val !== null && val !== ''
-                    ? val
-                    : field.key === 'mileage' && effectiveMileage.value !== null
-                    ? effectiveMileage.value
-                    : ''
-                }
-                onChange={(e) =>
-                  handleAttrChange(
-                    field.key,
-                    e.target.value === '' ? '' : Number(e.target.value)
-                  )
-                }
-                placeholder={field.placeholder}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-12 tabular-nums"
-              />
-              {field.unit && (
-                <span className="absolute right-3 text-xs font-medium text-slate-400">
-                  {field.unit}
-                </span>
-              )}
-            </div>
-            {field.key === 'mileage' && effectiveMileage.source === 'driving_log' && (
-              <div className="flex items-center justify-between text-[11px] text-sky-700">
-                <span className="inline-flex items-center gap-1 font-medium tabular-nums">
-                  <Gauge className="w-3 h-3" />
-                  運転記録簿の最新帰着メーター: {effectiveMileage.value?.toLocaleString()} km ({effectiveMileage.date})
-                </span>
-              </div>
+          <div className="relative flex items-center">
+            <input
+              type="number"
+              value={val ?? ''}
+              onChange={(e) =>
+                handleAttrChange(
+                  field.key,
+                  e.target.value === '' ? '' : Number(e.target.value)
+                )
+              }
+              placeholder={field.placeholder}
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-12 tabular-nums"
+            />
+            {field.unit && (
+              <span className="absolute right-3 text-xs font-medium text-slate-400">
+                {field.unit}
+              </span>
             )}
           </div>
         );

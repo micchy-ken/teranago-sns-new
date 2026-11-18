@@ -66,7 +66,7 @@ export function AssetInspectionListView({
   const [query, setQuery] = useState<string>('');
   const [editingCell, setEditingCell] = useState<{
     assetId: string;
-    col: 'scheduleDate' | 'inspectionType' | 'vendor' | 'mileage';
+    col: 'scheduleDate' | 'inspectionType' | 'vendor';
   } | null>(null);
   const [draftVal, setDraftVal] = useState<string>('');
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -163,7 +163,7 @@ export function AssetInspectionListView({
 
   const commitInlineEdit = async (
     row: (typeof enrichedRows)[number],
-    col: 'scheduleDate' | 'inspectionType' | 'vendor' | 'mileage',
+    col: 'scheduleDate' | 'inspectionType' | 'vendor',
     nextValue: string
   ) => {
     setEditingCell(null);
@@ -222,18 +222,6 @@ export function AssetInspectionListView({
             attributes: { ...(asset.attributes || {}), [attrKey]: trimmed }
           });
         }
-      } else if (col === 'mileage') {
-        if (trimmed === '') return;
-        const num = Number(trimmed.replace(/,/g, ''));
-        if (!Number.isFinite(num) || num < 0) return;
-        if (row.mileageInfo.value === num) return;
-        await onSaveAssetInline(asset, {
-          attributes: {
-            ...(asset.attributes || {}),
-            mileage: num,
-            mileageManualUpdatedAt: todayStr
-          }
-        });
       }
     } finally {
       setSavingId(null);
@@ -321,7 +309,7 @@ export function AssetInspectionListView({
       {/* Info strip */}
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
         <span>
-          「点検予定日」「点検内容」「業者」「走行距離」のセルをクリックすると表のまま直接編集できます。予定日到来時は「実施確認」から確定履歴へ登録してください。
+          「点検予定日」「点検内容」「業者」のセルをクリックすると表のまま直接編集できます。走行距離は「運転記録簿」の最新記録から自動取得されます。予定日到来時は「実施確認」から確定履歴へ登録してください。
         </span>
         <span className="font-semibold text-slate-600 tabular-nums">
           表示: {filteredRows.length}件
@@ -343,7 +331,7 @@ export function AssetInspectionListView({
               <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">点検内容 (直編集)</th>
               <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">点検業者 (直編集)</th>
               <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">最終点検日</th>
-              <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">走行距離 (直編集)</th>
+              <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap">走行距離</th>
               <th className="py-2.5 px-3 border-r border-slate-200/80 whitespace-nowrap text-center">点検項目</th>
               <th className="py-2.5 px-3 whitespace-nowrap text-right">操作</th>
             </tr>
@@ -378,8 +366,6 @@ export function AssetInspectionListView({
                 editingCell?.assetId === asset.id && editingCell.col === 'inspectionType';
               const isEditingVendor =
                 editingCell?.assetId === asset.id && editingCell.col === 'vendor';
-              const isEditingMileage =
-                editingCell?.assetId === asset.id && editingCell.col === 'mileage';
 
               const inspectionTypeVal =
                 scheduled?.inspectionType || asset.attributes?.inspectionType || '';
@@ -569,49 +555,26 @@ export function AssetInspectionListView({
                     )}
                   </td>
 
-                  {/* 走行距離 (運転記録簿連動 + インライン) */}
+                  {/* 走行距離 (運転記録簿の最新から自動取得・未記録時は完全空白) */}
                   <td
-                    className="py-2 px-3 border-r border-slate-200/70 whitespace-nowrap cursor-pointer hover:bg-indigo-50/40 tabular-nums"
-                    onClick={() => {
-                      if (!isEditingMileage) {
-                        setEditingCell({ assetId: asset.id, col: 'mileage' });
-                        setDraftVal(mileageInfo.value !== null ? String(mileageInfo.value) : '');
-                      }
-                    }}
+                    className="py-2.5 px-3 border-r border-slate-200/70 whitespace-nowrap tabular-nums"
                     title={
-                      mileageInfo.source === 'driving_log'
-                        ? `運転記録簿（${mileageInfo.date}時点）から自動反映 · クリックで直接修正可`
-                        : 'クリックして走行距離を直接入力'
+                      mileageInfo.value !== null && mileageInfo.date
+                        ? `運転記録簿（${mileageInfo.date}時点）から自動取得`
+                        : undefined
                     }
                   >
-                    {isEditingMileage ? (
-                      <input
-                        type="number"
-                        autoFocus
-                        value={draftVal}
-                        onChange={(e) => setDraftVal(e.target.value)}
-                        onBlur={() => commitInlineEdit(row, 'mileage', draftVal)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitInlineEdit(row, 'mileage', draftVal);
-                          if (e.key === 'Escape') setEditingCell(null);
-                        }}
-                        className="w-24 px-2 py-1 text-xs border border-indigo-400 rounded bg-white tabular-nums focus:outline-none"
-                      />
-                    ) : mileageInfo.value !== null ? (
+                    {mileageInfo.value !== null ? (
                       <div className="flex items-center gap-1.5">
                         <span className="font-medium text-slate-800">
                           {mileageInfo.value.toLocaleString()} km
                         </span>
-                        {mileageInfo.source === 'driving_log' && (
-                          <span className="text-[10px] text-sky-700 font-semibold flex items-center gap-0.5">
-                            <Gauge className="w-3 h-3" />
-                            運転記録簿
-                          </span>
-                        )}
+                        <span className="text-[10px] text-sky-700 font-semibold flex items-center gap-0.5">
+                          <Gauge className="w-3 h-3" />
+                          運転記録簿
+                        </span>
                       </div>
-                    ) : (
-                      <span className="text-slate-300">-</span>
-                    )}
+                    ) : null}
                   </td>
 
                   {/* 点検項目 */}

@@ -96,6 +96,8 @@ export const INSPECTION_VENDOR_FIELD_KEYS = new Set([
   'maintenanceVendor'
 ]);
 
+export const MILEAGE_FIELD_KEYS = new Set(['mileage']);
+
 export const VEHICLE_DAILY_INSPECTION_PRESET: Array<{
   key: string;
   label: string;
@@ -289,39 +291,16 @@ export function getEffectiveAssetMileage(asset: AssetItem): EffectiveMileageInfo
     typeof asset.latestDrivingMileage === 'number' && Number.isFinite(asset.latestDrivingMileage)
       ? asset.latestDrivingMileage
       : null;
-  const dlDate = asset.latestDrivingMileageDate ? String(asset.latestDrivingMileageDate).slice(0, 10) : undefined;
-
-  const rawManual = asset.attributes?.mileage;
-  const manualNum =
-    rawManual !== undefined && rawManual !== null && rawManual !== ''
-      ? Number(String(rawManual).replace(/,/g, ''))
-      : null;
-  const hasManual = manualNum !== null && Number.isFinite(manualNum);
-  const manualDate = asset.attributes?.mileageManualUpdatedAt
-    ? String(asset.attributes.mileageManualUpdatedAt).slice(0, 10)
+  const dlDate = asset.latestDrivingMileageDate
+    ? String(asset.latestDrivingMileageDate).slice(0, 10)
     : undefined;
 
-  if (dlMileage !== null) {
-    if (hasManual && manualDate && dlDate && manualDate > dlDate && manualNum! >= dlMileage) {
-      return {
-        value: manualNum!,
-        source: 'manual',
-        date: manualDate
-      };
-    }
+  if (dlMileage !== null && dlMileage >= 0) {
     return {
       value: dlMileage,
       source: 'driving_log',
       date: dlDate,
       reportId: asset.latestDrivingReportId
-    };
-  }
-
-  if (hasManual) {
-    return {
-      value: manualNum!,
-      source: 'manual',
-      date: manualDate
     };
   }
 

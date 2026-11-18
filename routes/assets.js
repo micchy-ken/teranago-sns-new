@@ -1,7 +1,7 @@
 /**
  * routes/assets.js
  * 寺岡オートドアSNS 資産管理モジュール (車両・PC・工具・共用機器・動的スキーマ・履歴・点検予定/確定SSOT・運転記録簿連動)
- * 最終更新: 2026年11月18日 (資産別点検項目・項目設定インライン編集フラグ・点検予定→実施確認→確定履歴SSOT・運転記録簿走行距離自動連動・メインカレンダー自動プロットAPI対応)
+ * 最終更新: 2026年11月18日 (走行距離を運転記録簿の最新値から自動取得専用・未記録時空白対応)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -23,7 +23,12 @@ const INLINE_EDITABLE_DEFAULT_KEYS = new Set([
   'nextCalibrationDate',
   'inspectionType',
   'inspectionVendor',
-  'maintenanceVendor',
+  'maintenanceVendor'
+]);
+
+const AUTO_ONLY_FIELD_KEYS = new Set([
+  'lastInspectionDate',
+  'lastCalibrationDate',
   'mileage'
 ]);
 
@@ -56,9 +61,15 @@ function normalizeDateStr(val) {
   return /^\d{4}-\d{2}-\d{2}$/.test(plain) ? plain : '';
 }
 
+function toHalfWidthAscii(val) {
+  return String(val || '').replace(/[０-９Ａ-Ｚａ-ｚ]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+  );
+}
+
 function normalizeVehicleMatchKey(val) {
   if (!val) return '';
-  return String(val)
+  return toHalfWidthAscii(val)
     .replace(/[\s\u3000\-ー―‐]+/g, '')
     .toLowerCase()
     .trim();
@@ -89,7 +100,7 @@ export const DEFAULT_ASSET_CATEGORIES = [
       { key: 'deliveryDate', label: '納車', type: 'date', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 8 },
       { key: 'shakenExpiryDate', label: '車検満期', type: 'date', showInList: true, showInMyAssets: true, inlineEditable: false, alertRule: { kind: 'inspection', daysBefore: 30, label: '車検アラート' }, sortOrder: 9 },
       { key: 'leaseEndDate', label: 'リース満了', type: 'date', showInList: true, showInMyAssets: true, inlineEditable: false, alertRule: { kind: 'replacement', daysBefore: 180, label: '入替アラート' }, sortOrder: 10 },
-      { key: 'mileage', label: '走行距離', type: 'number', unit: 'km', showInList: true, showInMyAssets: false, inlineEditable: true, sortOrder: 11 },
+      { key: 'mileage', label: '走行距離', type: 'number', unit: 'km', showInList: true, showInMyAssets: false, inlineEditable: false, sortOrder: 11 },
       { key: 'tireType', label: 'タイヤ種別', type: 'select', options: ['夏タイヤ', 'スタッドレス', 'オールシーズン'], showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 12 },
       { key: 'insuranceInfo', label: 'リース・保険会社', type: 'text', showInList: false, showInMyAssets: false, inlineEditable: false, sortOrder: 13 }
     ]
@@ -164,12 +175,19 @@ function normalizeCategoryFields(rawFields) {
   const arr = Array.isArray(rawFields) ? rawFields : [];
   return arr.map((f) => {
     if (!f || typeof f !== 'object') return f;
+    const keyStr = String(f.key || '');
+    if (AUTO_ONLY_FIELD_KEYS.has(keyStr)) {
+      return {
+        ...f,
+        inlineEditable: false
+      };
+    }
     const hasExplicitInline = Object.prototype.hasOwnProperty.call(f, 'inlineEditable');
     return {
       ...f,
       inlineEditable: hasExplicitInline
         ? Boolean(f.inlineEditable)
-        : INLINE_EDITABLE_DEFAULT_KEYS.has(String(f.key || ''))
+        : INLINE_EDITABLE_DEFAULT_KEYS.has(keyStr)
     };
   });
 }
@@ -515,9 +533,13 @@ async function computeLatestDrivingMileages(pool, assetsList) {
 
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue;
-      const rawMeter = row.arrivalMeter;
-      if (rawMeter === undefined || rawMeter === null || rawMeter === '') continue;
-      const meter = Number(String(rawMeter).replace(/,/g, ''));
+      const hasArrival =
+        row.arrivalMeter !== undefined &&
+        row.arrivalMeter !== null &&
+        String(row.arrivalMeter).trim() !== '';
+      const rawMeter = hasArrival ? row.arrivalMeter : row.departureMeter;
+      if (rawMeter === undefined || rawMeter === null || String(rawMeter).trim() === '') continue;
+      const meter = Number(toHalfWidthAscii(rawMeter).replace(/,/g, '').trim());
       if (!Number.isFinite(meter) || meter < 0) continue;
       const dateStr = normalizeDateStr(row.date);
       if (!dateStr) continue;
@@ -537,9 +559,13 @@ async function computeLatestDrivingMileages(pool, assetsList) {
     if (!matched) {
       const nameKey = normalizeVehicleMatchKey(asset.name);
       const codeKey = normalizeVehicleMatchKey(asset.assetCode);
+      const attrRegKey = normalizeVehicleMatchKey(
+        asset.attributes?.registrationNumber || asset.attributes?.plateNumber || ''
+      );
       matched =
         (nameKey ? bestByRegKey.get(nameKey) : undefined) ||
-        (codeKey ? bestByRegKey.get(codeKey) : undefined);
+        (codeKey ? bestByRegKey.get(codeKey) : undefined) ||
+        (attrRegKey ? bestByRegKey.get(attrRegKey) : undefined);
     }
     if (matched) {
       resultByAssetId[asset.id] = matched;
@@ -1523,9 +1549,6 @@ router.post(['/logs/:logId/confirm', '/:assetId/inspections/confirm'], async (re
 
     // 最終点検日・予定日属性をクリアし、SSOT（確定履歴 / アクティブ予定ログ）を唯一の正解とする
     const cleanedAttrs = stripLegacyInspectionDateAttrs(currentAsset.attributes);
-    if (Number.isFinite(parsedMileage)) {
-      cleanedAttrs.mileage = parsedMileage;
-    }
     if (inspectionType) {
       cleanedAttrs.inspectionType = inspectionType;
     }
@@ -1557,10 +1580,21 @@ router.post(['/logs/:logId/confirm', '/:assetId/inspections/confirm'], async (re
     };
     await persistAssetUpdate(pool, updatedAsset);
 
+    const dlMap = await computeLatestDrivingMileages(pool, [updatedAsset]);
+    const dl = dlMap[updatedAsset.id];
+    const enrichedUpdatedAsset = dl
+      ? {
+          ...updatedAsset,
+          latestDrivingMileage: dl.mileage,
+          latestDrivingMileageDate: dl.date,
+          latestDrivingReportId: dl.reportId
+        }
+      : updatedAsset;
+
     res.json({
       log: confirmedLog,
       nextScheduledLog,
-      asset: updatedAsset
+      asset: enrichedUpdatedAsset
     });
   } catch (err) {
     console.error('[Assets] POST /inspections/confirm error:', err);
@@ -1735,7 +1769,18 @@ router.post(['/', '/assets'], async (req, res) => {
       });
     }
 
-    res.status(201).json(newAsset);
+    const dlMap = await computeLatestDrivingMileages(pool, [newAsset]);
+    const dl = dlMap[newAsset.id];
+    res.status(201).json(
+      dl
+        ? {
+            ...newAsset,
+            latestDrivingMileage: dl.mileage,
+            latestDrivingMileageDate: dl.date,
+            latestDrivingReportId: dl.reportId
+          }
+        : newAsset
+    );
   } catch (err) {
     console.error('[Assets] POST / error:', err);
     res.status(500).json({ error: err.message });

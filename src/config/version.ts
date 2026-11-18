@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.18.2',
+  version: '2026.11.18.3',
   date: '2026-11-18',
-  releaseNumber: 2,
+  releaseNumber: 3,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.18 #2 (JST)',
-  description: '資産管理の点検予定ライフサイクル・項目別インライン編集・資産別点検チェックリスト・運転記録簿走行距離連動・メインカレンダー自動プロット実装'
+  display: 'v2026.11.18 #3 (JST)',
+  description: '資産管理の走行距離を運転記録簿の最新値から自動取得（未記録時は空白）に統一'
 } as const;

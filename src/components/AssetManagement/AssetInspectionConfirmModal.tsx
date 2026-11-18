@@ -439,7 +439,11 @@ export function AssetInspectionConfirmModal({
                       type="number"
                       value={mileage}
                       onChange={(e) => setMileage(e.target.value)}
-                      placeholder={effectiveMileage.source === 'driving_log' ? '運転記録簿連動' : '任意'}
+                      placeholder={
+                        effectiveMileage.source === 'driving_log'
+                          ? '運転記録簿から自動取得'
+                          : '運転記録簿未記録（空白可）'
+                      }
                       className="w-full px-2.5 py-2 text-sm bg-white border border-slate-300 rounded-lg tabular-nums"
                     />
                   </div>

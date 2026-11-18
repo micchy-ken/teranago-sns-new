@@ -46,6 +46,7 @@ import {
   ASSET_STATUS_META,
   INSPECTION_SCHEDULE_FIELD_KEYS,
   LAST_INSPECTION_FIELD_KEYS,
+  MILEAGE_FIELD_KEYS,
   computeAssetAlerts,
   exportAssetsToCsv,
   formatAssetDateJa,
@@ -962,18 +963,7 @@ export function AssetManagement({
         return;
       }
 
-      if (field.key === 'mileage') {
-        const trimmed = String(nextRaw ?? '').trim();
-        if (trimmed === '') return;
-        const num = Number(trimmed.replace(/,/g, ''));
-        if (!Number.isFinite(num) || num < 0) return;
-        await handleSaveAssetInline(asset, {
-          attributes: {
-            ...(asset.attributes || {}),
-            mileage: num,
-            mileageManualUpdatedAt: todayStr
-          }
-        });
+      if (LAST_INSPECTION_FIELD_KEYS.has(field.key) || MILEAGE_FIELD_KEYS.has(field.key)) {
         return;
       }
 
@@ -1008,16 +998,34 @@ export function AssetManagement({
       );
     }
 
+    // 2) 走行距離は「運転記録簿」の最新記録から自動取得。未記録時は必ず完全空白（'-' 禁止）
+    if (MILEAGE_FIELD_KEYS.has(field.key)) {
+      const mileageInfo = getEffectiveAssetMileage(asset);
+      if (mileageInfo.value === null) return null;
+      return (
+        <span
+          className="whitespace-nowrap text-xs text-slate-800 font-medium inline-flex items-center gap-1 tabular-nums"
+          title={
+            mileageInfo.date
+              ? `運転記録簿（${mileageInfo.date}時点）から自動取得`
+              : '運転記録簿から自動取得'
+          }
+        >
+          <span>
+            {Number(mileageInfo.value).toLocaleString()}
+            {field.unit ? ` ${field.unit}` : ''}
+          </span>
+          <Gauge className="w-3 h-3 text-sky-700 shrink-0" />
+        </span>
+      );
+    }
+
     const scheduled = INSPECTION_SCHEDULE_FIELD_KEYS.has(field.key)
       ? getActiveScheduledInspection(asset, logs, todayStr)
       : null;
-    const mileageInfo =
-      field.key === 'mileage' ? getEffectiveAssetMileage(asset) : null;
 
     const val = scheduled
       ? scheduled.eventDate
-      : mileageInfo
-      ? mileageInfo.value
       : asset.attributes?.[field.key];
 
     const canInlineEdit = Boolean(field.inlineEditable);
@@ -1178,14 +1186,6 @@ export function AssetManagement({
             {Number(val).toLocaleString()}
             {field.unit ? ` ${field.unit}` : ''}
           </span>
-          {mileageInfo?.source === 'driving_log' && (
-            <span
-              className="text-[10px] text-sky-700 font-semibold inline-flex items-center gap-0.5"
-              title={`運転記録簿（${mileageInfo.date}時点）から自動反映`}
-            >
-              <Gauge className="w-3 h-3" />
-            </span>
-          )}
         </span>
       );
     }

@@ -21,6 +21,7 @@ import {
 import {
   ASSET_ICON_OPTIONS,
   LAST_INSPECTION_FIELD_KEYS,
+  MILEAGE_FIELD_KEYS,
   buildAlignedPcCategoryFields,
   getAssetIconComponent,
   getCategoryTheme
@@ -253,7 +254,10 @@ export function AssetCategoryEditorModal({
           key: f.key.trim() || `field_${idx + 1}`,
           label: f.label.trim(),
           options: parsedOptions,
-          inlineEditable: LAST_INSPECTION_FIELD_KEYS.has(f.key) ? false : Boolean(f.inlineEditable),
+          inlineEditable:
+            LAST_INSPECTION_FIELD_KEYS.has(f.key) || MILEAGE_FIELD_KEYS.has(f.key)
+              ? false
+              : Boolean(f.inlineEditable),
           alertRule: f.type === 'date' ? f.alertRule : undefined,
           sortOrder: idx + 1
         };
@@ -584,6 +588,13 @@ export function AssetCategoryEditorModal({
                             title="確定済み点検履歴から自動算出されるため、直接編集は行いません（未確定時は空白）"
                           >
                             確定履歴から自動反映
+                          </span>
+                        ) : MILEAGE_FIELD_KEYS.has(field.key) ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] text-sky-700 font-semibold whitespace-nowrap"
+                            title="運転記録簿の最新記録から自動取得されるため、直接編集は行いません（未記録時は空白）"
+                          >
+                            運転記録簿から自動取得
                           </span>
                         ) : (
                           <label className="inline-flex items-center gap-1 text-xs text-indigo-800 font-semibold cursor-pointer whitespace-nowrap">
