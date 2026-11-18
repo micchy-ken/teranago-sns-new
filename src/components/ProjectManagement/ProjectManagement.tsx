@@ -1837,6 +1837,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
 
       {isCardModalOpen && (editingCard ? (boards.find(b => b.id === editingCard.projectId) || activeBoard) : activeBoard) && (
         <CardDetailModal
+          key={editingCard?.id || `new-${modalInitialColId || 'card'}`}
           isOpen={isCardModalOpen}
           onClose={() => {
             setIsCardModalOpen(false);

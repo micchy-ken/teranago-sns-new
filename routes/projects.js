@@ -2,7 +2,7 @@
  * routes/projects.js
  * 寺岡オートドアSNS プロジェクト・Todo・資料メモボード APIモジュール
  * （事務・営業・設計向け チーム＆個人ボード / カンバン / リスト / URL・資料・チェックリスト / コメント / 複製 / マイタスク横断集計）
- * 最終更新: 2026年11月17日 (SQL Server スキーマ自動補完・書込失敗サイレント隠蔽防止・JSON/SQL双方向同期強化)
+ * 最終更新: 2026年11月18日 (ProjectCards 担当者アサイン・JSON配列カラム旧互換・大文字小文字吸収・SQL/JSON双方向同期強化)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -345,13 +345,58 @@ function mapBoardRow(row) {
   };
 }
 
+function pickCardArrayField(row, arrayProp, candidates) {
+  if (Array.isArray(row[arrayProp]) && row[`${arrayProp}Json`] === undefined) {
+    return row[arrayProp];
+  }
+  return pickFirstJsonArray(...candidates);
+}
+
 function mapCardRow(row) {
-  const assigneeIdsRaw = safeParseJSON(row.assigneeIdsJson || row.assigneeIds, []);
-  const tagsRaw = safeParseJSON(row.tagsJson || row.tags, []);
-  const linksRaw = safeParseJSON(row.linksJson || row.links, []);
-  const attachmentsRaw = safeParseJSON(row.attachmentsJson || row.attachments, []);
-  const checklistRaw = safeParseJSON(row.checklistJson || row.checklist, []);
-  const commentsRaw = safeParseJSON(row.commentsJson || row.comments, []);
+  const assigneeIdsRaw = pickCardArrayField(row, 'assigneeIds', [
+    row.assigneeIdsJson,
+    row.AssigneeIdsJson,
+    row.assigneeidsjson,
+    row.assigneeIds,
+    row.AssigneeIds,
+    row.assigneeids,
+  ]);
+  const tagsRaw = pickCardArrayField(row, 'tags', [
+    row.tagsJson,
+    row.TagsJson,
+    row.tagsjson,
+    row.tags,
+    row.Tags,
+  ]);
+  const linksRaw = pickCardArrayField(row, 'links', [
+    row.linksJson,
+    row.LinksJson,
+    row.linksjson,
+    row.links,
+    row.Links,
+  ]);
+  const attachmentsRaw = pickCardArrayField(row, 'attachments', [
+    row.attachmentsJson,
+    row.AttachmentsJson,
+    row.attachmentsjson,
+    row.attachments,
+    row.Attachments,
+  ]);
+  const checklistRaw = pickCardArrayField(row, 'checklist', [
+    row.checklistJson,
+    row.ChecklistJson,
+    row.checklistjson,
+    row.checklist,
+    row.Checklist,
+  ]);
+  const commentsRaw = pickCardArrayField(row, 'comments', [
+    row.commentsJson,
+    row.CommentsJson,
+    row.commentsjson,
+    row.comments,
+    row.Comments,
+  ]);
+  const sortOrderNum = Number(row.sortOrder);
 
   return {
     id: String(row.id),
@@ -361,7 +406,9 @@ function mapCardRow(row) {
     title: String(row.title || '無題のカード'),
     description: row.description ? String(row.description) : '',
     priority: ['high', 'medium', 'low', 'none'].includes(row.priority) ? row.priority : 'none',
-    assigneeIds: Array.isArray(assigneeIdsRaw) ? assigneeIdsRaw.map(String) : [],
+    assigneeIds: Array.isArray(assigneeIdsRaw)
+      ? Array.from(new Set(assigneeIdsRaw.map(String).filter(Boolean)))
+      : [],
     dueDate: row.dueDate ? normalizeDateStr(row.dueDate) : undefined,
     startDate: row.startDate ? normalizeDateStr(row.startDate) : undefined,
     tags: Array.isArray(tagsRaw) ? tagsRaw.map(String).filter(Boolean) : [],
@@ -374,7 +421,7 @@ function mapCardRow(row) {
     completedBy: row.completedBy ? String(row.completedBy) : undefined,
     isPinned: Boolean(row.isPinned),
     isArchived: Boolean(row.isArchived),
-    sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : parseInt(row.sortOrder || '0', 10),
+    sortOrder: Number.isFinite(sortOrderNum) ? Math.trunc(sortOrderNum) : 0,
     createdBy: row.createdBy ? String(row.createdBy) : undefined,
     createdByName: row.createdByName ? String(row.createdByName) : undefined,
     updatedBy: row.updatedBy ? String(row.updatedBy) : undefined,
@@ -468,6 +515,13 @@ async function executeBoardSqlUpsert(pool, normalized) {
 
 async function executeCardSqlUpsert(pool, normalized) {
   const req = pool.request();
+  const assigneeIdsJsonStr = JSON.stringify(normalized.assigneeIds || []);
+  const tagsJsonStr = JSON.stringify(normalized.tags || []);
+  const linksJsonStr = JSON.stringify(normalized.links || []);
+  const attachmentsJsonStr = JSON.stringify(normalized.attachments || []);
+  const checklistJsonStr = JSON.stringify(normalized.checklist || []);
+  const commentsJsonStr = JSON.stringify(normalized.comments || []);
+
   req.input('id', sql.NVarChar(100), normalized.id);
   req.input('projectId', sql.NVarChar(100), normalized.projectId);
   req.input('columnId', sql.NVarChar(100), normalized.columnId);
@@ -475,14 +529,14 @@ async function executeCardSqlUpsert(pool, normalized) {
   req.input('title', sql.NVarChar(500), normalized.title);
   req.input('description', sql.NVarChar(sql.MAX), normalized.description || '');
   req.input('priority', sql.NVarChar(30), normalized.priority);
-  req.input('assigneeIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.assigneeIds || []));
+  req.input('assigneeIdsJson', sql.NVarChar(sql.MAX), assigneeIdsJsonStr);
   req.input('dueDate', sql.NVarChar(30), normalized.dueDate || null);
   req.input('startDate', sql.NVarChar(30), normalized.startDate || null);
-  req.input('tagsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.tags || []));
-  req.input('linksJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.links || []));
-  req.input('attachmentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.attachments || []));
-  req.input('checklistJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.checklist || []));
-  req.input('commentsJson', sql.NVarChar(sql.MAX), JSON.stringify(normalized.comments || []));
+  req.input('tagsJson', sql.NVarChar(sql.MAX), tagsJsonStr);
+  req.input('linksJson', sql.NVarChar(sql.MAX), linksJsonStr);
+  req.input('attachmentsJson', sql.NVarChar(sql.MAX), attachmentsJsonStr);
+  req.input('checklistJson', sql.NVarChar(sql.MAX), checklistJsonStr);
+  req.input('commentsJson', sql.NVarChar(sql.MAX), commentsJsonStr);
   req.input('isCompleted', sql.Bit, normalized.isCompleted ? 1 : 0);
   req.input('completedAt', sql.NVarChar(50), normalized.completedAt || null);
   req.input('completedBy', sql.NVarChar(100), normalized.completedBy || null);
@@ -492,6 +546,29 @@ async function executeCardSqlUpsert(pool, normalized) {
   req.input('createdBy', sql.NVarChar(100), normalized.createdBy || null);
   req.input('createdByName', sql.NVarChar(200), normalized.createdByName || null);
   req.input('updatedBy', sql.NVarChar(100), normalized.updatedBy || null);
+
+  const legacyPairs = [
+    ['assigneeids', 'assigneeIds', 'legacyAssigneeIds', assigneeIdsJsonStr],
+    ['tags', 'tags', 'legacyTags', tagsJsonStr],
+    ['links', 'links', 'legacyLinks', linksJsonStr],
+    ['attachments', 'attachments', 'legacyAttachments', attachmentsJsonStr],
+    ['checklist', 'checklist', 'legacyChecklist', checklistJsonStr],
+    ['comments', 'comments', 'legacyComments', commentsJsonStr],
+  ];
+  const legacySetClauses = [];
+  const legacyInsertCols = [];
+  const legacyInsertVals = [];
+  for (const [lowerCol, exactCol, paramName, valueStr] of legacyPairs) {
+    if (cachedCardColumns?.has(lowerCol)) {
+      req.input(paramName, sql.NVarChar(sql.MAX), valueStr);
+      legacySetClauses.push(`${exactCol} = @${paramName}`);
+      legacyInsertCols.push(exactCol);
+      legacyInsertVals.push(`@${paramName}`);
+    }
+  }
+  const extraSets = legacySetClauses.length > 0 ? ',\n            ' + legacySetClauses.join(',\n            ') : '';
+  const extraCols = legacyInsertCols.length > 0 ? ', ' + legacyInsertCols.join(', ') : '';
+  const extraVals = legacyInsertVals.length > 0 ? ', ' + legacyInsertVals.join(', ') : '';
 
   await req.query(`
     IF EXISTS (SELECT 1 FROM dbo.ProjectCards WHERE id = @id)
@@ -517,7 +594,7 @@ async function executeCardSqlUpsert(pool, normalized) {
         isPinned = @isPinned,
         isArchived = @isArchived,
         sortOrder = @sortOrder,
-        updatedBy = @updatedBy,
+        updatedBy = @updatedBy${extraSets},
         updatedAt = SYSDATETIME()
       WHERE id = @id;
     END
@@ -527,13 +604,13 @@ async function executeCardSqlUpsert(pool, normalized) {
         id, projectId, columnId, cardType, title, description, priority,
         assigneeIdsJson, dueDate, startDate, tagsJson, linksJson, attachmentsJson,
         checklistJson, commentsJson, isCompleted, completedAt, completedBy,
-        isPinned, isArchived, sortOrder, createdBy, createdByName, updatedBy,
+        isPinned, isArchived, sortOrder, createdBy, createdByName, updatedBy${extraCols},
         createdAt, updatedAt
       ) VALUES (
         @id, @projectId, @columnId, @cardType, @title, @description, @priority,
         @assigneeIdsJson, @dueDate, @startDate, @tagsJson, @linksJson, @attachmentsJson,
         @checklistJson, @commentsJson, @isCompleted, @completedAt, @completedBy,
-        @isPinned, @isArchived, @sortOrder, @createdBy, @createdByName, @updatedBy,
+        @isPinned, @isArchived, @sortOrder, @createdBy, @createdByName, @updatedBy${extraVals},
         SYSDATETIME(), SYSDATETIME()
       );
     END
@@ -1249,6 +1326,14 @@ async function handleCreateCard(req, res) {
       .filter(c => c.columnId === columnId)
       .reduce((acc, c) => Math.max(acc, c.sortOrder || 0), 0);
 
+    const rawAssignees = Array.isArray(body.assigneeIds)
+      ? body.assigneeIds
+      : pickFirstJsonArray(body.assigneeIds, body.assigneeIdsJson);
+    const normalizedAssignees = Array.from(
+      new Set((Array.isArray(rawAssignees) ? rawAssignees : []).map(String).filter(Boolean))
+    );
+    const parsedSortOrder = Number(body.sortOrder);
+
     const card = await persistCard({
       id: body.id || generateId('card'),
       projectId,
@@ -1257,7 +1342,7 @@ async function handleCreateCard(req, res) {
       title,
       description: body.description || '',
       priority: ['high', 'medium', 'low', 'none'].includes(body.priority) ? body.priority : 'none',
-      assigneeIds: Array.isArray(body.assigneeIds) ? body.assigneeIds.map(String) : [],
+      assigneeIds: normalizedAssignees,
       dueDate: body.dueDate ? normalizeDateStr(body.dueDate) : undefined,
       startDate: body.startDate ? normalizeDateStr(body.startDate) : undefined,
       tags: Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean) : [],
@@ -1270,7 +1355,7 @@ async function handleCreateCard(req, res) {
       completedBy: isCompleted ? (body.completedBy || body.createdBy || undefined) : undefined,
       isPinned: Boolean(body.isPinned),
       isArchived: false,
-      sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : maxOrder + 1,
+      sortOrder: Number.isFinite(parsedSortOrder) ? Math.trunc(parsedSortOrder) : maxOrder + 1,
       createdBy: body.createdBy ? String(body.createdBy) : undefined,
       createdByName: body.createdByName ? String(body.createdByName) : undefined,
       updatedBy: body.createdBy ? String(body.createdBy) : undefined,
@@ -1402,6 +1487,17 @@ async function handleUpdateCard(req, res) {
       nextCompletedBy = undefined;
     }
 
+    let nextAssigneeIds = Array.isArray(existing.assigneeIds) ? existing.assigneeIds.map(String) : [];
+    if (body.assigneeIds !== undefined || body.assigneeIdsJson !== undefined) {
+      const rawAssignees = Array.isArray(body.assigneeIds)
+        ? body.assigneeIds
+        : pickFirstJsonArray(body.assigneeIds, body.assigneeIdsJson);
+      nextAssigneeIds = Array.from(
+        new Set((Array.isArray(rawAssignees) ? rawAssignees : []).map(String).filter(Boolean))
+      );
+    }
+    const parsedSortOrder = body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder;
+
     const updated = await persistCard({
       ...existing,
       projectId: targetProjectId,
@@ -1410,7 +1506,7 @@ async function handleUpdateCard(req, res) {
       title: body.title !== undefined ? (String(body.title).trim() || existing.title) : existing.title,
       description: body.description !== undefined ? String(body.description) : existing.description,
       priority: body.priority !== undefined ? body.priority : existing.priority,
-      assigneeIds: body.assigneeIds !== undefined ? (Array.isArray(body.assigneeIds) ? body.assigneeIds.map(String) : []) : existing.assigneeIds,
+      assigneeIds: nextAssigneeIds,
       dueDate: body.dueDate !== undefined ? (body.dueDate ? normalizeDateStr(body.dueDate) : undefined) : existing.dueDate,
       startDate: body.startDate !== undefined ? (body.startDate ? normalizeDateStr(body.startDate) : undefined) : existing.startDate,
       tags: body.tags !== undefined ? (Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean) : []) : existing.tags,
@@ -1423,7 +1519,7 @@ async function handleUpdateCard(req, res) {
       completedBy: nextCompletedBy,
       isPinned: body.isPinned !== undefined ? Boolean(body.isPinned) : existing.isPinned,
       isArchived: body.isArchived !== undefined ? Boolean(body.isArchived) : existing.isArchived,
-      sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sortOrder,
+      sortOrder: Number.isFinite(parsedSortOrder) ? Math.trunc(parsedSortOrder) : existing.sortOrder,
       updatedBy: body.updatedBy ? String(body.updatedBy) : existing.updatedBy,
     });
 

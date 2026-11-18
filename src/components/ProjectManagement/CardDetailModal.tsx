@@ -644,7 +644,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                   </div>
                 </div>
 
-                {assigneeIds.length > 0 && (
+                {assigneeIds.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-1.5 mb-2">
                     {assigneeIds.map(id => {
                       const u = allUsers.find(user => String(user.id) === String(id));
@@ -667,6 +667,10 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                         </button>
                       );
                     })}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 mb-2">
+                    未アサイン（「メンバーを選択」または「＋ 自分を追加」から担当者を指定できます）
                   </div>
                 )}
 
