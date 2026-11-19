@@ -68,7 +68,7 @@ import { GlobalReportDetailModal } from './components/GlobalReportDetailModal';
 import { GlobalWorkflowDetailModal } from './components/GlobalWorkflowDetailModal';
 import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
-import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel, findBestMatchingApprovalFlow } from './utils/workflowHelpers';
+import { filterStepsForApplicant, resolveApproverForStep, resolveApproversForStep, isUserCurrentApprover, getSupervisorAtLevel, findBestMatchingApprovalFlow } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
 import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
@@ -3260,7 +3260,34 @@ export default function App() {
       ? rawSteps
       : filterStepsForApplicant(appData.applicant, rawSteps, usersList, resolveCtx);
 
-    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0] || rawSteps[0], usersList, resolveCtx);
+    const firstStep = stepsConfig[0] || rawSteps[0];
+    const resolvedFirstApprovers = firstStep
+      ? resolveApproversForStep(appData.applicant, firstStep, usersList, resolveCtx)
+      : [];
+    const initialApprover =
+      appData.approver ||
+      resolvedFirstApprovers[0] ||
+      resolveApproverForStep(appData.applicant, firstStep, usersList, resolveCtx);
+
+    // ステップ1のOR候補スナップショットを最新化（軽量未読チェックでも全員に表示されるようにする）
+    const normalizedStepsConfig: ApprovalStepConfig[] = stepsConfig.map((st, idx) => {
+      if (idx !== 0) return st;
+      const nonSelfIds = resolvedFirstApprovers
+        .filter((u) => String(u.id) !== String(appData.applicant.id))
+        .map((u) => String(u.id));
+      const isOr = nonSelfIds.length > 1;
+      return {
+        ...st,
+        approvalMode: isOr ? 'or' : (st.approvalMode || 'single'),
+        resolvedApproverId: st.resolvedApproverId || (initialApprover?.id ? String(initialApprover.id) : undefined),
+        orApproverUserIds:
+          st.orApproverUserIds && st.orApproverUserIds.length > 0
+            ? st.orApproverUserIds
+            : isOr
+            ? nonSelfIds
+            : undefined,
+      };
+    });
 
     const tempId = `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newApp: WorkflowApplication = {
@@ -3272,37 +3299,53 @@ export default function App() {
       flowId: appData.flowId || selectedFlow?.id,
       flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
       currentStepIndex: 1,
-      totalSteps: stepsConfig.length,
-      stepsConfig: stepsConfig,
+      totalSteps: normalizedStepsConfig.length,
+      stepsConfig: normalizedStepsConfig,
       history: [],
     };
     setApplications([newApp, ...applications]);
 
-    // 承認者にプッシュ通知を配信
-    if (initialApprover?.id && initialApprover.id !== appData.applicant.id && appData.status !== 'draft') {
-      triggerPushNotification({
-        targetUserId: initialApprover.id,
-        excludeUserId: appData.applicant.id,
-        title: `📋 承認依頼: ${appData.title}`,
-        body: `${appData.applicant.name}さんから新しい申請が届きました。`,
-        url: `/?tab=workflow&appId=${tempId}`,
-        tag: `wf-${tempId}`
-      });
+    // 承認者（OR承認の場合は全候補者）にプッシュ通知・メールを配信
+    if (appData.status !== 'draft') {
+      const recipientMap = new Map<string, User>();
+      const rawRecipients = resolvedFirstApprovers.length > 0 ? resolvedFirstApprovers : (initialApprover ? [initialApprover] : []);
+      for (const u of rawRecipients) {
+        if (!u?.id || String(u.id) === String(appData.applicant.id)) continue;
+        const hydrated = usersList.find((usr) => String(usr.id) === String(u.id)) || u;
+        recipientMap.set(String(hydrated.id), hydrated);
+      }
+      const notifyRecipients = Array.from(recipientMap.values());
+      const isMultiOr = notifyRecipients.length > 1;
 
-      const approverUser = usersList.find(u => u.id === initialApprover.id) || initialApprover;
-      dispatchNotificationEmail([approverUser], {
-        category: 'workflow',
-        categoryLabel: 'ワークフロー',
-        title: `承認依頼: ${appData.title}`,
-        actorName: appData.applicant.name,
-        details: [
-          { label: '申請タイトル', value: appData.title },
-          { label: '申請者', value: appData.applicant.name },
-          { label: '申請種別', value: (appData as any).typeLabel || (appData as any).flowName || '各種申請' },
-        ],
-        mainContent: (appData as any).reason || (appData as any).description,
-        pathParams: `tab=workflow&appId=${tempId}`,
-      }, appData.applicant);
+      if (notifyRecipients.length > 0) {
+        for (const rec of notifyRecipients) {
+          triggerPushNotification({
+            targetUserId: rec.id,
+            excludeUserId: appData.applicant.id,
+            title: `📋 承認依頼: ${appData.title}`,
+            body: isMultiOr
+              ? `${appData.applicant.name}さんから新しい申請が届きました（OR承認・いずれか1名の承認で完了）。`
+              : `${appData.applicant.name}さんから新しい申請が届きました。`,
+            url: `/?tab=workflow&appId=${tempId}`,
+            tag: `wf-${tempId}`
+          });
+        }
+
+        dispatchNotificationEmail(notifyRecipients, {
+          category: 'workflow',
+          categoryLabel: 'ワークフロー',
+          title: isMultiOr ? `承認依頼（OR承認）: ${appData.title}` : `承認依頼: ${appData.title}`,
+          actorName: appData.applicant.name,
+          details: [
+            { label: '申請タイトル', value: appData.title },
+            { label: '申請者', value: appData.applicant.name },
+            { label: '申請種別', value: (appData as any).typeLabel || (appData as any).flowName || '各種申請' },
+            ...(isMultiOr ? [{ label: '承認方式', value: `OR承認（候補: ${notifyRecipients.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
+          ],
+          mainContent: (appData as any).reason || (appData as any).description,
+          pathParams: `tab=workflow&appId=${tempId}`,
+        }, appData.applicant);
+      }
     }
 
     try {
@@ -3334,8 +3377,8 @@ export default function App() {
             flowId: appData.flowId || selectedFlow?.id,
             flowName: appData.flowName || selectedFlow?.name || '標準承認フロー',
             currentStepIndex: 1,
-            totalSteps: stepsConfig.length,
-            stepsConfig: stepsConfig,
+            totalSteps: normalizedStepsConfig.length,
+            stepsConfig: normalizedStepsConfig,
             history: [],
             purchaseOrderNumber: appData.purchaseOrderNumber || null,
             constructionDate: appData.constructionDate || null,
@@ -3365,12 +3408,20 @@ export default function App() {
     }
   };
 
-  // Handle workflow approval / rejection (Multi-step approval processing)
+  // Handle workflow approval / rejection (Multi-step & OR approval processing)
   const handleWorkflowAction = async (id: string, actionStatus: 'approved' | 'rejected', comment?: string) => {
     const targetApp = applications.find(a => a.id === id);
     if (!targetApp) return;
 
+    // 先着1名・二重承認防止ガード（既に別候補者が処理済み・または権限外の場合は最新一覧を再取得して終了）
+    if (targetApp.status !== 'pending' || !isUserCurrentApprover(targetApp, userState, usersList, offices)) {
+      await refetchApplications();
+      return;
+    }
+
     let resultApp: WorkflowApplication;
+    let nextStepRecipients: User[] = [];
+
     if (actionStatus === 'rejected') {
       resultApp = {
         ...targetApp,
@@ -3390,7 +3441,9 @@ export default function App() {
     } else {
       // 承認アクション (actionStatus === 'approved')
       let currentStep = targetApp.currentStepIndex || 1;
-      const stepsConfig = (targetApp.stepsConfig && targetApp.stepsConfig.length > 0) ? targetApp.stepsConfig : null;
+      const stepsConfig = (targetApp.stepsConfig && targetApp.stepsConfig.length > 0)
+        ? targetApp.stepsConfig.map(s => ({ ...s }))
+        : null;
       const totalSteps = stepsConfig ? stepsConfig.length : (targetApp.totalSteps || 1);
 
       let newHistory = [...(targetApp.history || [])];
@@ -3415,30 +3468,46 @@ export default function App() {
       const alreadyApprovedIds = new Set<string>(
         newHistory
           .filter(h => h.status === 'approved' && h.approver?.id)
-          .map(h => h.approver.id)
+          .map(h => String(h.approver.id))
       );
+      const applicantId = targetApp.applicant?.id ? String(targetApp.applicant.id) : '';
 
-      // 次のステップが存在し、かつ次の承認者が今回の承認者・既承認者・申請者本人と同一の場合、自動スキップ承認
+      // 次のステップが存在し、全候補が申請者本人または今回の承認者・既承認者がOR候補に含まれる場合（案1）は自動スキップ
       while (currentStep <= totalSteps && stepsConfig) {
         const nextStepConfig = stepsConfig[currentStep - 1];
-        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
+        const nextCandidates = resolveApproversForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
+        const isOrStep =
+          nextCandidates.length > 1 ||
+          nextStepConfig.approvalMode === 'or' ||
+          (Array.isArray(nextStepConfig.orApprovers) && nextStepConfig.orApprovers.length > 0);
 
-        if (nextApprover && targetApp.applicant?.id && nextApprover.id === targetApp.applicant.id) {
+        const isAllSelf =
+          nextCandidates.length > 0 &&
+          Boolean(applicantId) &&
+          nextCandidates.every(c => String(c.id) === applicantId);
+
+        const matchedPriorApprover = nextCandidates.find(
+          c => String(c.id) === String(userState.id) || alreadyApprovedIds.has(String(c.id))
+        );
+
+        if (isAllSelf) {
           newHistory.push({
             stepNumber: currentStep,
-            approver: nextApprover,
+            approver: nextCandidates[0],
             status: 'approved',
             actionAt: new Date().toISOString(),
             comment: '（申請者本人のため自動スキップ）',
           });
           currentStep++;
-        } else if (nextApprover && (nextApprover.id === userState.id || alreadyApprovedIds.has(nextApprover.id))) {
+        } else if (matchedPriorApprover) {
           newHistory.push({
             stepNumber: currentStep,
-            approver: nextApprover,
+            approver: matchedPriorApprover,
             status: 'approved',
             actionAt: new Date().toISOString(),
-            comment: '（同一承認者のため自動スキップ）',
+            comment: isOrStep
+              ? '（同一承認者がOR候補に含まれるため自動スキップ）'
+              : '（同一承認者のため自動スキップ）',
           });
           currentStep++;
         } else {
@@ -3448,11 +3517,35 @@ export default function App() {
 
       if (currentStep <= totalSteps && stepsConfig) {
         const nextStepConfig = stepsConfig[currentStep - 1];
-        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
+        const nextCandidates = resolveApproversForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
+        const eligibleNext =
+          applicantId && nextCandidates.some(c => String(c.id) !== applicantId)
+            ? nextCandidates.filter(c => String(c.id) !== applicantId)
+            : nextCandidates;
+        const nextApprover = eligibleNext[0] || resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
+
+        // 次ステップのORスナップショットを最新化
+        if (eligibleNext.length > 1) {
+          stepsConfig[currentStep - 1] = {
+            ...nextStepConfig,
+            approvalMode: 'or',
+            resolvedApproverId: String(nextApprover.id),
+            orApproverUserIds: eligibleNext.map(c => String(c.id)),
+          };
+        } else if (nextApprover?.id) {
+          stepsConfig[currentStep - 1] = {
+            ...nextStepConfig,
+            resolvedApproverId: String(nextApprover.id),
+          };
+        }
+
+        nextStepRecipients = eligibleNext.length > 0 ? eligibleNext : (nextApprover ? [nextApprover] : []);
+
         resultApp = {
           ...targetApp,
           currentStepIndex: currentStep,
           totalSteps: totalSteps,
+          stepsConfig: stepsConfig,
           approver: nextApprover,
           status: 'pending',
           history: newHistory,
@@ -3463,6 +3556,7 @@ export default function App() {
           status: 'approved',
           currentStepIndex: totalSteps,
           totalSteps: totalSteps,
+          stepsConfig: stepsConfig || targetApp.stepsConfig,
           history: newHistory,
         };
       }
@@ -3551,30 +3645,46 @@ export default function App() {
       }
     }
 
-    // 次の承認者がいる場合、次の承認者に依頼を通知
-    if (actionStatus === 'approved' && resultApp.status === 'pending' && resultApp.approver && resultApp.approver.id !== userState.id) {
-      triggerPushNotification({
-        targetUserId: resultApp.approver.id,
-        excludeUserId: userState.id,
-        title: `📋 次期承認依頼: ${resultApp.title}`,
-        body: `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}）の確認をお願いします。`,
-        url: `/?tab=workflow&appId=${id}`,
-        tag: `wf-${id}`
-      });
+    // 次の承認者（OR承認の場合は全候補者）に依頼を通知
+    if (actionStatus === 'approved' && resultApp.status === 'pending') {
+      const nextRecMap = new Map<string, User>();
+      const rawNextRecs = nextStepRecipients.length > 0 ? nextStepRecipients : (resultApp.approver ? [resultApp.approver] : []);
+      for (const u of rawNextRecs) {
+        if (!u?.id || String(u.id) === String(userState.id)) continue;
+        const hydrated = usersList.find(usr => String(usr.id) === String(u.id)) || u;
+        nextRecMap.set(String(hydrated.id), hydrated);
+      }
+      const finalNextRecs = Array.from(nextRecMap.values());
+      const isMultiOrNext = finalNextRecs.length > 1;
 
-      const nextApprover = usersList.find(u => u.id === resultApp.approver.id) || resultApp.approver;
-      dispatchNotificationEmail([nextApprover], {
-        category: 'workflow',
-        categoryLabel: 'ワークフロー',
-        title: `次期承認依頼: ${resultApp.title}`,
-        actorName: userState.name,
-        details: [
-          { label: '申請タイトル', value: resultApp.title },
-          { label: '申請者', value: targetApp.applicant.name },
-          { label: '進行ステップ', value: `${resultApp.currentStepIndex}/${resultApp.totalSteps}` },
-        ],
-        pathParams: `tab=workflow&appId=${id}`,
-      }, userState);
+      if (finalNextRecs.length > 0) {
+        for (const rec of finalNextRecs) {
+          triggerPushNotification({
+            targetUserId: rec.id,
+            excludeUserId: userState.id,
+            title: `📋 次期承認依頼: ${resultApp.title}`,
+            body: isMultiOrNext
+              ? `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}・OR承認）の確認をお願いします。`
+              : `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}）の確認をお願いします。`,
+            url: `/?tab=workflow&appId=${id}`,
+            tag: `wf-${id}`
+          });
+        }
+
+        dispatchNotificationEmail(finalNextRecs, {
+          category: 'workflow',
+          categoryLabel: 'ワークフロー',
+          title: isMultiOrNext ? `次期承認依頼（OR承認）: ${resultApp.title}` : `次期承認依頼: ${resultApp.title}`,
+          actorName: userState.name,
+          details: [
+            { label: '申請タイトル', value: resultApp.title },
+            { label: '申請者', value: targetApp.applicant.name },
+            { label: '進行ステップ', value: `${resultApp.currentStepIndex}/${resultApp.totalSteps}` },
+            ...(isMultiOrNext ? [{ label: '承認方式', value: `OR承認（候補: ${finalNextRecs.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
+          ],
+          pathParams: `tab=workflow&appId=${id}`,
+        }, userState);
+      }
     }
 
     try {
@@ -3659,16 +3769,41 @@ export default function App() {
             { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
           ]);
 
-      const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList, resolveCtx);
+      const firstStepApprovers = stepsConfig[0]
+        ? resolveApproversForStep(updatedApp.applicant, stepsConfig[0], usersList, resolveCtx)
+        : [];
+      const initialApprover =
+        updatedApp.approver ||
+        firstStepApprovers[0] ||
+        resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList, resolveCtx);
       const isSubmittingFromDraftOrReject = (app.status === 'draft' || app.status === 'rejected') && targetStatus === 'pending';
+
+      const normalizedStepsConfig: ApprovalStepConfig[] = stepsConfig.map((st, idx) => {
+        if (idx !== 0) return st;
+        const nonSelfIds = firstStepApprovers
+          .filter(u => String(u.id) !== String(updatedApp.applicant.id))
+          .map(u => String(u.id));
+        const isOr = nonSelfIds.length > 1;
+        return {
+          ...st,
+          approvalMode: isOr ? 'or' : (st.approvalMode || 'single'),
+          resolvedApproverId: st.resolvedApproverId || (initialApprover?.id ? String(initialApprover.id) : undefined),
+          orApproverUserIds:
+            st.orApproverUserIds && st.orApproverUserIds.length > 0
+              ? st.orApproverUserIds
+              : isOr
+              ? nonSelfIds
+              : undefined,
+        };
+      });
 
       const resultApp: WorkflowApplication = {
         ...updatedApp,
         status: targetStatus,
         rejectReason: targetStatus === 'pending' ? undefined : updatedApp.rejectReason,
         currentStepIndex: targetStatus === 'pending' ? 1 : updatedApp.currentStepIndex,
-        totalSteps: stepsConfig.length,
-        stepsConfig: stepsConfig,
+        totalSteps: normalizedStepsConfig.length,
+        stepsConfig: normalizedStepsConfig,
         approver: initialApprover,
         flowId: updatedApp.flowId || selectedFlow?.id,
         flowName: updatedApp.flowName || selectedFlow?.name || '標準承認フロー',
@@ -3688,6 +3823,51 @@ export default function App() {
     }));
 
     if (finalAppObj) {
+      // 下書きからの提出・却下からの再申請時、OR候補全員に通知を配信
+      const prevExisting = applications.find(a => a.id === updatedApp.id);
+      const wasDraftOrReject = prevExisting && (prevExisting.status === 'draft' || prevExisting.status === 'rejected');
+      if (wasDraftOrReject && finalAppObj.status === 'pending' && finalAppObj.stepsConfig?.[0]) {
+        const resubmitCtx = {
+          offices,
+          applicationOfficeId: finalAppObj.officeId,
+          applicationLocation: finalAppObj.location,
+        };
+        const resubmitCandidates = resolveApproversForStep(finalAppObj.applicant, finalAppObj.stepsConfig[0], usersList, resubmitCtx);
+        const recMap = new Map<string, User>();
+        for (const u of (resubmitCandidates.length > 0 ? resubmitCandidates : (finalAppObj.approver ? [finalAppObj.approver] : []))) {
+          if (!u?.id || String(u.id) === String(finalAppObj.applicant.id)) continue;
+          const hydrated = usersList.find(usr => String(usr.id) === String(u.id)) || u;
+          recMap.set(String(hydrated.id), hydrated);
+        }
+        const recs = Array.from(recMap.values());
+        const isMultiOr = recs.length > 1;
+        if (recs.length > 0) {
+          for (const rec of recs) {
+            triggerPushNotification({
+              targetUserId: rec.id,
+              excludeUserId: finalAppObj.applicant.id,
+              title: `📋 承認依頼: ${finalAppObj.title}`,
+              body: isMultiOr
+                ? `${finalAppObj.applicant.name}さんから申請が提出されました（OR承認・いずれか1名）。`
+                : `${finalAppObj.applicant.name}さんから申請が提出されました。`,
+              url: `/?tab=workflow&appId=${finalAppObj.id}`,
+              tag: `wf-${finalAppObj.id}`
+            });
+          }
+          dispatchNotificationEmail(recs, {
+            category: 'workflow',
+            categoryLabel: 'ワークフロー',
+            title: isMultiOr ? `承認依頼（OR承認）: ${finalAppObj.title}` : `承認依頼: ${finalAppObj.title}`,
+            actorName: finalAppObj.applicant.name,
+            details: [
+              { label: '申請タイトル', value: finalAppObj.title },
+              { label: '申請者', value: finalAppObj.applicant.name },
+              ...(isMultiOr ? [{ label: '承認方式', value: `OR承認（候補: ${recs.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
+            ],
+            pathParams: `tab=workflow&appId=${finalAppObj.id}`,
+          }, finalAppObj.applicant);
+        }
+      }
       try {
         const { applicant, approver, ...restDetails } = finalAppObj as any;
         await fetch(`${API_BASE_URL}/workflows/${updatedApp.id}`, {

@@ -7,7 +7,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { triggerOpenUserModal } from '../utils/userModal';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproversForStep, resolveApproverForStepDetails, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -332,32 +332,60 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
     return (curr && curr.id !== applicantId) ? curr.id : undefined;
   };
 
-  // 各ステップの実際の承認者ユーザー情報を計算
+  // 各ステップの実際の承認者ユーザー情報を計算（OR承認候補にも対応）
   const resolveStepUserInfo = (
     app: WorkflowApplication,
     stepConfig: ApprovalStepConfig,
     stepIdx: number
-  ): { name: string; avatarUrl?: string; roleLabel: string } => {
-    // 履歴があれば履歴から
+  ): { name: string; avatarUrl?: string; roleLabel: string; candidates?: UserType[]; isOr?: boolean } => {
+    // 履歴があれば実際に承認/却下した担当者を表示
     const hist = app.history?.find(h => h.stepNumber === stepIdx + 1);
     if (hist && hist.approver) {
       return {
         name: hist.approver.name,
         avatarUrl: hist.approver.avatarUrl,
-        roleLabel: `${stepIdx + 1}次承認`
+        roleLabel: `${stepIdx + 1}次承認`,
+        isOr: false,
       };
     }
 
-    const details = resolveApproverForStepDetails(app.applicant, stepConfig, stepIdx, allUsers, {
+    const resolveCtx = {
       offices,
       applicationOfficeId: app.officeId,
       applicationLocation: app.location,
-    });
+    };
+
+    const isOrConfigured =
+      stepConfig.approvalMode === 'or' ||
+      (Array.isArray(stepConfig.orApprovers) && stepConfig.orApprovers.length > 0) ||
+      (Array.isArray(stepConfig.orApproverUserIds) && stepConfig.orApproverUserIds.length > 1);
+
+    if (isOrConfigured && !stepConfig.manualApproverId) {
+      const candidates = resolveApproversForStep(app.applicant, stepConfig, allUsers, resolveCtx);
+      const applicantId = app.applicant?.id ? String(app.applicant.id) : '';
+      const eligible =
+        applicantId && candidates.some(c => String(c.id) !== applicantId)
+          ? candidates.filter(c => String(c.id) !== applicantId)
+          : candidates;
+      if (eligible.length > 1) {
+        return {
+          name: eligible.map(c => c.name).join(' / '),
+          avatarUrl: eligible[0]?.avatarUrl,
+          roleLabel: 'OR承認・いずれか1名',
+          candidates: eligible,
+          isOr: true,
+        };
+      }
+    }
+
+    const details = resolveApproverForStepDetails(app.applicant, stepConfig, stepIdx, allUsers, resolveCtx);
     if (details?.user) {
       return {
         name: details.user.name,
         avatarUrl: details.user.avatarUrl,
-        roleLabel: details.label || stepConfig.stepName || `${stepIdx + 1}次承認`
+        roleLabel: details.label || stepConfig.stepName || `${stepIdx + 1}次承認`,
+        candidates: [details.user],
+        isOr: false,
       };
     }
 
@@ -366,11 +394,13 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
       return {
         name: app.approver.name,
         avatarUrl: app.approver.avatarUrl,
-        roleLabel: stepConfig.stepName || `${stepIdx + 1}次承認`
+        roleLabel: stepConfig.stepName || `${stepIdx + 1}次承認`,
+        candidates: [app.approver],
+        isOr: false,
       };
     }
 
-    return { name: app.approver?.name || '全社管理者', roleLabel: '管理者代行' };
+    return { name: app.approver?.name || '全社管理者', roleLabel: '管理者代行', isOr: false };
   };
 
   // 動的に現在ログイン中のユーザーが対象申請のステップ承認者かをチェックする関数
@@ -837,26 +867,59 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {app.status === 'pending' && (
-                            <div className="flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-300 animate-pulse">
-                              <Clock className="w-3.5 h-3.5 text-amber-700" />
-                              <span>
-                                確認待ち: 今{' '}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (app.approver) triggerOpenUserModal(app.approver);
-                                  }}
-                                  className="underline decoration-amber-500 font-extrabold hover:text-indigo-700 cursor-pointer"
-                                  title="承認者の社員詳細を表示"
-                                >
-                                  {app.approver?.name || '承認者'}
-                                </button>{' '}
-                                さんの承認確認待ちです
-                              </span>
-                            </div>
-                          )}
+                          {app.status === 'pending' && (() => {
+                            const curStepIdx = (app.currentStepIndex || 1) - 1;
+                            const curStepCfg = displaySteps[curStepIdx];
+                            const curStepInfo = curStepCfg ? resolveStepUserInfo(app, curStepCfg, curStepIdx) : null;
+                            const curOrCandidates = curStepInfo?.isOr && curStepInfo.candidates && curStepInfo.candidates.length > 1
+                              ? curStepInfo.candidates
+                              : null;
+
+                            return (
+                              <div className="flex items-center gap-1.5 font-bold text-amber-900 bg-amber-100/80 px-2.5 py-1 rounded-lg border border-amber-300 animate-pulse">
+                                <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                {curOrCandidates ? (
+                                  <span className="flex items-center flex-wrap gap-1">
+                                    <span>確認待ち:</span>
+                                    <span className="px-1 py-0.2 rounded bg-violet-600 text-white text-[9px] font-black whitespace-nowrap">OR</span>
+                                    {curOrCandidates.map((cand, cIdx) => (
+                                      <React.Fragment key={cand.id}>
+                                        {cIdx > 0 && <span className="text-amber-700/70">/</span>}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            triggerOpenUserModal(cand);
+                                          }}
+                                          className="underline decoration-amber-500 font-extrabold hover:text-indigo-700 cursor-pointer"
+                                          title={`${cand.name} さんの社員詳細を表示`}
+                                        >
+                                          {cand.name}
+                                        </button>
+                                      </React.Fragment>
+                                    ))}
+                                    <span>（いずれか1名）の承認待ち</span>
+                                  </span>
+                                ) : (
+                                  <span>
+                                    確認待ち: 今{' '}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (app.approver) triggerOpenUserModal(app.approver);
+                                      }}
+                                      className="underline decoration-amber-500 font-extrabold hover:text-indigo-700 cursor-pointer"
+                                      title="承認者の社員詳細を表示"
+                                    >
+                                      {app.approver?.name || '承認者'}
+                                    </button>{' '}
+                                    さんの承認確認待ちです
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {app.status === 'approved' && (
                             <div className="flex items-center gap-1 font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-lg border border-emerald-300">
@@ -930,11 +993,11 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                                   <div
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (userInfo.name && userInfo.name !== '未定' && userInfo.name !== '承認者') {
+                                      if (!userInfo.isOr && userInfo.name && userInfo.name !== '未定' && userInfo.name !== '承認者') {
                                         triggerOpenUserModal(userInfo.name);
                                       }
                                     }}
-                                    title={`${userInfo.name} さんの社員詳細を表示`}
+                                    title={userInfo.isOr ? `OR承認候補: ${userInfo.name}` : `${userInfo.name} さんの社員詳細を表示`}
                                     className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all cursor-pointer hover:ring-2 hover:ring-indigo-300/60 ${
                                       isDuplicate
                                         ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-60'
@@ -960,20 +1023,25 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                                     </div>
 
                                     <div className="flex flex-col">
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex items-center gap-1 flex-wrap">
+                                        {userInfo.isOr && stepState !== 'completed' && (
+                                          <span className="text-[9px] font-extrabold bg-violet-100 text-violet-800 border border-violet-200 px-1 rounded whitespace-nowrap">
+                                            OR
+                                          </span>
+                                        )}
                                         <span className={`font-bold ${isDuplicate ? 'line-through text-slate-500' : ''}`}>
                                           {userInfo.name}
                                         </span>
                                         {isDuplicate ? (
-                                          <span className="text-[9px] font-extrabold bg-slate-200 text-slate-600 px-1 rounded">
+                                          <span className="text-[9px] font-extrabold bg-slate-200 text-slate-600 px-1 rounded whitespace-nowrap">
                                             自動スキップ
                                           </span>
                                         ) : stepState === 'current' ? (
-                                          <span className="text-[9px] font-extrabold bg-amber-200 text-amber-900 px-1 rounded">
+                                          <span className="text-[9px] font-extrabold bg-amber-200 text-amber-900 px-1 rounded whitespace-nowrap">
                                             確認待ち
                                           </span>
                                         ) : stepState === 'completed' ? (
-                                          <span className="text-[9px] font-extrabold bg-emerald-200 text-emerald-900 px-1 rounded">
+                                          <span className="text-[9px] font-extrabold bg-emerald-200 text-emerald-900 px-1 rounded whitespace-nowrap">
                                             承認済
                                           </span>
                                         ) : null}

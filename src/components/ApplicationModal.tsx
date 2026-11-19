@@ -1742,24 +1742,28 @@ export function ApplicationModal({
                             <div className={`flex flex-col gap-2 p-2.5 rounded-xl border transition-all ${
                               isSkipped
                                 ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-70 shadow-none'
+                                : item.isOrStep && item.candidates.length > 1
+                                ? 'bg-violet-50/40 border-violet-200 shadow-2xs'
                                 : 'bg-white border-slate-200 shadow-2xs'
                             }`}>
-                              <div className="flex items-center gap-2.5">
-                                <div className={`w-6 h-6 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
+                              <div className="flex items-start gap-2.5">
+                                <div className={`w-6 h-6 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5 ${
                                   isSkipped
                                     ? 'bg-slate-300 text-slate-600'
                                     : isFirstEffective
-                                      ? 'bg-indigo-600 text-white ring-2 ring-indigo-200'
-                                      : 'bg-slate-100 text-slate-700'
+                                      ? (item.isOrStep && item.candidates.length > 1 ? 'bg-violet-600 text-white ring-2 ring-violet-200' : 'bg-indigo-600 text-white ring-2 ring-indigo-200')
+                                      : (item.isOrStep && item.candidates.length > 1 ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700')
                                 }`}>
                                   {isSkipped ? '−' : item.effectiveStepNumber}
                                 </div>
 
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 space-y-1">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className={`font-extrabold text-xs ${isSkipped ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
-                                      {item.user?.name || '不明'}
-                                    </span>
+                                    {!(item.isOrStep && item.candidates.length > 1) && (
+                                      <span className={`font-extrabold text-xs ${isSkipped ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                        {item.user?.name || '不明'}
+                                      </span>
+                                    )}
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${
                                       isSkipped
                                         ? 'bg-slate-200/80 text-slate-600 border-slate-300'
@@ -1767,7 +1771,12 @@ export function ApplicationModal({
                                     }`}>
                                       {item.stepName}
                                     </span>
-                                    {item.label && (
+                                    {item.isOrStep && item.candidates.length > 1 && !isSkipped && (
+                                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 border border-violet-200 whitespace-nowrap">
+                                        OR承認（いずれか1名）
+                                      </span>
+                                    )}
+                                    {!(item.isOrStep && item.candidates.length > 1) && item.label && (
                                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 whitespace-nowrap">
                                         {item.label}
                                       </span>
@@ -1788,9 +1797,49 @@ export function ApplicationModal({
                                       </span>
                                     )}
                                   </div>
-                                  {item.user && (
-                                    <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                                      {item.user.office || ''} / {item.user.division || ''} / {item.user.position || ''}
+
+                                  {item.isOrStep && item.candidates.length > 1 ? (
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                      {item.candidates.map((cand, cIdx) => (
+                                        <React.Fragment key={cand.user.id}>
+                                          {cIdx > 0 && (
+                                            <span className="text-[9px] font-black text-violet-600 bg-violet-100/80 px-1 py-0.2 rounded">
+                                              OR
+                                            </span>
+                                          )}
+                                          <span
+                                            className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg border ${
+                                              isSkipped
+                                                ? 'bg-slate-200/60 border-slate-300 text-slate-500 line-through'
+                                                : 'bg-white border-violet-200 text-slate-800'
+                                            }`}
+                                          >
+                                            <span>{cand.user.name}</span>
+                                            {cand.shortRuleLabel && (
+                                              <span className="text-[9px] font-semibold text-violet-700">
+                                                ({cand.shortRuleLabel})
+                                              </span>
+                                            )}
+                                          </span>
+                                        </React.Fragment>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    item.user && (
+                                      <p className="text-[10px] text-slate-500 truncate">
+                                        {item.user.office || ''} / {item.user.division || ''} / {item.user.position || ''}
+                                      </p>
+                                    )
+                                  )}
+
+                                  {item.excludedSelf && !isSkipped && (
+                                    <p className="text-[10px] text-violet-700 font-medium">
+                                      ※ 申請者本人はOR候補から自動除外されました
+                                    </p>
+                                  )}
+                                  {item.partialUnresolvedWarnings && item.partialUnresolvedWarnings.length > 0 && !isSkipped && (
+                                    <p className="text-[10px] text-amber-700 font-medium">
+                                      ※ 一部のOR条件は未設定のため除外: {item.partialUnresolvedWarnings.join(' / ')}
                                     </p>
                                   )}
                                 </div>
@@ -1863,9 +1912,19 @@ export function ApplicationModal({
                   <div className="pt-2 border-t border-slate-200/60 space-y-1 text-[11px] text-indigo-900">
                     <div className="flex items-start gap-1.5">
                       <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                      <span>
-                        申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{firstActiveItem.user.name}</strong> さんに承認依頼が届きます。
-                      </span>
+                      {firstActiveItem.isOrStep && firstActiveItem.candidates.length > 1 ? (
+                        <span>
+                          申請提出後は、1次承認候補の{' '}
+                          <strong className="font-extrabold underline text-violet-700">
+                            {firstActiveItem.candidates.map(c => c.user.name).join('・')}
+                          </strong>{' '}
+                          さん（いずれか1名）に承認依頼が届きます。
+                        </span>
+                      ) : (
+                        <span>
+                          申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{firstActiveItem.user.name}</strong> さんに承認依頼が届きます。
+                        </span>
+                      )}
                     </div>
                     {routePreview.previewItems.some(r => r.skipReason !== null) && (
                       <div className="flex items-start gap-1.5 text-slate-600 pl-0.5 font-medium">

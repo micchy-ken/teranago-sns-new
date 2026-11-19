@@ -35,7 +35,7 @@ import { markWorkflowAsRead } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { isUserCurrentApprover, resolveApproverForStepDetails, isDuplicateApproverStep } from '../utils/workflowHelpers';
+import { isUserCurrentApprover, resolveApproverForStepDetails, resolveStepCandidates, isDuplicateApproverStep } from '../utils/workflowHelpers';
 
 export interface GlobalWorkflowDetailModalProps {
   isOpen: boolean;
@@ -565,9 +565,17 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                   };
                   const isDuplicate = isDuplicateApproverStep(application.applicant, application.stepsConfig, idx, allUsers, resolveCtx);
                   const { user: approverUser, label } = resolveApproverForStepDetails(application.applicant, step, idx, allUsers, resolveCtx);
+                  const resolvedCands = resolveStepCandidates(application.applicant, step, idx, allUsers, resolveCtx);
+                  const applicantId = application.applicant?.id ? String(application.applicant.id) : '';
+                  const eligibleCandidates =
+                    applicantId && resolvedCands.candidates.some(c => String(c.user.id) !== applicantId)
+                      ? resolvedCands.candidates.filter(c => String(c.user.id) !== applicantId)
+                      : resolvedCands.candidates;
+                  const isOrStep = eligibleCandidates.length > 1;
 
                   // 履歴からこのステップの承認結果を探す
                   const stepHistory = application.history?.find(h => h.stepNumber === stepNum);
+                  const displaySingleUser = stepHistory?.approver || approverUser;
 
                   return (
                     <div
@@ -593,12 +601,17 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                           {isPast ? <CheckCircle2 className="w-4 h-4" /> : stepNum}
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-xs font-bold text-slate-800 truncate">
                               {step.stepName || (step as any).name || `${stepNum}次承認`}
                             </span>
+                            {isOrStep && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-violet-100 text-violet-800 border border-violet-200 whitespace-nowrap">
+                                OR承認（いずれか1名）
+                              </span>
+                            )}
                             {isCurrent && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-black bg-amber-500 text-white">
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-black bg-amber-500 text-white whitespace-nowrap">
                                 現在の承認ステップ
                               </span>
                             )}
@@ -606,21 +619,55 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                               <span className="text-[10px] text-slate-400">（自動承認対象）</span>
                             )}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => approverUser && triggerOpenUserModal(approverUser)}
-                            className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 mt-0.5 cursor-pointer group/stepusr"
-                            title="承認者の社員詳細を表示"
-                          >
-                            <img
-                              src={getAvatarUrl(approverUser?.id === currentUser?.id ? (currentUser?.avatarUrl || approverUser?.avatarUrl) : approverUser?.avatarUrl)}
-                              alt={approverUser?.name}
-                              onError={handleAvatarError}
-                              className="w-4 h-4 rounded-full border border-slate-200 object-cover group-hover/stepusr:ring-2 group-hover/stepusr:ring-indigo-400 transition-all"
-                            />
-                            <span className="font-semibold group-hover/stepusr:underline">{approverUser?.name || '承認者未定'}</span>
-                            <span className="text-slate-400">({label})</span>
-                          </button>
+
+                          {!stepHistory && isOrStep ? (
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                              {eligibleCandidates.map((cand, cIdx) => (
+                                <React.Fragment key={cand.user.id}>
+                                  {cIdx > 0 && (
+                                    <span className="text-[9px] font-black text-violet-600 bg-violet-100 px-1 rounded">
+                                      OR
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => triggerOpenUserModal(cand.user)}
+                                    className="text-[11px] text-slate-700 hover:text-indigo-600 bg-white px-2 py-0.5 rounded-lg border border-violet-200 flex items-center gap-1 cursor-pointer group/stepusr"
+                                    title={`${cand.user.name} さんの社員詳細を表示`}
+                                  >
+                                    <img
+                                      src={getAvatarUrl(cand.user.id === currentUser?.id ? (currentUser?.avatarUrl || cand.user.avatarUrl) : cand.user.avatarUrl)}
+                                      alt={cand.user.name}
+                                      onError={handleAvatarError}
+                                      className="w-4 h-4 rounded-full border border-slate-200 object-cover"
+                                    />
+                                    <span className="font-bold group-hover/stepusr:underline">{cand.user.name}</span>
+                                    {cand.shortRuleLabel && (
+                                      <span className="text-[10px] text-slate-400">({cand.shortRuleLabel})</span>
+                                    )}
+                                  </button>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => displaySingleUser && triggerOpenUserModal(displaySingleUser)}
+                              className="text-[11px] text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 mt-0.5 cursor-pointer group/stepusr"
+                              title="承認者の社員詳細を表示"
+                            >
+                              <img
+                                src={getAvatarUrl(displaySingleUser?.id === currentUser?.id ? (currentUser?.avatarUrl || displaySingleUser?.avatarUrl) : displaySingleUser?.avatarUrl)}
+                                alt={displaySingleUser?.name}
+                                onError={handleAvatarError}
+                                className="w-4 h-4 rounded-full border border-slate-200 object-cover group-hover/stepusr:ring-2 group-hover/stepusr:ring-indigo-400 transition-all"
+                              />
+                              <span className="font-semibold group-hover/stepusr:underline">{displaySingleUser?.name || '承認者未定'}</span>
+                              <span className="text-slate-400">
+                                ({stepHistory ? (stepHistory.comment || '処理済') : label})
+                              </span>
+                            </button>
+                          )}
                         </div>
                       </div>
 

@@ -171,7 +171,14 @@ export function useMasterManagement(
         if (flowRes.ok) {
           const data = await flowRes.json();
           if (Array.isArray(data)) {
-            setApprovalFlows(data);
+            setApprovalFlows(
+              data.map((f: any) => ({
+                ...f,
+                targetOfficeIds: Array.isArray(f?.targetOfficeIds) ? f.targetOfficeIds : [],
+                priority: Number.isFinite(Number(f?.priority)) ? Number(f.priority) : 0,
+                steps: Array.isArray(f?.steps) ? f.steps : [],
+              }))
+            );
             onClearErrorRef.current?.('flows');
           }
         } else {
@@ -427,40 +434,126 @@ export function useMasterManagement(
   };
 
   // 承認フローマスタ操作
+  const sendApprovalFlowRequest = async (
+    url: string,
+    init: RequestInit,
+    fallbackPostBody?: ApprovalFlowRule
+  ): Promise<Response> => {
+    try {
+      const res = await fetch(url, init);
+      if ((res.status === 404 || res.status === 405) && fallbackPostBody) {
+        return await fetch(`${API_BASE_URL}/masters/approval-flows`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fallbackPostBody),
+        });
+      }
+      return res;
+    } catch (firstErr) {
+      // リバースプロキシのkeep-alive切断や一時的なサーバー再起動に対して1回自動リトライ（更新時はPOST upsertへフォールバック）
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      if (fallbackPostBody) {
+        return await fetch(`${API_BASE_URL}/masters/approval-flows`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fallbackPostBody),
+        });
+      }
+      return await fetch(url, init);
+    }
+  };
+
   const handleAddApprovalFlow = async (flowData: Omit<ApprovalFlowRule, 'id'>) => {
+    const originalFlows = [...approvalFlows];
     const newFlow: ApprovalFlowRule = {
       ...flowData,
       id: `flow-${Date.now()}`,
+      targetOfficeIds: Array.isArray(flowData.targetOfficeIds) ? flowData.targetOfficeIds : [],
+      priority: Number.isFinite(Number(flowData.priority)) ? Number(flowData.priority) : 0,
     };
     setApprovalFlows(prev => [...prev, newFlow]);
     try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows`, {
+      const response = await sendApprovalFlowRequest(`${API_BASE_URL}/masters/approval-flows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newFlow)
       });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to add approval flow:', e); }
+    } catch (e: any) {
+      console.warn('Failed to add approval flow:', e);
+      setApprovalFlows(originalFlows);
+      showMasterErrorModal?.(
+        '承認フローの追加',
+        e?.message && e.message !== 'Failed to fetch'
+          ? e.message
+          : 'APIサーバーとの通信に失敗しました。サーバーの稼働状況・ネットワーク接続をご確認のうえ、再度お試しください。'
+      );
+    }
   };
 
   const handleUpdateApprovalFlow = async (updatedFlow: ApprovalFlowRule) => {
-    setApprovalFlows(prev => prev.map(f => f.id === updatedFlow.id ? updatedFlow : f));
+    const originalFlows = [...approvalFlows];
+    const normalizedFlow: ApprovalFlowRule = {
+      ...updatedFlow,
+      targetOfficeIds: Array.isArray(updatedFlow.targetOfficeIds) ? updatedFlow.targetOfficeIds : [],
+      priority: Number.isFinite(Number(updatedFlow.priority)) ? Number(updatedFlow.priority) : 0,
+    };
+    setApprovalFlows(prev => prev.map(f => f.id === normalizedFlow.id ? normalizedFlow : f));
     try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows/${updatedFlow.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedFlow)
-      });
+      const encodedId = encodeURIComponent(String(normalizedFlow.id));
+      const response = await sendApprovalFlowRequest(
+        `${API_BASE_URL}/masters/approval-flows/${encodedId}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(normalizedFlow)
+        },
+        normalizedFlow
+      );
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to update approval flow:', e); }
+    } catch (e: any) {
+      console.warn('Failed to update approval flow:', e);
+      setApprovalFlows(originalFlows);
+      showMasterErrorModal?.(
+        '承認フローの更新',
+        e?.message && e.message !== 'Failed to fetch'
+          ? e.message
+          : 'APIサーバーとの通信に失敗しました。サーバーの稼働状況・ネットワーク接続をご確認のうえ、再度お試しください。'
+      );
+    }
   };
 
   const handleDeleteApprovalFlow = async (id: string) => {
+    const originalFlows = [...approvalFlows];
     setApprovalFlows(prev => prev.filter(f => f.id !== id));
     try {
-      await fetch(`${API_BASE_URL}/masters/approval-flows/${id}`, { method: 'DELETE' });
+      const encodedId = encodeURIComponent(String(id));
+      const response = await sendApprovalFlowRequest(`${API_BASE_URL}/masters/approval-flows/${encodedId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) {
+        const errMsg = await getMasterErrorMessage(response);
+        throw new Error(errMsg);
+      }
       await refetchMasters();
-    } catch (e) { console.error('Failed to delete approval flow:', e); }
+    } catch (e: any) {
+      console.warn('Failed to delete approval flow:', e);
+      setApprovalFlows(originalFlows);
+      showMasterErrorModal?.(
+        '承認フローの削除',
+        e?.message && e.message !== 'Failed to fetch'
+          ? e.message
+          : 'APIサーバーとの通信に失敗しました。サーバーの稼働状況・ネットワーク接続をご確認のうえ、再度お試しください。'
+      );
+    }
   };
 
   useEffect(() => {

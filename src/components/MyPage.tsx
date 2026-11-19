@@ -41,7 +41,7 @@ import {
   ProjectMySummary,
   ProjectNotificationCard,
 } from '../utils/notifications';
-import { resolveApproverForStepDetails } from '../utils/workflowHelpers';
+import { resolveApproverForStepDetails, resolveApproversForStep } from '../utils/workflowHelpers';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { 
   User as UserIcon, 
@@ -2250,19 +2250,38 @@ export function MyPage({
                     {displayedWorkflow.map((app) => {
                       const isMyApproval = isWorkflowPending(app, user, allUsers, offices);
 
-                      // 現在の担当承認者名（多段階ステップの場合は現在進行中のステップ担当者）
+                      // 現在の担当承認者名（多段階・OR承認ステップに対応）
                       let currentApproverName = app.approver?.name || '未指定';
                       if (app.stepsConfig && app.stepsConfig.length > 0) {
                         const curIdx = (app.currentStepIndex || 1) - 1;
                         const curStep = app.stepsConfig[curIdx];
                         if (curStep) {
-                          const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || [], {
+                          const stepCtx = {
                             offices,
                             applicationOfficeId: app.officeId,
                             applicationLocation: app.location,
-                          });
-                          if (res?.user?.name) {
-                            currentApproverName = res.user.name;
+                          };
+                          const isOrConfigured =
+                            curStep.approvalMode === 'or' ||
+                            (Array.isArray(curStep.orApprovers) && curStep.orApprovers.length > 0) ||
+                            (Array.isArray(curStep.orApproverUserIds) && curStep.orApproverUserIds.length > 1);
+                          if (isOrConfigured && !curStep.manualApproverId) {
+                            const orApprovers = resolveApproversForStep(app.applicant, curStep, allUsers || [], stepCtx);
+                            const applicantId = app.applicant?.id ? String(app.applicant.id) : '';
+                            const eligible =
+                              applicantId && orApprovers.some(u => String(u.id) !== applicantId)
+                                ? orApprovers.filter(u => String(u.id) !== applicantId)
+                                : orApprovers;
+                            if (eligible.length > 1) {
+                              currentApproverName = `${eligible.map(u => u.name).join(' / ')}（OR）`;
+                            } else if (eligible[0]?.name) {
+                              currentApproverName = eligible[0].name;
+                            }
+                          } else {
+                            const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || [], stepCtx);
+                            if (res?.user?.name) {
+                              currentApproverName = res.user.name;
+                            }
                           }
                         }
                       }

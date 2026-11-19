@@ -1,6 +1,7 @@
 import {
   User,
   ApprovalStepConfig,
+  ApprovalApproverCandidate,
   ApprovalFlowRule,
   ApplicationType,
   WorkflowApplication,
@@ -62,6 +63,23 @@ export interface WorkflowResolveContext {
   strictUnresolved?: boolean;
 }
 
+export interface ResolvedStepCandidate {
+  user: User;
+  label: string;
+  shortRuleLabel?: string;
+  resolvedOfficeName?: string;
+  isManualOverride?: boolean;
+}
+
+export interface ResolvedStepCandidatesResult {
+  candidates: ResolvedStepCandidate[];
+  isOrStep: boolean;
+  isFallback: boolean;
+  isUnresolved: boolean;
+  unresolvedReason?: string;
+  partialUnresolvedWarnings: string[];
+}
+
 export interface ResolvedStepDetails {
   user: User | null;
   label: string;
@@ -81,6 +99,10 @@ export interface RoutePreviewItem {
   effectiveStepNumber: number | null; // アクティブな場合のみ 1, 2, ...
   skipReason: StepSkipReason;
   user: User | null;
+  candidates: ResolvedStepCandidate[];
+  isOrStep: boolean;
+  excludedSelf?: boolean;
+  partialUnresolvedWarnings?: string[];
   label: string;
   isFallback: boolean;
   isUnresolved: boolean;
@@ -449,7 +471,295 @@ export const resolveApproverForStepDetails = (
 };
 
 /**
- * ステップ設定に基づき具体的な承認者を動的解決する関数
+ * 1つの承認者ルール（主ルールまたはOR追加ルール）を解決する内部ヘルパー
+ */
+const resolveSingleCandidateRule = (
+  applicant: User | null | undefined,
+  rule: ApprovalApproverCandidate,
+  stepIndex: number,
+  users: User[],
+  context?: WorkflowResolveContext
+): {
+  user: User | null;
+  label: string;
+  shortRuleLabel: string;
+  resolvedOfficeName?: string;
+  unresolvedReason?: string;
+} => {
+  // 1. 特定ユーザー指定
+  if (rule.approverType === 'specific_user') {
+    if (rule.specificUserId) {
+      const specUser = users.find((u) => u && String(u.id) === String(rule.specificUserId));
+      if (specUser) {
+        return {
+          user: specUser,
+          label: `${specUser.name || '指定承認者'}（個人指定）`,
+          shortRuleLabel: '個人指定',
+        };
+      }
+    }
+    return {
+      user: null,
+      label: '指定承認者（未設定）',
+      shortRuleLabel: '個人指定',
+      unresolvedReason: '指定された承認者がメンバー一覧に見つかりません。',
+    };
+  }
+
+  // 2. 拠点ロール指定
+  if (isOfficeRoleApproverType(rule.approverType)) {
+    const roleOpt = getOfficeRoleOption(rule.approverType);
+    const pseudoStep: ApprovalStepConfig = {
+      stepNumber: stepIndex + 1,
+      approverType: rule.approverType,
+      targetOfficeId: rule.targetOfficeId,
+    };
+    const targetOffice = resolveTargetOfficeForStep(applicant, pseudoStep, context);
+    const officeName = targetOffice?.name || context?.applicationLocation || applicant?.office || '';
+
+    if (targetOffice) {
+      const managerId = targetOffice[roleOpt.idField];
+      const managerName = targetOffice[roleOpt.nameField];
+      let matchedUser: User | undefined;
+
+      if (managerId) {
+        matchedUser = users.find((u) => u && String(u.id) === String(managerId));
+      }
+      if (!matchedUser && managerName) {
+        matchedUser = users.find((u) => u && u.name === managerName);
+      }
+
+      if (matchedUser) {
+        return {
+          user: matchedUser,
+          label: `${matchedUser.name}（${targetOffice.name}・${roleOpt.label}）`,
+          shortRuleLabel: `${targetOffice.name}・${roleOpt.label}`,
+          resolvedOfficeName: targetOffice.name,
+        };
+      }
+    }
+
+    return {
+      user: null,
+      label: `${officeName ? `${officeName}・` : ''}${roleOpt.label}（未設定）`,
+      shortRuleLabel: `${officeName ? `${officeName}・` : ''}${roleOpt.label}`,
+      resolvedOfficeName: officeName || undefined,
+      unresolvedReason: targetOffice
+        ? `拠点「${targetOffice.name}」の「${roleOpt.label}」が拠点マスターに未設定です。`
+        : `対象拠点の「${roleOpt.label}」を特定できませんでした。`,
+    };
+  }
+
+  // 3. 階層上長指定
+  let targetLevel = rule.supervisorLevel;
+  if (!targetLevel) {
+    if (rule.approverType === 'supervisor_1') targetLevel = 1;
+    else if (rule.approverType === 'supervisor_2') targetLevel = 2;
+    else targetLevel = stepIndex + 1;
+  }
+  const supLabel = targetLevel === 1 ? '直属上長' : `第${targetLevel}階層上長`;
+  const sup = applicant ? getSupervisorAtLevel(applicant, targetLevel, users) : null;
+  if (sup) {
+    return {
+      user: sup,
+      label: `${sup.name || '上長'}（${supLabel}）`,
+      shortRuleLabel: supLabel,
+    };
+  }
+
+  return {
+    user: null,
+    label: `${supLabel}（未設定）`,
+    shortRuleLabel: supLabel,
+    unresolvedReason: `${supLabel}が未設定です。`,
+  };
+};
+
+/**
+ * ステップ設定から全承認候補者（主ルール＋OR追加ルール）を解決・重複排除して返す
+ */
+export const resolveStepCandidates = (
+  applicant: User | null | undefined,
+  stepConfig: ApprovalStepConfig,
+  index: number,
+  users: User[] = [],
+  context?: WorkflowResolveContext
+): ResolvedStepCandidatesResult => {
+  const safeUsers = Array.isArray(users) ? users : [];
+  const strict = Boolean(context?.strictUnresolved);
+  const orRules = Array.isArray(stepConfig?.orApprovers) ? stepConfig.orApprovers : [];
+  const hasOrRules = orRules.length > 0;
+
+  // 0. 申請者による手動指定がある場合は最優先（単一承認として確定）
+  if (stepConfig?.manualApproverId) {
+    const manualUser = safeUsers.find((u) => u && String(u.id) === String(stepConfig.manualApproverId));
+    if (manualUser) {
+      const roleSuffix = isOfficeRoleApproverType(stepConfig.approverType)
+        ? `${getOfficeRoleLabel(stepConfig.approverType)}・手動指定`
+        : '手動指定';
+      return {
+        candidates: [
+          {
+            user: manualUser,
+            label: `${manualUser.name}（${roleSuffix}）`,
+            shortRuleLabel: roleSuffix,
+            isManualOverride: true,
+          },
+        ],
+        isOrStep: false,
+        isFallback: false,
+        isUnresolved: false,
+        partialUnresolvedWarnings: [],
+      };
+    }
+  }
+
+  const allRules: ApprovalApproverCandidate[] = [
+    {
+      approverType: stepConfig.approverType,
+      supervisorLevel: stepConfig.supervisorLevel,
+      specificUserId: stepConfig.specificUserId,
+      targetOfficeId: stepConfig.targetOfficeId,
+    },
+    ...orRules,
+  ];
+
+  const candidates: ResolvedStepCandidate[] = [];
+  const seenIds = new Set<string>();
+  const partialUnresolvedWarnings: string[] = [];
+
+  for (const rule of allRules) {
+    if (!rule || !rule.approverType) continue;
+    const res = resolveSingleCandidateRule(applicant, rule, index, safeUsers, context);
+    if (res.user) {
+      const uid = String(res.user.id);
+      if (!seenIds.has(uid)) {
+        seenIds.add(uid);
+        candidates.push({
+          user: res.user,
+          label: res.label,
+          shortRuleLabel: res.shortRuleLabel,
+          resolvedOfficeName: res.resolvedOfficeName,
+        });
+      }
+    } else if (res.unresolvedReason) {
+      partialUnresolvedWarnings.push(res.unresolvedReason);
+    }
+  }
+
+  // 非strict時：動的解決で候補が取れなかった場合や、スナップショットのみ保存されている場合はスナップショット復元
+  if (!strict && candidates.length === 0) {
+    if (Array.isArray(stepConfig.orApproverUserIds) && stepConfig.orApproverUserIds.length > 0) {
+      for (const uid of stepConfig.orApproverUserIds) {
+        const snapUser = safeUsers.find((u) => u && String(u.id) === String(uid));
+        if (snapUser && !seenIds.has(String(snapUser.id))) {
+          seenIds.add(String(snapUser.id));
+          candidates.push({
+            user: snapUser,
+            label: `${snapUser.name}（${stepConfig.stepName || 'OR承認候補'}）`,
+            shortRuleLabel: stepConfig.stepName || 'OR承認候補',
+          });
+        }
+      }
+    }
+    if (candidates.length === 0 && stepConfig.resolvedApproverId) {
+      const snapUser = safeUsers.find((u) => u && String(u.id) === String(stepConfig.resolvedApproverId));
+      if (snapUser) {
+        candidates.push({
+          user: snapUser,
+          label: `${snapUser.name}（${stepConfig.stepName || '承認者'}）`,
+          shortRuleLabel: stepConfig.stepName || '承認者',
+        });
+      }
+    }
+  }
+
+  // 候補が1名以上解決できた場合
+  if (candidates.length > 0) {
+    return {
+      candidates,
+      isOrStep: candidates.length > 1 || stepConfig.approvalMode === 'or' || hasOrRules,
+      isFallback: false,
+      isUnresolved: false,
+      partialUnresolvedWarnings,
+    };
+  }
+
+  // 全ルール未解決の場合
+  if (strict) {
+    return {
+      candidates: [],
+      isOrStep: stepConfig.approvalMode === 'or' || hasOrRules,
+      isFallback: false,
+      isUnresolved: true,
+      unresolvedReason:
+        partialUnresolvedWarnings.length > 0
+          ? `${partialUnresolvedWarnings[0]} 承認者を手動で選択してください。`
+          : 'このステップの承認者が未設定です。承認者を手動で選択してください。',
+      partialUnresolvedWarnings,
+    };
+  }
+
+  // 非strict フォールバック（既存申請一覧・詳細の表示耐障害性維持）
+  const fallbackDetails = resolveApproverForStepDetails(applicant, stepConfig, index, safeUsers, {
+    ...(context || {}),
+    strictUnresolved: false,
+  });
+  return {
+    candidates: fallbackDetails.user
+      ? [
+          {
+            user: fallbackDetails.user,
+            label: fallbackDetails.label,
+            shortRuleLabel: fallbackDetails.isFallback ? '代行' : stepConfig.stepName || '承認者',
+            resolvedOfficeName: fallbackDetails.resolvedOfficeName,
+          },
+        ]
+      : [],
+    isOrStep: stepConfig.approvalMode === 'or' || hasOrRules,
+    isFallback: fallbackDetails.isFallback,
+    isUnresolved: false,
+    partialUnresolvedWarnings,
+  };
+};
+
+/**
+ * ステップ設定に基づき有効な全承認候補ユーザー配列を返す（OR承認の全員通知・重複スキップ判定用）
+ * 申請者本人が候補に含まれ、かつ他に候補者がいる場合は申請者本人のみ除外する。
+ * 全候補者が申請者本人の場合は [applicant] を返し、呼び出し側で自己承認スキップを判定できるようにする。
+ */
+export const resolveApproversForStep = (
+  applicant: User | null | undefined,
+  stepConfig: ApprovalStepConfig,
+  users: User[] = [],
+  context?: WorkflowResolveContext
+): User[] => {
+  const safeUsers = Array.isArray(users) ? users : [];
+  const applicantId = applicant?.id ? String(applicant.id) : '';
+  const stepIdx = Math.max(0, (stepConfig?.stepNumber || 1) - 1);
+
+  const resolved = resolveStepCandidates(applicant, stepConfig, stepIdx, safeUsers, {
+    ...(context || {}),
+    strictUnresolved: false,
+  });
+
+  const allResolvedUsers = resolved.candidates.map((c) => c.user);
+  if (allResolvedUsers.length > 0) {
+    if (applicantId) {
+      const withoutSelf = allResolvedUsers.filter((u) => String(u.id) !== applicantId);
+      if (withoutSelf.length > 0) {
+        return withoutSelf;
+      }
+    }
+    return allResolvedUsers;
+  }
+
+  const fallbackUser = resolveApproverForStep(applicant, stepConfig, safeUsers, context);
+  return fallbackUser ? [fallbackUser] : [];
+};
+
+/**
+ * ステップ設定に基づき代表承認者（1名）を動的解決する関数
  */
 export const resolveApproverForStep = (
   applicant: User | null | undefined,
@@ -457,6 +767,27 @@ export const resolveApproverForStep = (
   users: User[] = [],
   context?: WorkflowResolveContext
 ): User => {
+  // OR承認ルールがある場合は、申請者除外後の先頭候補を優先
+  if (
+    stepConfig &&
+    (stepConfig.approvalMode === 'or' ||
+      (Array.isArray(stepConfig.orApprovers) && stepConfig.orApprovers.length > 0) ||
+      (Array.isArray(stepConfig.orApproverUserIds) && stepConfig.orApproverUserIds.length > 1))
+  ) {
+    const safeUsers = Array.isArray(users) ? users : [];
+    const stepIdx = Math.max(0, (stepConfig.stepNumber || 1) - 1);
+    const resolved = resolveStepCandidates(applicant, stepConfig, stepIdx, safeUsers, {
+      ...(context || {}),
+      strictUnresolved: false,
+    });
+    const applicantId = applicant?.id ? String(applicant.id) : '';
+    const nonSelf = applicantId
+      ? resolved.candidates.filter((c) => String(c.user.id) !== applicantId)
+      : resolved.candidates;
+    if (nonSelf.length > 0) return nonSelf[0].user;
+    if (resolved.candidates.length > 0) return resolved.candidates[0].user;
+  }
+
   const details = resolveApproverForStepDetails(applicant, stepConfig, (stepConfig?.stepNumber || 1) - 1, users, {
     ...(context || {}),
     strictUnresolved: false,
@@ -468,7 +799,8 @@ export const resolveApproverForStep = (
 };
 
 /**
- * 申請フォーム用：自己承認スキップ・同一人物スキップ・未設定チェックを含めた完全な承認ルートプレビューと確定ステップ配列を構築する
+ * 申請フォーム用：OR承認・自己承認除外/スキップ・同一承認者スキップ（案1）・未設定チェックを含めた
+ * 完全な承認ルートプレビューと確定ステップ配列を構築する
  */
 export const buildApprovalRoutePreview = (
   applicant: User | null | undefined,
@@ -488,7 +820,7 @@ export const buildApprovalRoutePreview = (
 
   const safeUsers = Array.isArray(users) ? users : [];
   const applicantId = applicant?.id ? String(applicant.id) : '';
-  const seenActiveApproverIds = new Set<string>();
+  const prevStepCandidateSets: Set<string>[] = [];
   const previewItems: RoutePreviewItem[] = [];
   const effectiveSteps: ApprovalStepConfig[] = [];
   let effectiveCounter = 0;
@@ -501,10 +833,12 @@ export const buildApprovalRoutePreview = (
     const stepWithOverride: ApprovalStepConfig = overrideUserId
       ? { ...rawStep, manualApproverId: overrideUserId }
       : { ...rawStep };
+    const hasOrRules = Array.isArray(stepWithOverride.orApprovers) && stepWithOverride.orApprovers.length > 0;
 
-    // 2次以上の階層上長で該当階層が存在しない場合（手動上書きも無い場合）は従来通りステップ自体を除外
+    // 2次以上の階層上長のみの単独ステップで該当階層が存在しない場合（ORルール・手動上書きも無い場合）は従来通りステップ自体を除外
     if (
       !stepWithOverride.manualApproverId &&
+      !hasOrRules &&
       !isOfficeRoleApproverType(stepWithOverride.approverType) &&
       stepWithOverride.approverType !== 'specific_user'
     ) {
@@ -520,15 +854,14 @@ export const buildApprovalRoutePreview = (
       }
     }
 
-    const details = resolveApproverForStepDetails(applicant, stepWithOverride, idx, safeUsers, {
+    const stepName = stepWithOverride.stepName || `${idx + 1}次承認`;
+    const resolved = resolveStepCandidates(applicant, stepWithOverride, idx, safeUsers, {
       ...(context || {}),
       strictUnresolved: true,
     });
 
-    const stepName = stepWithOverride.stepName || `${idx + 1}次承認`;
-
-    // 未設定（手動指定必須）
-    if (details.isUnresolved || !details.user) {
+    // 全ルール未設定（手動指定必須）
+    if (resolved.isUnresolved || resolved.candidates.length === 0) {
       effectiveCounter += 1;
       previewItems.push({
         originalIndex: idx,
@@ -536,7 +869,14 @@ export const buildApprovalRoutePreview = (
         stepName,
         effectiveStepNumber: effectiveCounter,
         skipReason: null,
-        ...details,
+        user: null,
+        candidates: [],
+        isOrStep: resolved.isOrStep,
+        partialUnresolvedWarnings: resolved.partialUnresolvedWarnings,
+        label: resolved.unresolvedReason || '担当者未設定（手動指定必須）',
+        isFallback: false,
+        isUnresolved: true,
+        unresolvedReason: resolved.unresolvedReason,
       });
       effectiveSteps.push({
         ...stepWithOverride,
@@ -545,42 +885,77 @@ export const buildApprovalRoutePreview = (
       return;
     }
 
-    const resolvedId = String(details.user.id);
+    // ルール3：申請者本人がOR候補に含まれる場合、申請者本人のみ除外。残りが0名になった場合のみ自己承認スキップ
+    const nonSelfCandidates = applicantId
+      ? resolved.candidates.filter((c) => String(c.user.id) !== applicantId)
+      : resolved.candidates;
+    const excludedSelf = nonSelfCandidates.length < resolved.candidates.length;
 
-    // 自己承認スキップ（申請者本人と一致する場合は自動スキップ）
-    if (applicantId && resolvedId === applicantId) {
+    if (nonSelfCandidates.length === 0) {
       skippedCount += 1;
+      const firstCand = resolved.candidates[0];
       previewItems.push({
         originalIndex: idx,
         stepConfig: stepWithOverride,
         stepName,
         effectiveStepNumber: null,
         skipReason: 'self_approval',
-        ...details,
+        user: firstCand.user,
+        candidates: resolved.candidates,
+        isOrStep: resolved.candidates.length > 1,
+        excludedSelf: true,
+        partialUnresolvedWarnings: resolved.partialUnresolvedWarnings,
+        label: firstCand.label,
+        isFallback: false,
+        isUnresolved: false,
+        isManualOverride: firstCand.isManualOverride,
+        resolvedOfficeName: firstCand.resolvedOfficeName,
       });
       return;
     }
 
-    // 同一人物スキップ（前のアクティブステップに既に含まれている承認者は自動スキップ）
-    if (seenActiveApproverIds.has(resolvedId)) {
+    // ルール4（案1）：前のアクティブステップの誰が承認しても必ず現ステップの候補に含まれる場合（P ⊆ C）は自動スキップ
+    const currentIdSet = new Set(nonSelfCandidates.map((c) => String(c.user.id)));
+    const isGuaranteedDuplicate = prevStepCandidateSets.some(
+      (prevSet) => prevSet.size > 0 && Array.from(prevSet).every((id) => currentIdSet.has(id))
+    );
+
+    if (isGuaranteedDuplicate) {
       skippedCount += 1;
+      const isOrActive = nonSelfCandidates.length > 1;
       previewItems.push({
         originalIndex: idx,
         stepConfig: stepWithOverride,
         stepName,
         effectiveStepNumber: null,
         skipReason: 'duplicate_approver',
-        ...details,
+        user: nonSelfCandidates[0].user,
+        candidates: nonSelfCandidates,
+        isOrStep: isOrActive,
+        excludedSelf,
+        partialUnresolvedWarnings: resolved.partialUnresolvedWarnings,
+        label: isOrActive
+          ? nonSelfCandidates.map((c) => c.shortRuleLabel || c.user.name).join(' / ')
+          : nonSelfCandidates[0].label,
+        isFallback: false,
+        isUnresolved: false,
+        isManualOverride: nonSelfCandidates[0].isManualOverride,
+        resolvedOfficeName: nonSelfCandidates[0].resolvedOfficeName,
       });
       return;
     }
 
-    seenActiveApproverIds.add(resolvedId);
+    prevStepCandidateSets.push(currentIdSet);
     effectiveCounter += 1;
+
+    const isOrActive = nonSelfCandidates.length > 1;
+    const candidateIds = nonSelfCandidates.map((c) => String(c.user.id));
     const finalizedStep: ApprovalStepConfig = {
       ...stepWithOverride,
       stepNumber: effectiveCounter,
-      resolvedApproverId: resolvedId,
+      approvalMode: isOrActive ? 'or' : 'single',
+      resolvedApproverId: candidateIds[0],
+      orApproverUserIds: isOrActive || hasOrRules ? candidateIds : undefined,
     };
 
     previewItems.push({
@@ -589,7 +964,18 @@ export const buildApprovalRoutePreview = (
       stepName,
       effectiveStepNumber: effectiveCounter,
       skipReason: null,
-      ...details,
+      user: nonSelfCandidates[0].user,
+      candidates: nonSelfCandidates,
+      isOrStep: isOrActive,
+      excludedSelf,
+      partialUnresolvedWarnings: resolved.partialUnresolvedWarnings,
+      label: isOrActive
+        ? nonSelfCandidates.map((c) => c.shortRuleLabel || c.user.name).join(' / ')
+        : nonSelfCandidates[0].label,
+      isFallback: false,
+      isUnresolved: false,
+      isManualOverride: nonSelfCandidates[0].isManualOverride,
+      resolvedOfficeName: nonSelfCandidates[0].resolvedOfficeName,
     });
     effectiveSteps.push(finalizedStep);
   });
@@ -620,8 +1006,9 @@ export const filterStepsForApplicant = (
 
   const validSteps = stepsConfig.filter((step, index) => {
     if (!step) return false;
-    // 手動指定・特定ユーザー指定・拠点ロール指定は有効
+    // 手動指定・OR追加ルールあり・特定ユーザー指定・拠点ロール指定は有効
     if (step.manualApproverId) return true;
+    if (Array.isArray(step.orApprovers) && step.orApprovers.length > 0) return true;
     if (step.approverType === 'specific_user') return true;
     if (isOfficeRoleApproverType(step.approverType)) return true;
 
@@ -649,7 +1036,7 @@ export const filterStepsForApplicant = (
 };
 
 /**
- * 対象ステップの承認者が前までのステップの承認者と同一人物かどうか判定する
+ * 対象ステップの承認者が前までのステップの承認者と確実に重複（案1: 前ステップ候補集合 ⊆ 現ステップ候補集合）するか判定
  */
 export const isDuplicateApproverStep = (
   applicant: User,
@@ -660,12 +1047,13 @@ export const isDuplicateApproverStep = (
 ): boolean => {
   if (!stepsConfig || stepIdx <= 0 || stepIdx >= stepsConfig.length) return false;
 
-  const currentApprover = resolveApproverForStep(applicant, stepsConfig[stepIdx], users, context);
-  if (!currentApprover) return false;
+  const currentApprovers = resolveApproversForStep(applicant, stepsConfig[stepIdx], users, context);
+  if (currentApprovers.length === 0) return false;
+  const currentIdSet = new Set(currentApprovers.map((u) => String(u.id)));
 
   for (let i = 0; i < stepIdx; i++) {
-    const prevApprover = resolveApproverForStep(applicant, stepsConfig[i], users, context);
-    if (prevApprover && String(prevApprover.id) === String(currentApprover.id)) {
+    const prevApprovers = resolveApproversForStep(applicant, stepsConfig[i], users, context);
+    if (prevApprovers.length > 0 && prevApprovers.every((u) => currentIdSet.has(String(u.id)))) {
       return true;
     }
   }
@@ -675,7 +1063,7 @@ export const isDuplicateApproverStep = (
 
 /**
  * 対象申請の現在ステップにおける承認者かどうかを判定
- * （手動指定・拠点ロール・階層上長・OR承認予約・保存済みスナップショットすべてに対応）
+ * （手動指定・OR承認・拠点ロール・階層上長・保存済みスナップショットすべてに対応）
  */
 export const isUserCurrentApprover = (
   app: WorkflowApplication,
@@ -692,16 +1080,51 @@ export const isUserCurrentApprover = (
     const step = app.stepsConfig[currentStepIdx];
     if (!step) return false;
 
-    // フェーズ2予約：OR承認モード（複数候補のうち誰か1名が承認可能）
-    if (step.approvalMode === 'or' && Array.isArray(step.orApproverUserIds) && step.orApproverUserIds.length > 0) {
-      if (step.orApproverUserIds.some((id) => String(id) === targetUserId)) {
-        return true;
-      }
-    }
+    const isOrConfigured =
+      step.approvalMode === 'or' ||
+      (Array.isArray(step.orApprovers) && step.orApprovers.length > 0) ||
+      (Array.isArray(step.orApproverUserIds) && step.orApproverUserIds.length > 1);
 
-    // 手動指定承認者
+    // 手動指定承認者（OR設定があっても手動上書きされた場合はその1名のみ）
     if (step.manualApproverId) {
       return String(step.manualApproverId) === targetUserId;
+    }
+
+    // OR承認ステップ（複数候補のうち誰か1名が承認可能）
+    if (isOrConfigured) {
+      // 保存済みスナップショット（未読通知など users 未渡しの軽量判定でも確実に動作）
+      if (Array.isArray(step.orApproverUserIds) && step.orApproverUserIds.length > 0) {
+        if (step.orApproverUserIds.some((id) => String(id) === targetUserId)) {
+          return true;
+        }
+        if (users.length === 0) {
+          return false;
+        }
+      }
+
+      // users が渡されている場合は動的解決も照合（拠点ロール変更や未スナップショット申請にも対応）
+      if (users.length > 0) {
+        const resolvedUsers = resolveApproversForStep(app.applicant, step, users, {
+          offices,
+          applicationOfficeId: app.officeId,
+          applicationLocation: app.location,
+        });
+        // 申請者本人のみを除外した結果で照合
+        const applicantId = app.applicant?.id ? String(app.applicant.id) : '';
+        const eligible =
+          applicantId && resolvedUsers.some((u) => String(u.id) !== applicantId)
+            ? resolvedUsers.filter((u) => String(u.id) !== applicantId)
+            : resolvedUsers;
+        return eligible.some((u) => String(u.id) === targetUserId);
+      }
+
+      if (step.resolvedApproverId) {
+        return String(step.resolvedApproverId) === targetUserId;
+      }
+      if (app.approver?.id) {
+        return String(app.approver.id) === targetUserId;
+      }
+      return false;
     }
 
     // 特定ユーザー指定

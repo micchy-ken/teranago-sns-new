@@ -63,7 +63,7 @@ import {
   ListChecks
 } from 'lucide-react';
 import { InspectionCheckItemMasterModal } from './inspection/InspectionCheckItemMasterModal';
-import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation, MenuVisibilitySettings, ToggleableMenuKey } from '../types';
+import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApprovalApproverCandidate, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation, MenuVisibilitySettings, ToggleableMenuKey } from '../types';
 import { TOGGLEABLE_MENUS, DEFAULT_MENU_VISIBILITY, getMenuVisibilitySettings, getToggleableMenuLabel } from '../utils/menuVisibility';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import {
@@ -1731,7 +1731,10 @@ export function AdminPanel({
       targetOfficeIds: Array.isArray(flow.targetOfficeIds) ? [...flow.targetOfficeIds] : [],
       priority: typeof flow.priority === 'number' ? flow.priority : 0,
       isDefault: !!flow.isDefault,
-      steps: flow.steps.map(s => ({ ...s })),
+      steps: flow.steps.map(s => ({
+        ...s,
+        orApprovers: Array.isArray(s.orApprovers) ? s.orApprovers.map(o => ({ ...o })) : undefined,
+      })),
     });
     setIsFlowModalOpen(true);
   };
@@ -1821,15 +1824,118 @@ export function AdminPanel({
     setFlowFormData({ ...flowFormData, steps: updatedSteps });
   };
 
+  // OR承認候補の追加・変更・削除（方式B: 上長・拠点ロール・特定ユーザーすべて対応）
+  const handleAddStepOrApprover = (stepIndex: number) => {
+    const updatedSteps = [...flowFormData.steps];
+    const currentOr = Array.isArray(updatedSteps[stepIndex].orApprovers)
+      ? [...updatedSteps[stepIndex].orApprovers!]
+      : [];
+    currentOr.push({
+      approverType: 'specific_user',
+      specificUserId: allUsers[0]?.id || '',
+    });
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      approvalMode: 'or',
+      orApprovers: currentOr,
+    };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
+  const handleUpdateStepOrApproverType = (stepIndex: number, orIdx: number, newType: ApproverType) => {
+    const updatedSteps = [...flowFormData.steps];
+    const currentOr = Array.isArray(updatedSteps[stepIndex].orApprovers)
+      ? [...updatedSteps[stepIndex].orApprovers!]
+      : [];
+    const prev = currentOr[orIdx] || { approverType: newType };
+    const stepNum = stepIndex + 1;
+    currentOr[orIdx] = {
+      approverType: newType,
+      supervisorLevel:
+        newType === 'supervisor_1'
+          ? 1
+          : newType === 'supervisor_2'
+          ? 2
+          : newType === 'supervisor' || newType === 'supervisor_n'
+          ? stepNum
+          : undefined,
+      specificUserId: newType === 'specific_user' ? (prev.specificUserId || allUsers[0]?.id || '') : undefined,
+      targetOfficeId: isOfficeRoleApproverType(newType) ? (prev.targetOfficeId || '') : undefined,
+    };
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      approvalMode: 'or',
+      orApprovers: currentOr,
+    };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
+  const handleUpdateStepOrApproverUser = (stepIndex: number, orIdx: number, userId: string) => {
+    const updatedSteps = [...flowFormData.steps];
+    const currentOr = Array.isArray(updatedSteps[stepIndex].orApprovers)
+      ? [...updatedSteps[stepIndex].orApprovers!]
+      : [];
+    if (!currentOr[orIdx]) return;
+    currentOr[orIdx] = { ...currentOr[orIdx], specificUserId: userId };
+    updatedSteps[stepIndex] = { ...updatedSteps[stepIndex], orApprovers: currentOr };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
+  const handleUpdateStepOrApproverOffice = (stepIndex: number, orIdx: number, targetOfficeId: string) => {
+    const updatedSteps = [...flowFormData.steps];
+    const currentOr = Array.isArray(updatedSteps[stepIndex].orApprovers)
+      ? [...updatedSteps[stepIndex].orApprovers!]
+      : [];
+    if (!currentOr[orIdx]) return;
+    currentOr[orIdx] = { ...currentOr[orIdx], targetOfficeId: targetOfficeId || '' };
+    updatedSteps[stepIndex] = { ...updatedSteps[stepIndex], orApprovers: currentOr };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
+  const handleRemoveStepOrApprover = (stepIndex: number, orIdx: number) => {
+    const updatedSteps = [...flowFormData.steps];
+    const currentOr = Array.isArray(updatedSteps[stepIndex].orApprovers)
+      ? updatedSteps[stepIndex].orApprovers!.filter((_, i) => i !== orIdx)
+      : [];
+    updatedSteps[stepIndex] = {
+      ...updatedSteps[stepIndex],
+      approvalMode: currentOr.length > 0 ? 'or' : 'single',
+      orApprovers: currentOr.length > 0 ? currentOr : undefined,
+    };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
   const handleSaveFlow = (e: React.FormEvent) => {
     e.preventDefault();
     if (!flowFormData.name || !flowFormData.name.trim() || flowFormData.steps.length === 0) return;
 
-    const normalizedSteps = flowFormData.steps.map((s, idx) => ({
-      ...s,
-      stepNumber: idx + 1,
-      targetOfficeId: isOfficeRoleApproverType(s.approverType) ? (s.targetOfficeId || '') : undefined,
-    }));
+    const normalizedSteps: ApprovalStepConfig[] = flowFormData.steps.map((s, idx) => {
+      const normalizedOr: ApprovalApproverCandidate[] = Array.isArray(s.orApprovers)
+        ? s.orApprovers
+            .filter((o) => Boolean(o && o.approverType))
+            .map((o) => ({
+              approverType: o.approverType,
+              supervisorLevel:
+                o.approverType === 'supervisor_1'
+                  ? 1
+                  : o.approverType === 'supervisor_2'
+                  ? 2
+                  : o.approverType === 'supervisor' || o.approverType === 'supervisor_n'
+                  ? o.supervisorLevel || idx + 1
+                  : undefined,
+              specificUserId: o.approverType === 'specific_user' ? (o.specificUserId || '') : undefined,
+              targetOfficeId: isOfficeRoleApproverType(o.approverType) ? (o.targetOfficeId || '') : undefined,
+            }))
+        : [];
+
+      return {
+        ...s,
+        stepNumber: idx + 1,
+        targetOfficeId: isOfficeRoleApproverType(s.approverType) ? (s.targetOfficeId || '') : undefined,
+        approvalMode: normalizedOr.length > 0 ? 'or' : 'single',
+        orApprovers: normalizedOr.length > 0 ? normalizedOr : undefined,
+      };
+    });
 
     const payload = {
       name: (flowFormData.name || '').trim(),
@@ -3622,22 +3728,59 @@ export function AdminPanel({
                             approverDesc = specUser ? `${specUser.office || ''} / ${specUser.division || ''} / ${specUser.position || ''}` : '特定ユーザー';
                           }
 
+                          const orList = Array.isArray(step.orApprovers) ? step.orApprovers : [];
+                          const hasOr = orList.length > 0;
+                          const formatOrRuleLabel = (cand: ApprovalApproverCandidate) => {
+                            const cLvl = cand.supervisorLevel || (cand.approverType === 'supervisor_2' ? 2 : cand.approverType === 'supervisor_1' ? 1 : idx + 1);
+                            if (cand.approverType === 'supervisor_1') return '直属上長';
+                            if (cand.approverType === 'supervisor_2') return '二次上長';
+                            if (cand.approverType === 'supervisor' || cand.approverType === 'supervisor_n') return `上長（第${cLvl}階層）`;
+                            if (isOfficeRoleApproverType(cand.approverType)) {
+                              const rOpt = getOfficeRoleOption(cand.approverType);
+                              const rLabel = rOpt?.label || getOfficeRoleLabel(cand.approverType);
+                              if (cand.targetOfficeId) {
+                                const fOff = offices.find(o => o.id === cand.targetOfficeId || o.name === cand.targetOfficeId);
+                                return `${rLabel}（${fOff?.name || cand.targetOfficeId}固定）`;
+                              }
+                              return `${rLabel}（申請対象拠点）`;
+                            }
+                            const u = allUsers.find(usr => usr.id === cand.specificUserId);
+                            return u ? `${u.name}（個人指定）` : '指定個人';
+                          };
+
                           return (
                             <React.Fragment key={step.stepNumber || idx}>
-                              <div className="flex-1 min-w-[200px] bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-3">
-                                <div className={`w-7 h-7 rounded-full ${isRoleBadge ? 'bg-sky-600' : 'bg-indigo-600'} text-white font-extrabold text-xs flex items-center justify-center shrink-0`}>
+                              <div className={`flex-1 min-w-[220px] bg-white p-3 rounded-xl border shadow-2xs flex items-start gap-3 ${hasOr ? 'border-violet-200' : 'border-slate-200'}`}>
+                                <div className={`w-7 h-7 rounded-full ${hasOr ? 'bg-violet-600' : isRoleBadge ? 'bg-sky-600' : 'bg-indigo-600'} text-white font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5`}>
                                   {idx + 1}
                                 </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-xs font-bold text-slate-800 truncate">
-                                    {step.stepName || `${idx + 1}次承認`}
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-bold text-slate-800 truncate">
+                                      {step.stepName || `${idx + 1}次承認`}
+                                    </span>
+                                    {hasOr && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-violet-100 text-violet-800 border border-violet-200 whitespace-nowrap">
+                                        OR承認（いずれか1名）
+                                      </span>
+                                    )}
                                   </div>
-                                  <div className={`text-[11px] font-extrabold flex items-center gap-1 mt-0.5 ${isRoleBadge ? 'text-sky-700' : 'text-indigo-700'}`}>
-                                    <span className={`px-1.5 py-0.5 rounded border ${isRoleBadge ? 'bg-sky-50 border-sky-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                                  <div className={`text-[11px] font-extrabold flex items-center gap-1 flex-wrap ${isRoleBadge ? 'text-sky-700' : 'text-indigo-700'}`}>
+                                    <span className={`px-1.5 py-0.5 rounded border whitespace-nowrap ${isRoleBadge ? 'bg-sky-50 border-sky-200' : 'bg-indigo-50 border-indigo-100'}`}>
                                       {approverBadge}
                                     </span>
                                   </div>
-                                  <div className="text-[10px] text-slate-400 mt-0.5 truncate">{approverDesc}</div>
+                                  <div className="text-[10px] text-slate-400 truncate">{approverDesc}</div>
+                                  {hasOr && (
+                                    <div className="pt-1 border-t border-violet-100 space-y-1">
+                                      {orList.map((cand, cIdx) => (
+                                        <div key={cIdx} className="flex items-center gap-1 text-[10px] font-bold text-violet-800">
+                                          <span className="px-1 py-0.2 rounded bg-violet-100 text-violet-700 font-extrabold text-[9px] shrink-0 whitespace-nowrap">OR</span>
+                                          <span className="truncate">{formatOrRuleLabel(cand)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
@@ -5861,12 +6004,22 @@ END;`}
                       : null;
                     const isOfficeRole = roleOpt !== null;
 
+                    const orApprovers = Array.isArray(step.orApprovers) ? step.orApprovers : [];
+                    const hasOrApprovers = orApprovers.length > 0;
+
                     return (
-                      <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded whitespace-nowrap">
-                            ステップ {idx + 1}: {idx + 1}次承認
-                          </span>
+                      <div key={idx} className={`p-3.5 bg-slate-50 border rounded-xl space-y-3 relative ${hasOrApprovers ? 'border-violet-200' : 'border-slate-200'}`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-extrabold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded whitespace-nowrap">
+                              ステップ {idx + 1}: {idx + 1}次承認
+                            </span>
+                            {hasOrApprovers && (
+                              <span className="text-[10px] font-extrabold text-violet-800 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded whitespace-nowrap">
+                                OR承認（全{1 + orApprovers.length}条件・いずれか1名）
+                              </span>
+                            )}
+                          </div>
                           {flowFormData.steps.length > 1 && (
                             <button
                               type="button"
@@ -5882,7 +6035,7 @@ END;`}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                              承認者の指定方法
+                              承認者の指定方法（主条件）
                             </label>
                             <select
                               value={step.approverType}
@@ -5947,7 +6100,7 @@ END;`}
                               })}
                             </select>
                             <p className="text-[10px] text-sky-800/80">
-                              ※ 対象拠点の{roleOpt.label}が未設定の場合、申請フォームで手動指定が必須になります。申請者本人または重複承認者は自動スキップされます。
+                              ※ 対象拠点の{roleOpt.label}が未設定の場合、OR候補がいなければ申請フォームで手動指定が必須になります。
                             </p>
                           </div>
                         )}
@@ -5970,6 +6123,136 @@ END;`}
                             </select>
                           </div>
                         )}
+
+                        {/* OR承認候補（方式B: 上長・拠点ロール・特定ユーザーを任意に追加） */}
+                        <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-[11px] font-bold text-violet-900 flex items-center gap-1.5">
+                              <Users className="w-3.5 h-3.5 text-violet-600" />
+                              <span>OR承認候補（いずれか1名が承認すれば完了）</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleAddStepOrApprover(idx)}
+                              className="text-[11px] font-bold text-violet-700 hover:text-violet-900 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>OR候補を追加</span>
+                            </button>
+                          </div>
+
+                          {hasOrApprovers ? (
+                            <div className="space-y-2">
+                              {orApprovers.map((orCand, orIdx) => {
+                                const orRoleOpt = isOfficeRoleApproverType(orCand.approverType)
+                                  ? getOfficeRoleOption(orCand.approverType)
+                                  : null;
+
+                                return (
+                                  <div
+                                    key={orIdx}
+                                    className="p-2.5 bg-violet-50/60 border border-violet-200 rounded-lg space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-extrabold text-violet-800 bg-violet-100 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                        OR候補 #{orIdx + 1}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveStepOrApprover(idx, orIdx)}
+                                        className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded transition-colors cursor-pointer"
+                                        title="このOR候補を削除"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                          OR承認者の指定方法
+                                        </label>
+                                        <select
+                                          value={orCand.approverType}
+                                          onChange={(e) =>
+                                            handleUpdateStepOrApproverType(idx, orIdx, e.target.value as ApproverType)
+                                          }
+                                          className="w-full px-2.5 py-1.5 bg-white border border-violet-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer"
+                                        >
+                                          <optgroup label="上長（組織階層）">
+                                            <option value="supervisor_1">直属上長 (1階層目)</option>
+                                            <option value="supervisor_2">二次上長 (2階層目)</option>
+                                            <option value="supervisor">階層上長 (第{idx + 1}階層上長)</option>
+                                          </optgroup>
+                                          <optgroup label="拠点ロール（拠点マスター連携）">
+                                            {OFFICE_ROLE_OPTIONS.map((opt) => (
+                                              <option key={opt.type} value={opt.type}>
+                                                {opt.label}
+                                              </option>
+                                            ))}
+                                          </optgroup>
+                                          <optgroup label="個人指定">
+                                            <option value="specific_user">特定ユーザー (個人指定)</option>
+                                          </optgroup>
+                                        </select>
+                                      </div>
+
+                                      {orCand.approverType === 'specific_user' && (
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                                            OR承認者を選択
+                                          </label>
+                                          <select
+                                            value={orCand.specificUserId || ''}
+                                            onChange={(e) => handleUpdateStepOrApproverUser(idx, orIdx, e.target.value)}
+                                            className="w-full px-2.5 py-1.5 bg-white border border-violet-200 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer"
+                                          >
+                                            {allUsers.map((u) => (
+                                              <option key={u.id} value={u.id}>
+                                                {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+
+                                      {orRoleOpt && (
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-sky-900 mb-1">
+                                            参照拠点（{orRoleOpt.label}）
+                                          </label>
+                                          <select
+                                            value={orCand.targetOfficeId || ''}
+                                            onChange={(e) => handleUpdateStepOrApproverOffice(idx, orIdx, e.target.value)}
+                                            className="w-full px-2.5 py-1.5 bg-white border border-sky-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+                                          >
+                                            <option value="">申請対象拠点（自拠点／選択拠点）</option>
+                                            {offices.map((off) => {
+                                              const mgrId = off[orRoleOpt.idField];
+                                              const mgrUser = mgrId ? allUsers.find(u => u.id === mgrId) : undefined;
+                                              return (
+                                                <option key={off.id} value={off.id}>
+                                                  {off.name}（固定） — {mgrUser ? mgrUser.name : '未設定'}
+                                                </option>
+                                              );
+                                            })}
+                                          </select>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              <p className="text-[10px] text-violet-800/80 leading-relaxed">
+                                ※ OR承認では全候補者に通知・承認待ちが表示され、先着1名の承認で次ステップへ進みます。申請者本人が候補に含まれる場合は本人のみ除外されます。
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-slate-400">
+                              不在時の代理承認にも対応したい場合は「OR候補を追加」から上長・拠点ロール・個人を追加できます。
+                            </p>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

@@ -346,6 +346,13 @@ export type ApproverType =
   | 'supervisor'
   | OfficeRoleApproverType;
 
+export interface ApprovalApproverCandidate {
+  approverType: ApproverType;
+  supervisorLevel?: number; // N段階目の上長階層 (1: 直属上長, 2: 二次上長, ...)
+  specificUserId?: string; // 個人指定の場合のユーザーID
+  targetOfficeId?: string; // 拠点ロール時の参照拠点ID（未指定/空=申請対象拠点、指定時はその固定拠点）
+}
+
 export interface ApprovalStepConfig {
   stepNumber: number; // 1, 2, 3, ... N段階
   approverType: ApproverType;
@@ -355,9 +362,10 @@ export interface ApprovalStepConfig {
   manualApproverId?: string; // 拠点ロール・上長未設定時や手動上書き時に申請者が指定した承認者ID
   resolvedApproverId?: string; // 申請確定時に解決された承認者IDスナップショット（通知・未読判定の整合性用）
   stepName?: string; // 表示用ステップ名
-  // フェーズ2（OR承認・事前委任）向け拡張予約フィールド
+  // フェーズ2（OR承認）フィールド：いずれか1名が承認すればステップ完了
   approvalMode?: 'single' | 'or';
-  orApproverUserIds?: string[];
+  orApprovers?: ApprovalApproverCandidate[]; // 主条件に追加するOR承認候補ルール（上長・拠点ロール・個人指定すべて対応）
+  orApproverUserIds?: string[]; // 申請確定時に解決されたOR承認候補ユーザーIDスナップショット
 }
 
 export interface ApprovalFlowRule {

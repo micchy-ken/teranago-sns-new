@@ -1013,12 +1013,14 @@ export function getAllNotifications({
   applications.forEach((app) => {
     const curStep = app.stepsConfig && app.stepsConfig[(app.currentStepIndex || 1) - 1];
     const isApprover =
-      app.approver?.id === user.id ||
+      String(app.approver?.id || '') === String(user.id) ||
       app.approver?.name === user.name ||
-      curStep?.specificUserId === user.id ||
-      curStep?.manualApproverId === user.id ||
-      curStep?.resolvedApproverId === user.id ||
-      (Array.isArray(curStep?.orApproverUserIds) && curStep.orApproverUserIds.includes(user.id));
+      String(curStep?.specificUserId || '') === String(user.id) ||
+      String(curStep?.manualApproverId || '') === String(user.id) ||
+      String(curStep?.resolvedApproverId || '') === String(user.id) ||
+      (Array.isArray(curStep?.orApproverUserIds) && curStep.orApproverUserIds.some((id) => String(id) === String(user.id))) ||
+      (Array.isArray(curStep?.orApprovers) &&
+        curStep.orApprovers.some((o) => o.approverType === 'specific_user' && String(o.specificUserId || '') === String(user.id)));
     const isApplicant = app.applicant?.id === user.id || app.applicant?.name === user.name;
 
     if (isApprover) {
