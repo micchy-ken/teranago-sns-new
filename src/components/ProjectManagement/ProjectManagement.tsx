@@ -47,6 +47,7 @@ import { CardDetailModal } from './CardDetailModal';
 import { notifyProjectAssignees } from './projectNotifications';
 import { ProjectListView } from './ProjectListView';
 import { MyTasksView } from './MyTasksView';
+import { markProjectCardAsRead } from '../../utils/notifications';
 
 interface ProjectManagementProps {
   currentUser: User;
@@ -228,6 +229,20 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       onClearInitialParams?.();
     }
   }, [initialTaskId, cards, onClearInitialParams]);
+
+  // カード詳細モーダルを開いたタイミングで、該当カードの割り当て・最新コメント通知を既読化
+  useEffect(() => {
+    if (!isCardModalOpen || !editingCard || !currentUser?.id) return;
+    const myIdStr = String(currentUser.id);
+    markProjectCardAsRead(currentUser.id, String(editingCard.id));
+    if (Array.isArray(editingCard.comments) && editingCard.comments.length > 0) {
+      const otherComments = editingCard.comments.filter(c => c && String(c.authorId || '') !== myIdStr);
+      if (otherComments.length > 0) {
+        const latestComment = otherComments[otherComments.length - 1];
+        markProjectCardAsRead(currentUser.id, `cmt_${editingCard.id}_${latestComment.id}`);
+      }
+    }
+  }, [isCardModalOpen, editingCard?.id, editingCard?.comments?.length, currentUser?.id]);
 
   useEffect(() => {
     if (initialProjectView) {
@@ -565,6 +580,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     }
 
     showToast(isEdit ? 'カードを更新しました' : 'カードを追加しました');
+    window.dispatchEvent(new Event('projects_updated'));
   };
 
   const handleDeleteCard = async (cardId: string) => {
@@ -575,6 +591,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       throw new Error('カードの削除に失敗しました');
     }
     setCards(prev => prev.filter(c => c.id !== cardId));
+    window.dispatchEvent(new Event('projects_updated'));
     showToast('カードを削除しました');
   };
 
@@ -597,6 +614,10 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       if (!res.ok) throw new Error();
       const data = await res.json();
       setCards(prev => prev.map(c => (c.id === card.id ? data.card : c)));
+      if (nextCompleted && currentUser?.id) {
+        markProjectCardAsRead(currentUser.id, String(card.id));
+      }
+      window.dispatchEvent(new Event('projects_updated'));
     } catch {
       showToast('完了状態の更新に失敗しました');
     }
@@ -1855,6 +1876,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
           onCardPatched={updatedCard => {
             setCards(prev => prev.map(c => (c.id === updatedCard.id ? updatedCard : c)));
             setEditingCard(prev => (prev && prev.id === updatedCard.id ? updatedCard : prev));
+            window.dispatchEvent(new Event('projects_updated'));
           }}
         />
       )}

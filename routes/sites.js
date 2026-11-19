@@ -1,7 +1,7 @@
 /**
  * routes/sites.js
  * 寺岡オートドアSNS 現場管理・施工スケジュール・在庫DB部品連携 APIモジュール
- * 最終更新: 2026年11月18日 (現場名・図面番号での先行登録対応、図面番号検索・外部DBフォールバック識別対応)
+ * 最終更新: 2026年11月19日 (現場検索時のEG台数フォールバック1台誤表示の解消、現場名・図面番号での先行登録対応)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -319,9 +319,20 @@ function normalizeExternalItem(item) {
   const customerName = String(siteObj.client || siteObj.customerName || siteObj.customer || item.customerName || item.customer || '').trim();
   const address = String(siteObj.address || item.address || '').trim();
   const orderNo = String(siteObj.drawingNo || siteObj.orderNo || item.drawingNo || item.orderNo || '').trim();
-  let egCount = typeof siteObj.egCount === 'number' ? siteObj.egCount : (parseInt(siteObj.egCount, 10) || 0);
-  if (!egCount && typeof item.egCount === 'number') egCount = item.egCount;
-  if (!egCount && item.egCount) egCount = parseInt(item.egCount, 10) || 0;
+  const rawEgVal =
+    siteObj.egCount ??
+    siteObj.eg_count ??
+    siteObj.unitCount ??
+    siteObj.majorCount ??
+    siteObj['EG台数'] ??
+    siteObj['台数'] ??
+    item.egCount ??
+    item.eg_count ??
+    item.unitCount ??
+    item.majorCount ??
+    item['EG台数'] ??
+    item['台数'];
+  let egCount = typeof rawEgVal === 'number' ? rawEgVal : (parseInt(String(rawEgVal ?? ''), 10) || 0);
 
   const period = String(siteObj.period || item.period || '').trim();
 
@@ -354,7 +365,7 @@ function normalizeExternalItem(item) {
     };
   }) : [];
 
-  // もし egCount が 0 の場合、主要部品の台数から自動算出
+  // もし egCount が 0 の場合、主要部品の台数から自動算出（検索一覧等で台数・部品ともに未取得の場合は 0 のまま返し誤表示を防ぐ）
   const majorPartsCount = parts.filter(p => p.isMain).reduce((sum, p) => sum + (p.quantity || 1), 0);
   if (egCount <= 0 && majorPartsCount > 0) {
     egCount = majorPartsCount;
@@ -369,7 +380,7 @@ function normalizeExternalItem(item) {
     customerName,
     address,
     orderNo: orderNo || undefined,
-    egCount: egCount > 0 ? egCount : (majorPartsCount > 0 ? majorPartsCount : 1),
+    egCount: egCount > 0 ? egCount : (majorPartsCount > 0 ? majorPartsCount : 0),
     period,
     scheduledStartDate,
     scheduledEndDate,

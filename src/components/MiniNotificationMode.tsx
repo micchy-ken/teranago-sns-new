@@ -16,6 +16,7 @@ import {
   Pin,
   Check,
   ShieldAlert,
+  FolderKanban,
 } from 'lucide-react';
 import { NotificationItem } from '../utils/notifications';
 import { User } from '../types';
@@ -131,7 +132,7 @@ export function MiniNotificationMode({
 }: MiniNotificationModeProps) {
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const [pipSupported, setPipSupported] = useState<boolean>(false);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety' | 'project'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [lastActionMessage, setLastActionMessage] = useState<string | null>(null);
   const [internalWindowSize, setInternalWindowSize] = useState<NotificationWindowSize>(() => getSavedNotificationWindowSize());
@@ -388,6 +389,12 @@ export function MiniNotificationMode({
           icon: <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />,
           bgColor: 'bg-rose-50 text-rose-700 border-rose-200',
         };
+      case 'project':
+        return {
+          label: 'プロジェクト',
+          icon: <FolderKanban className="w-3.5 h-3.5 text-sky-600" />,
+          bgColor: 'bg-sky-50 text-sky-700 border-sky-200',
+        };
       default:
         return {
           label: '通知',
@@ -623,6 +630,17 @@ export function MiniNotificationMode({
           }`}
         >
           安否確認
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedFilter('project')}
+          className={`px-2 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+            selectedFilter === 'project'
+              ? 'bg-sky-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          プロジェクト
         </button>
       </div>
 

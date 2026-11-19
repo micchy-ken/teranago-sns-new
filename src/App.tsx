@@ -55,7 +55,8 @@ import {
   markReportAsRead, 
   markChatRoomAsRead,
   getRespondedSafetyEventIds,
-  getUnreadNotifications
+  getUnreadNotifications,
+  ProjectNotificationCard
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
@@ -962,6 +963,7 @@ export default function App() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [safetyEvents, setSafetyEvents] = useState<SafetyConfirmationEvent[]>([]);
   const [safetyResponses, setSafetyResponses] = useState<SafetyConfirmationResponse[]>([]);
+  const [projectTasks, setProjectTasks] = useState<ProjectNotificationCard[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -1096,6 +1098,7 @@ export default function App() {
       reports,
       safetyEvents,
       safetyResponses,
+      projectTasks,
     });
     return {
       chat: notifs.filter((n) => n.type === 'chat').length,
@@ -1105,8 +1108,9 @@ export default function App() {
       event: (activeTab === 'calendar' || activeTab === 'inspection_scheduler') ? 0 : notifs.filter((n) => n.type === 'event').length,
       report: activeTab === 'daily_report' ? 0 : notifs.filter((n) => n.type === 'report').length,
       safety: notifs.filter((n) => n.type === 'safety').length,
+      project: notifs.filter((n) => n.type === 'project').length,
     };
-  }, [userState, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, notificationSyncTick]);
+  }, [userState, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, projectTasks, notificationSyncTick]);
 
   // カレンダー予定の更新処理実行中フラグ（更新処理中のポーリングによる古いデータ上書きを防止）
   const isUpdatingCalendarEventsRef = useRef(false);
@@ -1412,6 +1416,32 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Failed to fetch safety events:', err);
+    }
+  };
+
+  const refetchProjectTasks = async (targetUser: User | null = userState) => {
+    const u = targetUser || userState;
+    if (!u?.id) return;
+    try {
+      const params = new URLSearchParams({
+        userId: String(u.id),
+        userName: u.name || '',
+        officeId: u.officeId || '',
+        office: u.office || '',
+        divisionId: u.divisionId || '',
+        division: u.division || '',
+        isAdmin: String(Boolean(u.isAdmin || u.role === 'admin')),
+      });
+      const res = await fetch(`${API_BASE_URL}/projects/my-summary?${params.toString()}`, {
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data?.tasks)) {
+        setProjectTasks(data.tasks);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch project tasks for notifications:', err);
     }
   };
 
@@ -1981,6 +2011,7 @@ export default function App() {
       refetchReports(latestUsers),
       refetchSafetyEvents(),
       refetchSchedulePolls(),
+      refetchProjectTasks(),
     ]);
     if (isMyPage) {
       setTimeout(() => {
@@ -2004,6 +2035,7 @@ export default function App() {
   useEffect(() => {
     if (userState?.id && isAuthenticated) {
       refetchSchedulePolls();
+      refetchProjectTasks(userState);
     }
   }, [userState?.id, isAuthenticated, refetchSchedulePolls]);
 
@@ -2103,6 +2135,7 @@ export default function App() {
           refetchEvents(usersList),
           refetchReports(usersList),
           refetchSafetyEvents(),
+          refetchProjectTasks(),
         ]);
         const stamp = Date.now();
         lastResourceFetchAtRef.current = {
@@ -2112,6 +2145,7 @@ export default function App() {
           memo: stamp,
           calendar: stamp,
           report: stamp,
+          projects: stamp,
         };
         if (isMyPageFastLoad) {
           setTimeout(() => {
@@ -2161,6 +2195,8 @@ export default function App() {
       refetchEvents(usersList);
     } else if (activeTab === 'daily_report' && shouldFetch('report')) {
       refetchReports(usersList);
+    } else if (activeTab === 'projects' && shouldFetch('projects')) {
+      refetchProjectTasks();
     }
 
     // ウィンドウ復帰時・タブ復帰時の即時同期（10秒クールダウンで過剰バーストを防止）
@@ -2197,6 +2233,10 @@ export default function App() {
       lastResourceFetchAtRef.current.report = Date.now();
       refetchReports(usersList);
     };
+    const handleProjectsUpdated = () => {
+      lastResourceFetchAtRef.current.projects = Date.now();
+      refetchProjectTasks();
+    };
 
     window.addEventListener('focus', handleVisibilityOrFocus);
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
@@ -2206,6 +2246,7 @@ export default function App() {
     window.addEventListener('workflows_updated', handleWorkflowsUpdated);
     window.addEventListener('events_updated', handleEventsUpdated);
     window.addEventListener('reports_updated', handleReportsUpdated);
+    window.addEventListener('projects_updated', handleProjectsUpdated);
 
     return () => {
       isCancelled = true;
@@ -2218,6 +2259,7 @@ export default function App() {
       window.removeEventListener('workflows_updated', handleWorkflowsUpdated);
       window.removeEventListener('events_updated', handleEventsUpdated);
       window.removeEventListener('reports_updated', handleReportsUpdated);
+      window.removeEventListener('projects_updated', handleProjectsUpdated);
     };
   }, [isAuthenticated, activeTab, usersList]);
 
@@ -3785,6 +3827,7 @@ export default function App() {
         posts={posts}
         safetyEvents={safetyEvents}
         safetyResponses={safetyResponses}
+        projectTasks={projectTasks}
         userRespondedSafetyEventIds={getRespondedSafetyEventIds(userState?.id)}
         onSelectTab={handleSelectTab}
         onOpenSettings={handleOpenPersonalSettings}

@@ -91,12 +91,27 @@ function resolveDeepLinkUrl(url, data = {}) {
   if (data.safetyEventId) {
     return `/?tab=safety_confirmation&safetyEventId=${data.safetyEventId}`;
   }
+  if (data.projectId || data.taskId) {
+    const q = new URLSearchParams({ tab: 'projects' });
+    if (data.projectId) q.set('projectId', String(data.projectId));
+    if (data.taskId) q.set('taskId', String(data.taskId));
+    return `/?${q.toString()}`;
+  }
 
   if (tab) {
     return `/?tab=${tab}`;
   }
 
   return url || '/';
+}
+
+function classifyPushEndpoint(endpoint = '') {
+  const ep = String(endpoint || '').toLowerCase();
+  if (ep.includes('fcm.googleapis.com') || ep.includes('android.googleapis.com')) return 'FCM(Android/Chrome)';
+  if (ep.includes('web.push.apple.com')) return 'APNs(iOS/Safari)';
+  if (ep.includes('notify.windows.com')) return 'WNS(Windows/Edge)';
+  if (ep.includes('push.services.mozilla.com')) return 'Mozilla(Firefox)';
+  return 'Other';
 }
 
 export async function sendPushNotificationToUser(params) {
@@ -146,24 +161,39 @@ export async function sendPushNotificationToUser(params) {
   });
 
   const staleEndpoints = [];
+  const failures = [];
   let sentCount = 0;
   let failureCount = 0;
 
+  const sanitizedTopic = notificationTag.replace(/[^a-zA-Z0-9_-]/g, '');
   const pushOptions = {
     TTL: 86400,
     urgency: 'high',
-    topic: notificationTag.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 32) || undefined
+    topic: (sanitizedTopic.length > 32 ? sanitizedTopic.slice(-32) : sanitizedTopic) || undefined
   };
 
   await Promise.all(
     targets.map(async (sub) => {
+      const endpoint = sub?.subscription?.endpoint || '';
+      const provider = classifyPushEndpoint(endpoint);
       try {
         await webpush.sendNotification(sub.subscription, payload, pushOptions);
         sentCount++;
       } catch (err) {
         failureCount++;
+        const statusCode = err?.statusCode || 'unknown';
+        const errBody = typeof err?.body === 'string' ? err.body.slice(0, 200) : (err?.message || 'unknown error');
+        console.error(
+          `[WebPush Router] Push failed for user=${sub.userId} provider=${provider} status=${statusCode} tag=${notificationTag} topic=${pushOptions.topic || ''}: ${errBody}`
+        );
+        failures.push({
+          userId: sub.userId,
+          provider,
+          statusCode,
+          message: errBody,
+        });
         if (err.statusCode === 404 || err.statusCode === 410) {
-          staleEndpoints.push(sub.subscription.endpoint);
+          staleEndpoints.push(endpoint);
         }
       }
     })
@@ -172,9 +202,15 @@ export async function sendPushNotificationToUser(params) {
   if (staleEndpoints.length > 0) {
     const remainingSubs = allSubs.filter(s => !staleEndpoints.includes(s.subscription.endpoint));
     saveSubscriptions(remainingSubs);
+    console.log(`[WebPush Router] Pruned ${staleEndpoints.length} stale subscriptions.`);
   }
 
-  return { sentCount, failureCount, totalTargets: targets.length };
+  return {
+    sentCount,
+    failureCount,
+    totalTargets: targets.length,
+    ...(failures.length > 0 ? { failures } : {}),
+  };
 }
 
 // -------------------------------------------------------------

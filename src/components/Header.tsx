@@ -32,9 +32,12 @@ import {
   markWorkflowAsRead,
   getReadReportIds,
   markReportAsRead,
+  getReadProjectIds,
+  markProjectCardAsRead,
   getRespondedSafetyEventIds,
   markSafetyEventAsResponded,
   NotificationItem,
+  ProjectNotificationCard,
 } from '../utils/notifications';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { isEventVisibleToUser } from '../utils/eventVisibility';
@@ -70,6 +73,7 @@ interface HeaderProps {
   posts?: Post[];
   safetyEvents?: SafetyConfirmationEvent[];
   safetyResponses?: SafetyConfirmationResponse[];
+  projectTasks?: ProjectNotificationCard[];
   userRespondedSafetyEventIds?: string[];
   onSelectTab?: (tab: AppTab) => void;
   onOpenSettings?: () => void;
@@ -176,6 +180,7 @@ export function Header({
   posts = [],
   safetyEvents = [],
   safetyResponses = [],
+  projectTasks = [],
   userRespondedSafetyEventIds = [],
   onSelectTab,
   onOpenSettings,
@@ -195,7 +200,7 @@ export function Header({
       return false;
     }
   });
-  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety' | 'project'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [notificationSyncTick, setNotificationSyncTick] = useState(0);
   const readEventIds = useMemo(() => getReadEventIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
@@ -204,6 +209,7 @@ export function Header({
   const readMemoIds = useMemo(() => getReadMemoIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
   const readWorkflowIds = useMemo(() => getReadWorkflowIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
   const readReportIds = useMemo(() => getReadReportIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
+  const readProjectIds = useMemo(() => getReadProjectIds(currentUser?.id), [currentUser?.id, notificationSyncTick]);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Unified Appearance picker state (文字の大きさ + カラー設定)
@@ -795,6 +801,7 @@ export function Header({
       reports,
       safetyEvents,
       safetyResponses,
+      projectTasks,
       userRespondedSafetyEventIds: (userRespondedSafetyEventIds && userRespondedSafetyEventIds.length > 0)
         ? userRespondedSafetyEventIds
         : getRespondedSafetyEventIds(currentUser?.id),
@@ -804,6 +811,7 @@ export function Header({
       readMemoIds,
       readWorkflowIds,
       readReportIds,
+      readProjectIds,
     });
 
     // 現在開いている自動既読対象タブの通知は 1フレーム目のバッジ点滅を防ぐため既読扱いとして扱う
@@ -817,7 +825,7 @@ export function Header({
 
     if (!autoReadType) return items;
     return items.map((item) => (item.type === autoReadType && !item.isRead ? { ...item, isRead: true } : item));
-  }, [currentUser, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, userRespondedSafetyEventIds, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds, notificationSyncTick]);
+  }, [currentUser, activeTab, memos, applications, topics, events, chatRooms, reports, safetyEvents, safetyResponses, projectTasks, userRespondedSafetyEventIds, readEventIds, readTopicIds, readChatTimestamps, readMemoIds, readWorkflowIds, readReportIds, readProjectIds, notificationSyncTick]);
 
   const memoNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'memo'), [allNotifications]);
   const workflowNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'workflow'), [allNotifications]);
@@ -826,6 +834,7 @@ export function Header({
   const chatNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'chat'), [allNotifications]);
   const reportNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'report'), [allNotifications]);
   const safetyNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'safety'), [allNotifications]);
+  const projectNotifications = useMemo(() => allNotifications.filter((n) => n.type === 'project'), [allNotifications]);
 
   const unreadCount = useMemo(() => allNotifications.filter((n) => !n.isRead).length, [allNotifications]);
 
@@ -920,6 +929,12 @@ export function Header({
         onNavigateToContent({ tab: 'safety_confirmation', safetyEventId: sev.id });
         return;
       }
+    } else if (item.type === 'project' && item.originalData) {
+      const projCard = item.originalData as ProjectNotificationCard & { readKey?: string };
+      markProjectCardAsRead(currentUser?.id, projCard.readKey || projCard.id);
+      if (projCard.readKey && projCard.readKey !== projCard.id) {
+        markProjectCardAsRead(currentUser?.id, projCard.id);
+      }
     }
 
     if (onNavigateToContent) {
@@ -931,6 +946,10 @@ export function Header({
       if (item.type === 'event' && item.originalData) targetParams.eventId = (item.originalData as CalendarEvent).id;
       if (item.type === 'report' && item.originalData) targetParams.reportId = (item.originalData as DailyReport).id;
       if (item.type === 'safety' && item.originalData) targetParams.safetyEventId = (item.originalData as SafetyConfirmationEvent).id;
+      if (item.type === 'project' && item.originalData) {
+        targetParams.projectId = (item.originalData as ProjectNotificationCard).projectId;
+        targetParams.taskId = (item.originalData as ProjectNotificationCard).id;
+      }
 
       onNavigateToContent(targetParams);
     } else if (onSelectTab) {
@@ -948,6 +967,9 @@ export function Header({
       if (item.type === 'event' && item.originalData) markEventAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'report' && item.originalData) markReportAsRead(currentUser?.id, item.originalData.id);
       if (item.type === 'safety' && item.originalData) markSafetyEventAsResponded(currentUser?.id, item.originalData.id);
+      if (item.type === 'project' && item.originalData) {
+        markProjectCardAsRead(currentUser?.id, item.originalData.readKey || item.originalData.id);
+      }
     });
 
     if (onUpdateMemos && memos.length > 0) {
@@ -1008,6 +1030,8 @@ export function Header({
         return <FileText className="w-3.5 h-3.5 text-teal-600" />;
       case 'safety':
         return <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />;
+      case 'project':
+        return <FolderKanban className="w-3.5 h-3.5 text-sky-600" />;
     }
   };
 
@@ -1027,6 +1051,8 @@ export function Header({
         return 'bg-teal-100/70 border-teal-200';
       case 'safety':
         return 'bg-rose-100/70 border-rose-200';
+      case 'project':
+        return 'bg-sky-100/70 border-sky-200';
     }
   };
 
@@ -2223,6 +2249,19 @@ export function Header({
                       }`}
                     >
                       安否確認 ({safetyNotifications.length})
+                    </button>
+                  )}
+                  {projectNotifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterType('project')}
+                      className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap transition-colors ${
+                        filterType === 'project'
+                          ? 'bg-sky-600 text-white font-bold'
+                          : 'text-slate-600 hover:bg-sky-50'
+                      }`}
+                    >
+                      プロジェクト ({projectNotifications.length})
                     </button>
                   )}
                 </div>

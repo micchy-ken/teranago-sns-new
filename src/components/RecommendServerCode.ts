@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月19日 (日程調整の未確定再編集PUT API・未確定削除権限＆確定済ガード対応 routes/schedulePolls.js 完全同期版)
+ * 最終更新日時 (最終アップデート): 2026年11月19日 (プロジェクト通知のベル既読API対応・Web Push32文字Topic安全化＆端末別失敗ログ強化 routes/push.js・routes/memos.js 完全同期版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -274,10 +274,25 @@ async function startServer() {
     if (data.safetyEventId) {
       return \`/?tab=safety_confirmation&safetyEventId=\${data.safetyEventId}\`;
     }
+    if (data.projectId || data.taskId) {
+      const q = new URLSearchParams({ tab: 'projects' });
+      if (data.projectId) q.set('projectId', String(data.projectId));
+      if (data.taskId) q.set('taskId', String(data.taskId));
+      return \`/?\${q.toString()}\`;
+    }
     if (tab) {
       return \`/?tab=\${tab}\`;
     }
     return url || '/';
+  }
+
+  function classifyPushEndpoint(endpoint = '') {
+    const ep = String(endpoint || '').toLowerCase();
+    if (ep.includes('fcm.googleapis.com') || ep.includes('android.googleapis.com')) return 'FCM(Android/Chrome)';
+    if (ep.includes('web.push.apple.com')) return 'APNs(iOS/Safari)';
+    if (ep.includes('notify.windows.com')) return 'WNS(Windows/Edge)';
+    if (ep.includes('push.services.mozilla.com')) return 'Mozilla(Firefox)';
+    return 'Other';
   }
 
   // Push通知送信ヘルパー関数 (高優先度 & 確実な配信)
@@ -345,26 +360,40 @@ async function startServer() {
     });
 
     const staleEndpoints: string[] = [];
+    const failures: Array<{ userId: string; provider: string; statusCode: number | string; message: string }> = [];
     let sentCount = 0;
     let failureCount = 0;
 
     // Web Push標準オプション (高優先度、24時間TTL、トピック集約)
+    const sanitizedTopic = notificationTag.replace(/[^a-zA-Z0-9_-]/g, '');
     const pushOptions: webpush.RequestOptions = {
       TTL: 86400, // 24時間保持 (オフライン復帰時にも確実に配信)
       urgency: 'high', // 最高優先度
-      topic: notificationTag.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 32) || undefined
+      topic: (sanitizedTopic.length > 32 ? sanitizedTopic.slice(-32) : sanitizedTopic) || undefined
     };
 
     await Promise.all(
       targets.map(async (sub) => {
+        const endpoint = sub?.subscription?.endpoint || '';
+        const provider = classifyPushEndpoint(endpoint);
         try {
           await webpush.sendNotification(sub.subscription, payload, pushOptions);
           sentCount++;
         } catch (err: any) {
           failureCount++;
-          console.error(\`[WebPush] Push failed for user \${sub.userId}:\`, err.statusCode || err.message);
+          const statusCode = err?.statusCode || 'unknown';
+          const errBody = typeof err?.body === 'string' ? err.body.slice(0, 200) : (err?.message || 'unknown error');
+          console.error(
+            \`[WebPush] Push failed for user=\${sub.userId} provider=\${provider} status=\${statusCode} tag=\${notificationTag} topic=\${pushOptions.topic || ''}: \${errBody}\`
+          );
+          failures.push({
+            userId: sub.userId,
+            provider,
+            statusCode,
+            message: errBody,
+          });
           if (err.statusCode === 404 || err.statusCode === 410) {
-            staleEndpoints.push(sub.subscription.endpoint);
+            staleEndpoints.push(endpoint);
           }
         }
       })
@@ -376,7 +405,12 @@ async function startServer() {
       console.log(\`[WebPush] Pruned \${staleEndpoints.length} stale subscriptions.\`);
     }
 
-    return { sentCount, failureCount, totalTargets: targets.length };
+    return {
+      sentCount,
+      failureCount,
+      totalTargets: targets.length,
+      ...(failures.length > 0 ? { failures } : {}),
+    };
   }
 
   // ==========================================
@@ -1642,6 +1676,7 @@ async function startServer() {
         workflow: [],
         chat: [],
         report: [],
+        project: [],
       };
       const chatTimestamps: Record<string, string> = {};
 

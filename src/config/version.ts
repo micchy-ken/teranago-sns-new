@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.19.2',
+  version: '2026.11.19.4',
   date: '2026-11-19',
-  releaseNumber: 2,
+  releaseNumber: 4,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.19 #2 (JST)',
-  description: '日程調整の未確定再編集機能（PUT）・未確定調整の削除対応・確定済み編集不可ガードおよび通知制御'
+  display: 'v2026.11.19 #4 (JST)',
+  description: 'プロジェクトのタスク割り当て・コメントをヘッダーベル通知＆サイドバー未読バッジに対応、Web Push32文字以内タグ安全化・端末別失敗ログ強化'
 } as const;

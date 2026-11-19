@@ -12,6 +12,7 @@ export interface SidebarUnreadCounts {
   event?: number;
   report?: number;
   safety?: number;
+  project?: number;
 }
 
 interface SidebarProps {
@@ -264,6 +265,11 @@ export const Sidebar = React.memo(function Sidebar({
               <FolderKanban className="w-4 h-4 text-indigo-600" />
               <span>プロジェクト</span>
             </div>
+            {Boolean(unreadCounts?.project) && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-sky-600 rounded-full min-w-[18px] text-center shadow-xs">
+                {(unreadCounts?.project || 0) > 99 ? '99+' : unreadCounts?.project}
+              </span>
+            )}
           </button>
         )}
         {isTabAllowed('documents') && (

@@ -1,16 +1,21 @@
 import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
+import { ProjectCard } from '../types/project';
 import { API_BASE_URL } from '../config/api';
 import { isEventVisibleToUser } from './eventVisibility';
 import { getSupervisorAtLevel } from './workflowHelpers';
 import { doesUserMatchOffice, doesUserMatchDivision } from './masterResolver';
 
+export type ProjectNotificationCard = ProjectCard & {
+  projectTitle?: string;
+};
+
 export interface NotificationItem {
   id: string;
-  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety';
+  type: 'memo' | 'workflow' | 'board' | 'event' | 'chat' | 'report' | 'safety' | 'project';
   title: string;
   description: string;
   createdAt: string;
-  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage' | 'safety_confirmation';
+  tab: 'memo' | 'workflow' | 'board' | 'calendar' | 'chat' | 'daily_report' | 'mypage' | 'safety_confirmation' | 'projects';
   originalData?: any;
   isRead?: boolean; // true: 確認済み (履歴・グレイアウト), false: 未確認 (通常表示)
 }
@@ -25,6 +30,7 @@ const memoryReadTopicIds: Record<string, string[]> = {};
 const memoryReadMemoIds: Record<string, string[]> = {};
 const memoryReadWorkflowIds: Record<string, string[]> = {};
 const memoryReadReportIds: Record<string, string[]> = {};
+const memoryReadProjectIds: Record<string, string[]> = {};
 const memoryReadChatTimestamps: Record<string, Record<string, string>> = {};
 const memoryRespondedSafetyEventIds: Record<string, string[]> = {};
 
@@ -45,6 +51,7 @@ function hydrateLocalReadStatuses(userId?: string) {
     if (Array.isArray(parsed.memo)) memoryReadMemoIds[userId] = parsed.memo;
     if (Array.isArray(parsed.workflow)) memoryReadWorkflowIds[userId] = parsed.workflow;
     if (Array.isArray(parsed.report)) memoryReadReportIds[userId] = parsed.report;
+    if (Array.isArray(parsed.project)) memoryReadProjectIds[userId] = parsed.project;
   } catch (_) {}
 }
 
@@ -59,6 +66,7 @@ function persistLocalReadStatuses(userId?: string) {
         memo: memoryReadMemoIds[userId] || [],
         workflow: memoryReadWorkflowIds[userId] || [],
         report: memoryReadReportIds[userId] || [],
+        project: memoryReadProjectIds[userId] || [],
       })
     );
   } catch (_) {}
@@ -71,7 +79,7 @@ export function isUserReadStatusSynced(userId?: string): boolean {
 }
 
 /** サーバーへ既読状態を送信（非同期） */
-async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat' | 'report', targetId: string) {
+async function saveReadStatusToServer(userId: string, targetType: 'event' | 'topic' | 'memo' | 'workflow' | 'chat' | 'report' | 'project', targetId: string) {
   if (!userId || !targetType || !targetId) return;
   try {
     await fetch(`${API_BASE_URL}/read-statuses`, {
@@ -98,6 +106,7 @@ export async function syncUserReadStatusesFromServer(userId: string) {
       workflow?: string[];
       chat?: string[];
       report?: string[];
+      project?: string[];
       chatTimestamps?: Record<string, string>;
     } = await res.json();
     if (!data) return;
@@ -117,6 +126,9 @@ export async function syncUserReadStatusesFromServer(userId: string) {
     }
     if (Array.isArray(data.report)) {
       memoryReadReportIds[userId] = Array.from(new Set([...(memoryReadReportIds[userId] || []), ...data.report.map(String)]));
+    }
+    if (Array.isArray(data.project)) {
+      memoryReadProjectIds[userId] = Array.from(new Set([...(memoryReadProjectIds[userId] || []), ...data.project.map(String)]));
     }
     persistLocalReadStatuses(userId);
     
@@ -414,6 +426,42 @@ export function markSafetyEventAsResponded(userId?: string, eventId?: string) {
 
 export function markSafetyEventAsRead(userId?: string, eventId?: string) {
   markSafetyEventAsResponded(userId, eventId);
+}
+
+/** 8. プロジェクト・タスク既読 */
+export function getReadProjectIds(userId?: string): string[] {
+  if (!userId) return [];
+  hydrateLocalReadStatuses(userId);
+  return memoryReadProjectIds[userId] || [];
+}
+
+export function markProjectCardAsRead(userId?: string, readKey?: string) {
+  if (!userId || !readKey) return;
+  hydrateLocalReadStatuses(userId);
+  if (!memoryReadProjectIds[userId]) {
+    memoryReadProjectIds[userId] = [];
+  }
+  const keyStr = String(readKey);
+  if (!memoryReadProjectIds[userId].includes(keyStr)) {
+    memoryReadProjectIds[userId].push(keyStr);
+    persistLocalReadStatuses(userId);
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+  }
+  saveReadStatusToServer(userId, 'project', keyStr);
+}
+
+export function markAllProjectCardsAsRead(userId?: string, readKeys?: string[]) {
+  if (!userId || !readKeys || !readKeys.length) return;
+  hydrateLocalReadStatuses(userId);
+  if (!memoryReadProjectIds[userId]) {
+    memoryReadProjectIds[userId] = [];
+  }
+  const normalized = readKeys.map(String).filter(Boolean);
+  const nextSet = new Set([...memoryReadProjectIds[userId], ...normalized]);
+  memoryReadProjectIds[userId] = Array.from(nextSet);
+  persistLocalReadStatuses(userId);
+  window.dispatchEvent(new CustomEvent('notifications_updated'));
+  normalized.forEach((key) => saveReadStatusToServer(userId, 'project', key));
 }
 
 // -------------------------------------------------------------
@@ -874,6 +922,7 @@ export function getAllNotifications({
   reports = [],
   safetyEvents = [],
   safetyResponses = [],
+  projectTasks = [],
   userRespondedSafetyEventIds = getRespondedSafetyEventIds(user?.id),
   readEventIds = getReadEventIds(user?.id),
   readTopicIds = getReadTopicIds(user?.id),
@@ -881,6 +930,7 @@ export function getAllNotifications({
   readMemoIds = getReadMemoIds(user?.id),
   readWorkflowIds = getReadWorkflowIds(user?.id),
   readReportIds = getReadReportIds(user?.id),
+  readProjectIds = getReadProjectIds(user?.id),
   maxReadHistory = 80,
 }: {
   user: User;
@@ -892,6 +942,7 @@ export function getAllNotifications({
   reports?: DailyReport[];
   safetyEvents?: SafetyConfirmationEvent[];
   safetyResponses?: SafetyConfirmationResponse[];
+  projectTasks?: ProjectNotificationCard[];
   userRespondedSafetyEventIds?: string[];
   readEventIds?: string[];
   readTopicIds?: string[];
@@ -899,6 +950,7 @@ export function getAllNotifications({
   readMemoIds?: string[];
   readWorkflowIds?: string[];
   readReportIds?: string[];
+  readProjectIds?: string[];
   maxReadHistory?: number;
 }): NotificationItem[] {
   if (!user) return [];
@@ -1218,6 +1270,68 @@ export function getAllNotifications({
     };
     if (unread) unreadList.push(item);
     else readList.push(item);
+  });
+
+  // 8. Project Tasks & Comments (プロジェクト・タスク割り当て／新着コメント)
+  const myUserIdStr = String(user.id || '');
+  projectTasks.forEach((card) => {
+    if (!card || card.isArchived) return;
+    const isAssignedToMe = Array.isArray(card.assigneeIds) && card.assigneeIds.map(String).includes(myUserIdStr);
+    const isCreatedByMe = card.createdBy ? String(card.createdBy) === myUserIdStr : false;
+    const isUpdatedByOther = Boolean(card.updatedBy) && String(card.updatedBy) !== myUserIdStr;
+    const boardLabel = card.projectTitle ? `${card.projectTitle}｜` : '';
+
+    // 8-1. 他者から担当に割り振られたタスク（自分が作成して自分だけで管理する個人タスクは除外）
+    if (isAssignedToMe && (!isCreatedByMe || isUpdatedByOther)) {
+      const assignReadKey = String(card.id);
+      const unread = !card.isCompleted && !readProjectIds.includes(assignReadKey);
+      const actorPrefix = card.createdByName && !isCreatedByMe ? `${card.createdByName}さんから割り当て` : '担当タスクに割り当て';
+      const dueSuffix = card.dueDate ? `（期限: ${card.dueDate}）` : '';
+      const item: NotificationItem = {
+        id: `proj_${card.id}`,
+        type: 'project',
+        title: `【プロジェクト】${boardLabel}${card.title}`,
+        description: `${actorPrefix}${dueSuffix}`,
+        createdAt: card.updatedAt || card.createdAt || new Date().toISOString(),
+        tab: 'projects',
+        originalData: {
+          ...card,
+          notificationKind: 'assign',
+          readKey: assignReadKey,
+        },
+        isRead: !unread,
+      };
+      if (unread) unreadList.push(item);
+      else readList.push(item);
+    }
+
+    // 8-2. 担当または作成タスクへの他者からの最新コメント
+    if ((isAssignedToMe || isCreatedByMe) && Array.isArray(card.comments) && card.comments.length > 0) {
+      const otherComments = card.comments.filter((c) => c && String(c.authorId || '') !== myUserIdStr);
+      if (otherComments.length > 0) {
+        const latestComment = otherComments[otherComments.length - 1];
+        const commentReadKey = `cmt_${card.id}_${latestComment.id}`;
+        const unread = !readProjectIds.includes(commentReadKey);
+        const snippet = (latestComment.content || '').trim().slice(0, 60) || 'ファイルが添付されました';
+        const item: NotificationItem = {
+          id: `proj_cmt_${card.id}_${latestComment.id}`,
+          type: 'project',
+          title: `【プロジェクトコメント】${boardLabel}${card.title}`,
+          description: `${latestComment.authorName || 'メンバー'}: ${snippet}`,
+          createdAt: latestComment.createdAt || card.updatedAt || card.createdAt || new Date().toISOString(),
+          tab: 'projects',
+          originalData: {
+            ...card,
+            notificationKind: 'comment',
+            commentId: latestComment.id,
+            readKey: commentReadKey,
+          },
+          isRead: !unread,
+        };
+        if (unread) unreadList.push(item);
+        else readList.push(item);
+      }
+    }
   });
 
   // 未読は最新順

@@ -251,13 +251,17 @@ export interface InventorySyncResult {
   changedMainStatusesCount: number;
   changedMainMetaCount: number;
   importedMainPartsCount: number;
+  addedMainPartsCount: number;
+  replacedMainPartsCount: number;
   changedSubPartsCount: number;
+  expandedMainPartsCount: number;
+  expandedSubPartsCount: number;
   summaryMessage: string;
 }
 
 /**
  * 既存現場データと外部在庫DB取得結果を照合し、
- * 未取込部品の展開および入庫日・出庫日・ステータス・建具番号の変更を検知してマージする
+ * 未取込部品の展開・増設部品の自動追加・コード変更時の全置換・入庫日/出庫日/ステータス/建具番号/EG台数の更新を行う
  */
 export function mergeInventorySyncWithSite(
   currentSite: Site,
@@ -265,6 +269,7 @@ export function mergeInventorySyncWithSite(
   options?: {
     siteCodeOverride?: string;
     forceReplaceEmptyParts?: boolean;
+    replaceExistingMainParts?: boolean;
   }
 ): InventorySyncResult {
   const expanded = expandExternalSitePayload(externalRawData, {
@@ -283,7 +288,11 @@ export function mergeInventorySyncWithSite(
       changedMainStatusesCount: 0,
       changedMainMetaCount: 0,
       importedMainPartsCount: 0,
+      addedMainPartsCount: 0,
+      replacedMainPartsCount: 0,
       changedSubPartsCount: 0,
+      expandedMainPartsCount: 0,
+      expandedSubPartsCount: 0,
       summaryMessage: '',
     };
   }
@@ -293,6 +302,8 @@ export function mergeInventorySyncWithSite(
   let changedMainStatusesCount = 0;
   let changedMainMetaCount = 0;
   let importedMainPartsCount = 0;
+  let addedMainPartsCount = 0;
+  let replacedMainPartsCount = 0;
   let changedSubPartsCount = 0;
 
   const targetSiteCode = (options?.siteCodeOverride || expanded.siteCode || currentSite.siteCode || '').trim();
@@ -329,7 +340,13 @@ export function mergeInventorySyncWithSite(
 
   let nextMainParts: SiteMainPart[] = currentSite.mainParts || [];
 
-  if (nextMainParts.length === 0 && expanded.mainParts.length > 0) {
+  if (options?.replaceExistingMainParts && expanded.mainParts.length > 0) {
+    // 現場コードの入力し直し（変更）による主要部品の完全差し替え
+    nextMainParts = expanded.mainParts;
+    replacedMainPartsCount = nextMainParts.length;
+    siteLevelUpdates.egCount = Math.max(expanded.egCount, nextMainParts.length, 1);
+    hasChanges = true;
+  } else if (nextMainParts.length === 0 && expanded.mainParts.length > 0) {
     // 現場名・図面番号等で先行登録されていた現場へ、後から在庫情報を初回取り込み
     nextMainParts = expanded.mainParts;
     importedMainPartsCount = nextMainParts.length;
@@ -383,7 +400,15 @@ export function mergeInventorySyncWithSite(
 
       const changes: Partial<SiteMainPart> = {};
 
-      // 建具番号・部品規格の同期
+      // 型番・品名・建具番号・部品規格の同期
+      if (!mp.partCode && live.partCode) {
+        changes.partCode = live.partCode;
+        changedMainMetaCount++;
+      }
+      if (!mp.partName && live.partName) {
+        changes.partName = live.partName;
+        changedMainMetaCount++;
+      }
       if (live.fittingNo && (!mp.fittingNo || mp.fittingNo !== live.fittingNo)) {
         changes.fittingNo = live.fittingNo;
         changedMainMetaCount++;
@@ -430,6 +455,44 @@ export function mergeInventorySyncWithSite(
       }
       return mp;
     });
+
+    // 在庫DB側に存在し、既存部品と未マッチの追加部品（2台目以降など）を末尾に自動追加
+    const unmatchedLives = expanded.mainParts.filter((_, i) => !usedLiveIndices.has(i));
+    if (unmatchedLives.length > 0) {
+      const existingIds = new Set(nextMainParts.map((p) => p.id));
+      const appended = unmatchedLives.map((lp, offset) => {
+        const safeId =
+          lp.id && !existingIds.has(lp.id)
+            ? lp.id
+            : `part-sync-${Date.now()}-${nextMainParts.length + offset + 1}`;
+        existingIds.add(safeId);
+        return {
+          ...lp,
+          id: safeId,
+        };
+      });
+      nextMainParts = [...nextMainParts, ...appended];
+      addedMainPartsCount = appended.length;
+      hasChanges = true;
+    }
+
+    // EG台数および各部品の総台数 (originalQuantity)・号機 (unitIndex) を最新台数に同期
+    const targetEgCount = Math.max(expanded.egCount, nextMainParts.length, 1);
+    if (targetEgCount > (currentSite.egCount || 0)) {
+      siteLevelUpdates.egCount = targetEgCount;
+      hasChanges = true;
+    }
+    if (
+      addedMainPartsCount > 0 ||
+      nextMainParts.some((p) => !p.originalQuantity || p.originalQuantity < targetEgCount)
+    ) {
+      nextMainParts = nextMainParts.map((p, idx) => ({
+        ...p,
+        unitIndex: p.unitIndex || idx + 1,
+        originalQuantity: Math.max(p.originalQuantity || 1, targetEgCount),
+      }));
+      hasChanges = true;
+    }
   }
 
   // 付属部品の入庫日・出庫日・数量変化を検知してキャッシュも更新
@@ -442,8 +505,9 @@ export function mergeInventorySyncWithSite(
       )
       .join('||');
 
-  const hasSubChanges =
-    expanded.subParts.length > 0 && toSubSig(expanded.subParts) !== toSubSig(prevSubCache);
+  const hasSubChanges = options?.replaceExistingMainParts
+    ? toSubSig(expanded.subParts) !== toSubSig(prevSubCache)
+    : expanded.subParts.length > 0 && toSubSig(expanded.subParts) !== toSubSig(prevSubCache);
 
   if (hasSubChanges) {
     // 何件の付属部品に日付・構成変更があったか算出
@@ -460,7 +524,7 @@ export function mergeInventorySyncWithSite(
         diffCount++;
       }
     }
-    changedSubPartsCount = Math.max(diffCount, 1);
+    changedSubPartsCount = expanded.subParts.length > 0 ? Math.max(diffCount, 1) : prevSubCache.length;
     siteLevelUpdates.subPartsCache = expanded.subParts;
     hasChanges = true;
   }
@@ -486,8 +550,14 @@ export function mergeInventorySyncWithSite(
     : currentSite;
 
   const summaryParts: string[] = [];
+  if (replacedMainPartsCount > 0) {
+    summaryParts.push(`主要部品を新コードの ${replacedMainPartsCount}台 に置き換え`);
+  }
   if (importedMainPartsCount > 0) {
     summaryParts.push(`主要部品 ${importedMainPartsCount}台を取り込み`);
+  }
+  if (addedMainPartsCount > 0) {
+    summaryParts.push(`主要部品 ${addedMainPartsCount}台を追加（計 ${nextMainParts.length}台）`);
   }
   if (changedMainDatesCount > 0 || changedMainStatusesCount > 0) {
     summaryParts.push(
@@ -495,7 +565,7 @@ export function mergeInventorySyncWithSite(
     );
   }
   if (changedSubPartsCount > 0) {
-    summaryParts.push(`付属部品の入出庫情報を更新 (${changedSubPartsCount}件)`);
+    summaryParts.push(`付属部品の入出庫情報を更新 (${expanded.subParts.length}件)`);
   }
   if (summaryParts.length === 0 && changedMainMetaCount > 0) {
     summaryParts.push(`建具番号・型番を同期 (${changedMainMetaCount}件)`);
@@ -505,12 +575,20 @@ export function mergeInventorySyncWithSite(
     isFallback: false,
     hasChanges,
     updatedSite,
-    subParts: expanded.subParts.length > 0 ? expanded.subParts : prevSubCache,
+    subParts: options?.replaceExistingMainParts
+      ? expanded.subParts
+      : expanded.subParts.length > 0
+        ? expanded.subParts
+        : prevSubCache,
     changedMainDatesCount,
     changedMainStatusesCount,
     changedMainMetaCount,
     importedMainPartsCount,
+    addedMainPartsCount,
+    replacedMainPartsCount,
     changedSubPartsCount,
+    expandedMainPartsCount: expanded.mainParts.length,
+    expandedSubPartsCount: expanded.subParts.length,
     summaryMessage: summaryParts.join(' / '),
   };
 }

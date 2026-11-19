@@ -12,7 +12,7 @@ import { triggerOpenUserModal } from '../../utils/userModal';
 import { API_BASE_URL, appendAuthTokenToUrl } from '../../config/api';
 import { FilePreviewModal } from '../FilePreviewModal';
 import { ConfirmModal, ConfirmModalState } from '../ConfirmModal';
-import { getFittingLabel, cleanPartName, mergeInventorySyncWithSite, deriveInventoryPartStatus, normalizeExternalDate } from '../../utils/siteUtils';
+import { getFittingLabel, cleanPartName, expandExternalSitePayload, mergeInventorySyncWithSite, deriveInventoryPartStatus, normalizeExternalDate } from '../../utils/siteUtils';
 import { uploadFile, resolveFileUrl } from '../../utils/fileUpload';
 
 interface SiteDetailModalProps {
@@ -271,16 +271,30 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
 
   const handleSaveInfo = async () => {
     if (!currentSite) return;
+    const prevCode = (currentSite.siteCode || '').trim();
+    const nextCode = (
+      infoForm.siteCode !== undefined ? infoForm.siteCode : (currentSite.siteCode || '')
+    ).trim();
     const updated: Site = {
       ...currentSite,
       ...infoForm,
-      siteCode: (infoForm.siteCode || currentSite.siteCode || '').trim(),
+      siteCode: nextCode,
       siteName: (infoForm.siteName || currentSite.siteName || '').trim(),
       egCount: typeof infoForm.egCount === 'number' ? infoForm.egCount : currentSite.egCount,
     };
     setCurrentSite(updated);
+    setInventoryCodeInput(nextCode);
     await saveSiteChanges(updated);
     setIsEditingInfo(false);
+
+    // 現場コードが新規設定または別コードへ変更された場合、自動で在庫DB同期を実行
+    if (nextCode && nextCode.toLowerCase() !== prevCode.toLowerCase()) {
+      await syncInventoryStatus(updated, {
+        overrideSiteCode: nextCode,
+        previousSiteCode: prevCode,
+        manual: true,
+      });
+    }
   };
 
   const handleCancelEditInfo = () => {
@@ -290,13 +304,67 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
     setIsEditingInfo(false);
   };
 
-  // 在庫DBから入庫日・出庫日・ステータス・未取込部品・付属部品を監視＆同期
+  // 取得済みの在庫データを用いて現場データをマージ/置換・保存する共通ヘルパー
+  const applyInventorySyncResult = async (
+    targetSite: Site,
+    detailData: any,
+    lookupCode: string,
+    nowTimeJst: string,
+    options?: {
+      manual?: boolean;
+      silentIfNoChange?: boolean;
+      replaceExistingMainParts?: boolean;
+    }
+  ) => {
+    const syncResult = mergeInventorySyncWithSite(targetSite, detailData, {
+      siteCodeOverride: lookupCode,
+      replaceExistingMainParts: options?.replaceExistingMainParts,
+    });
+
+    if (syncResult.isFallback) {
+      if (options?.manual) {
+        setSyncNotice({
+          type: 'warning',
+          message: `現場コード「${lookupCode}」の外部在庫DBへ接続できないか未登録のため、現在のデータを維持しました。`,
+          timestamp: nowTimeJst,
+        });
+        setInventoryLookupError(`現場コード「${lookupCode}」の在庫情報が見つからないか、外部DBに接続できませんでした。`);
+      }
+      return;
+    }
+
+    setSubParts(syncResult.subParts);
+    setLastSyncedAt(nowTimeJst);
+
+    if (syncResult.hasChanges) {
+      setCurrentSite(syncResult.updatedSite);
+      setInfoForm(syncResult.updatedSite);
+      setInventoryCodeInput(syncResult.updatedSite.siteCode || lookupCode);
+      await saveSiteChanges(syncResult.updatedSite);
+      setShowInventoryLinker(false);
+      setSyncNotice({
+        type: 'success',
+        message: syncResult.summaryMessage || `現場コード「${lookupCode}」の在庫情報・入出庫ステータスを最新化しました。`,
+        timestamp: nowTimeJst,
+      });
+    } else if (options?.manual || !options?.silentIfNoChange) {
+      setSyncNotice({
+        type: 'info',
+        message: `在庫DBを確認しました（現場コード「${lookupCode}」の入庫日・出庫日・進捗は最新です）。`,
+        timestamp: nowTimeJst,
+      });
+    }
+  };
+
+  // 在庫DBから入庫日・出庫日・ステータス・未取込/追加部品・付属部品を監視＆同期
   const syncInventoryStatus = async (
     targetSite: Site,
     options?: {
       overrideSiteCode?: string;
+      previousSiteCode?: string;
       manual?: boolean;
       silentIfNoChange?: boolean;
+      replaceExistingMainParts?: boolean;
     }
   ) => {
     const lookupCode = (options?.overrideSiteCode || targetSite.siteCode || '').trim();
@@ -335,43 +403,67 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
         second: '2-digit',
       });
 
-      const syncResult = mergeInventorySyncWithSite(targetSite, detailData, {
-        siteCodeOverride: lookupCode,
-      });
+      const prevCode = (
+        options?.previousSiteCode !== undefined ? options.previousSiteCode : (targetSite.siteCode || '')
+      ).trim();
+      const isCodeChanged = prevCode !== '' && prevCode.toLowerCase() !== lookupCode.toLowerCase();
+      const isFirstLinkWithExistingParts = prevCode === '' && (targetSite.mainParts?.length || 0) > 0;
 
-      if (syncResult.isFallback) {
-        if (options?.manual) {
+      // 現場コードを変更（または手動部品がある現場へ初回コード連携）した場合、確認モーダルで全差し替えを確認
+      if (
+        options?.manual &&
+        options?.replaceExistingMainParts === undefined &&
+        (isCodeChanged || isFirstLinkWithExistingParts) &&
+        (targetSite.mainParts?.length || 0) > 0
+      ) {
+        const previewExpanded = expandExternalSitePayload(detailData, {
+          primaryWorkerId: targetSite.primaryWorkerId,
+          primaryWorkerName: targetSite.primaryWorkerName,
+          defaultConstructionDate: targetSite.constructionDate || targetSite.startDate || '',
+        });
+
+        if (previewExpanded.isFallback) {
           setSyncNotice({
             type: 'warning',
             message: `現場コード「${lookupCode}」の外部在庫DBへ接続できないか未登録のため、現在のデータを維持しました。`,
             timestamp: nowTimeJst,
           });
           setInventoryLookupError(`現場コード「${lookupCode}」の在庫情報が見つからないか、外部DBに接続できませんでした。`);
+          return;
         }
-        return;
+
+        if (previewExpanded.mainParts.length > 0) {
+          setConfirmModal({
+            isOpen: true,
+            title: '在庫データによる主要部品の置き換え確認',
+            message: `現場コードを「${prevCode || '未連携'}」→「${lookupCode}」へ連携します。\n\n現在登録されている主要部品（${targetSite.mainParts.length}台）を、現場コード「${lookupCode}」の在庫データ（主要部品 ${previewExpanded.mainParts.length}台 / 付属部品 ${previewExpanded.subParts.length}件）で置き換えますか？`,
+            confirmText: `在庫データ（${previewExpanded.mainParts.length}台）で置き換える`,
+            cancelText: '既存部品を維持する',
+            type: 'info',
+            onConfirm: () => {
+              applyInventorySyncResult(targetSite, detailData, lookupCode, nowTimeJst, {
+                manual: true,
+                replaceExistingMainParts: true,
+              });
+            },
+            onCancel: () => {
+              // 既存部品を残したまま未マッチ部品のみ追記・同期したい場合はマージせずそのまま維持
+              setSyncNotice({
+                type: 'info',
+                message: `既存の主要部品（${targetSite.mainParts.length}台）を維持しました。`,
+                timestamp: nowTimeJst,
+              });
+            },
+          });
+          return;
+        }
       }
 
-      setSubParts(syncResult.subParts);
-      setLastSyncedAt(nowTimeJst);
-
-      if (syncResult.hasChanges) {
-        setCurrentSite(syncResult.updatedSite);
-        setInfoForm(syncResult.updatedSite);
-        setInventoryCodeInput(syncResult.updatedSite.siteCode || lookupCode);
-        await saveSiteChanges(syncResult.updatedSite);
-        setShowInventoryLinker(false);
-        setSyncNotice({
-          type: 'success',
-          message: syncResult.summaryMessage || `現場コード「${lookupCode}」の在庫情報・入出庫ステータスを最新化しました。`,
-          timestamp: nowTimeJst,
-        });
-      } else if (options?.manual || !options?.silentIfNoChange) {
-        setSyncNotice({
-          type: 'info',
-          message: `在庫DBを確認しました（現場コード「${lookupCode}」の入庫日・出庫日・進捗は最新です）。`,
-          timestamp: nowTimeJst,
-        });
-      }
+      await applyInventorySyncResult(targetSite, detailData, lookupCode, nowTimeJst, {
+        manual: options?.manual,
+        silentIfNoChange: options?.silentIfNoChange,
+        replaceExistingMainParts: options?.replaceExistingMainParts,
+      });
     } catch (e: any) {
       console.warn('Failed to sync inventory status:', e);
       if (options?.manual) {
@@ -1759,11 +1851,12 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                               type="button"
                               onClick={() => {
                                 const codeVal = (infoForm.siteCode || '').trim();
+                                const prevCode = (currentSite.siteCode || '').trim();
                                 if (codeVal) {
                                   setIsEditingInfo(false);
                                   syncInventoryStatus(
                                     { ...currentSite, ...infoForm, siteCode: codeVal } as Site,
-                                    { overrideSiteCode: codeVal, manual: true }
+                                    { overrideSiteCode: codeVal, previousSiteCode: prevCode, manual: true }
                                   );
                                 }
                               }}
@@ -2047,7 +2140,9 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
                                 </span>
                                 <span className="font-bold text-slate-800">{nameVal}</span>
                                 {res.customerName && <span className="text-slate-500">({res.customerName})</span>}
-                                {res.egCount ? <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">EG: {res.egCount}台</span> : null}
+                                {res.egCount !== undefined && res.egCount > 0 ? (
+                                  <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">EG: {res.egCount}台</span>
+                                ) : null}
                               </div>
                               <span className="text-indigo-600 font-bold shrink-0">連携・取込 →</span>
                             </button>

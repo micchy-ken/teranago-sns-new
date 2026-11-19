@@ -11,6 +11,19 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 /**
+ * Web Push (FCM / APNs / WNS) の Topic ヘッダー上限（32文字・英数字と_-のみ）に確実に収まる
+ * 短い一意タグを生成（末尾のランダム識別子が切り詰められないように末尾優先で切り出す）
+ */
+function buildSafeProjectPushTag(prefix: 'pa' | 'pc', cardId: string): string {
+  const sanitized = String(cardId || '')
+    .replace(/^card[-_]/i, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '');
+  const maxBodyLen = 32 - prefix.length - 1;
+  const suffix = sanitized.length > maxBodyLen ? sanitized.slice(-maxBodyLen) : (sanitized || String(Date.now()));
+  return `${prefix}-${suffix}`;
+}
+
+/**
  * プロジェクトカードの担当者アサイン通知（Web Push + メール）
  * ※操作ユーザー自身は除外して送信
  */
@@ -41,7 +54,7 @@ export async function notifyProjectAssignees(params: {
       title: `📌 ${board.title}｜${kindLabel}担当に割り当て`,
       body: `${actor.name}さんが「${card.title}」の担当者にあなたを指定しました${card.dueDate ? `（期限: ${card.dueDate}）` : ''}`,
       url: deepLinkUrl,
-      tag: `project-assign-${card.id}`,
+      tag: buildSafeProjectPushTag('pa', card.id),
       data: {
         type: 'project_assign',
         projectId: board.id,
@@ -115,7 +128,7 @@ export async function notifyProjectComment(params: {
       title: `💬 ${board.title}｜${card.title}`,
       body: `${actor.name}: ${snippet}`,
       url: deepLinkUrl,
-      tag: `project-comment-${card.id}`,
+      tag: buildSafeProjectPushTag('pc', card.id),
       data: {
         type: 'project_comment',
         projectId: board.id,

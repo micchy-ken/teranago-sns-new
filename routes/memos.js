@@ -2,7 +2,7 @@
  * routes/memos.js (本番環境・MS SQL Server & 伝言メモ & 受領者別対応ステータス管理 & コメント機能[公開・非公開] 完全修正版)
  * 寺岡オートドアSNS / 寺子屋SNS 伝言メモ管理モジュール
  * 
- * 最終更新: 2026年11月11日 (Step 3 パフォーマンス改善 ＆ ルーティング競合修正：app.use('/api')マウント時に後続ルーター[/api/posts, /api/work-reports等]を横取りしないよう裸の'/:id'を排除・baseUrl自動正規化対応版)
+ * 最終更新: 2026年11月19日 (プロジェクトタスク・コメント通知の既読管理 targetType='project' 対応を追加 ／ Step 3 パフォーマンス改善 ＆ ルーティング競合修正：app.use('/api')マウント時に後続ルーターを横取りしないbaseUrl自動正規化対応版)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -903,13 +903,13 @@ router.get(['/read-statuses/:userId', '/read-statuses/:userId/'], async (req, re
   try {
     const { userId } = req.params;
     const pool = await getPool();
-    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [] });
+    if (!pool) return res.json({ event: [], topic: [], memo: [], workflow: [], chat: [], report: [], project: [] });
 
     const result = await pool.request()
       .input('userId', sql.VarChar(100), String(userId).trim())
       .query('SELECT targetType, targetId FROM dbo.UserReadStatuses WHERE userId = @userId');
 
-    const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [], report: [] };
+    const readMap = { event: [], topic: [], memo: [], workflow: [], chat: [], report: [], project: [] };
     (result.recordset || []).forEach(row => {
       if (readMap[row.targetType]) {
         readMap[row.targetType].push(String(row.targetId));
