@@ -7828,15 +7828,23 @@ async function startServer() {
   });
 
   // 承認フロー設定 (ApprovalFlows)
+  const normalizeApprovalFlow = (item: any) => ({
+    ...item,
+    targetOfficeIds: Array.isArray(item?.targetOfficeIds) ? item.targetOfficeIds.filter(Boolean).map(String) : [],
+    priority: Number.isFinite(Number(item?.priority)) ? Number(item.priority) : 0,
+    steps: Array.isArray(item?.steps) ? item.steps : [],
+  });
+
   app.get(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
-    res.json(loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows));
+    const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
+    res.json(Array.isArray(list) ? list.map(normalizeApprovalFlow) : []);
   });
 
   app.post(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
     const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
     const item = req.body || {};
     const id = item.id || `flow-${Date.now()}`;
-    const newItem = { ...item, id };
+    const newItem = normalizeApprovalFlow({ ...item, id });
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(approvalFlowsFilePath, list);
@@ -7847,7 +7855,7 @@ async function startServer() {
     const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
     const id = req.params.id;
     const item = req.body || {};
-    const newItem = { ...item, id };
+    const newItem = normalizeApprovalFlow({ ...item, id });
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(approvalFlowsFilePath, list);

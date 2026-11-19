@@ -332,14 +332,32 @@ export type ConstructionPhase = 'new' | 'remaining' | 'shukko';
 export type ApplicationType = 'purchase_order' | 'purchase_request' | 'inventory_issue' | 'business_trip' | 'gold_silver_daily_report' | 'other';
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'draft';
 
-export type ApproverType = 'supervisor_1' | 'supervisor_2' | 'supervisor_n' | 'specific_user' | 'supervisor';
+export type OfficeRoleApproverType =
+  | 'office_manager'
+  | 'dispatch_manager'
+  | 'accounting_manager'
+  | 'safe_driving_manager';
+
+export type ApproverType =
+  | 'supervisor_1'
+  | 'supervisor_2'
+  | 'supervisor_n'
+  | 'specific_user'
+  | 'supervisor'
+  | OfficeRoleApproverType;
 
 export interface ApprovalStepConfig {
   stepNumber: number; // 1, 2, 3, ... N段階
-  approverType: ApproverType; // 'supervisor_n' | 'supervisor_1' | 'supervisor_2' | 'specific_user' | 'supervisor'
+  approverType: ApproverType;
   supervisorLevel?: number; // N段階目の上長階層 (1: 直属上長, 2: 二次上長, 3: 三次上長...)
   specificUserId?: string; // 個人指定の場合のユーザーID
+  targetOfficeId?: string; // 拠点ロール時の参照拠点ID（未指定/空=申請対象拠点（自拠点/フォーム選択拠点）、指定時はその固定拠点）
+  manualApproverId?: string; // 拠点ロール・上長未設定時や手動上書き時に申請者が指定した承認者ID
+  resolvedApproverId?: string; // 申請確定時に解決された承認者IDスナップショット（通知・未読判定の整合性用）
   stepName?: string; // 表示用ステップ名
+  // フェーズ2（OR承認・事前委任）向け拡張予約フィールド
+  approvalMode?: 'single' | 'or';
+  orApproverUserIds?: string[];
 }
 
 export interface ApprovalFlowRule {
@@ -347,6 +365,8 @@ export interface ApprovalFlowRule {
   name: string;
   description?: string;
   targetApplicationType?: ApplicationType | 'all';
+  targetOfficeIds?: string[]; // 対象拠点マスターID一覧（空/未指定 = 全拠点共通）
+  priority?: number; // 同一条件が複数ある場合の優先度（数値が大きいほど優先）
   steps: ApprovalStepConfig[];
   isDefault?: boolean;
 }
@@ -357,6 +377,10 @@ export interface ApprovalHistoryRecord {
   status: 'approved' | 'rejected';
   actionAt: string; // ISO string
   comment?: string;
+  // フェーズ2（代理承認・OR承認）向け監査証跡フィールド
+  actedAsProxy?: boolean;
+  originalApprover?: User;
+  proxyReason?: string;
 }
 
 export interface PurchaseOrderItem {

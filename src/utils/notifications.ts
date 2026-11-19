@@ -1,8 +1,8 @@
-import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse } from '../types';
+import { User, Memo, WorkflowApplication, BoardTopic, CalendarEvent, ChatRoom, DailyReport, SafetyConfirmationEvent, SafetyConfirmationResponse, OfficeMaster } from '../types';
 import { ProjectCard } from '../types/project';
 import { API_BASE_URL } from '../config/api';
 import { isEventVisibleToUser } from './eventVisibility';
-import { getSupervisorAtLevel } from './workflowHelpers';
+import { isUserCurrentApprover } from './workflowHelpers';
 import { doesUserMatchOffice, doesUserMatchDivision } from './masterResolver';
 import { isTopicTargetedToUser } from './boardHelpers';
 
@@ -704,37 +704,15 @@ export function isMemoVisibleToUser(m: Memo, user: User): boolean {
 }
 
 /** 5. ワークフロー承認依頼の未承認(処理前)判定 */
-export function isWorkflowPending(app: WorkflowApplication, user: User, allUsers: User[] = []): boolean {
+export function isWorkflowPending(
+  app: WorkflowApplication,
+  user: User,
+  allUsers: User[] = [],
+  offices: OfficeMaster[] = []
+): boolean {
   if (!user || !app) return false;
   if (app.status !== 'pending') return false;
-
-  // 1. 多段階ステップ設定がある場合は、必ず現在ステップの承認者のみを判定
-  if (app.stepsConfig && app.stepsConfig.length > 0) {
-    const currentStepIdx = (app.currentStepIndex || 1) - 1;
-    const step = app.stepsConfig[currentStepIdx];
-    if (step) {
-      if (step.approverType === 'specific_user' && step.specificUserId) {
-        return step.specificUserId === user.id;
-      }
-      if (allUsers.length > 0 && app.applicant) {
-        let targetLevel = step.supervisorLevel;
-        if (!targetLevel) {
-          if (step.approverType === 'supervisor_1') targetLevel = 1;
-          else if (step.approverType === 'supervisor_2') targetLevel = 2;
-          else targetLevel = currentStepIdx + 1;
-        }
-        const sup = getSupervisorAtLevel(app.applicant, targetLevel, allUsers);
-        if (sup) return sup.id === user.id;
-        const fallback = getSupervisorAtLevel(app.applicant, 1, allUsers);
-        if (fallback) return fallback.id === user.id;
-      }
-    }
-    return false;
-  }
-
-  // 2. 単一承認フローの場合のみ直接指定の approver を判定
-  const isApprover = app.approver?.id === user.id || app.approver?.name === user.name;
-  return Boolean(isApprover);
+  return isUserCurrentApprover(app, user, allUsers, offices);
 }
 
 /** 6. ワークフロー承認依頼の未読(ベルマーク通知対象)判定 */
@@ -1033,10 +1011,14 @@ export function getAllNotifications({
 
   // 2. Workflows (申請・ワークフロー)
   applications.forEach((app) => {
+    const curStep = app.stepsConfig && app.stepsConfig[(app.currentStepIndex || 1) - 1];
     const isApprover =
       app.approver?.id === user.id ||
       app.approver?.name === user.name ||
-      (app.stepsConfig && app.stepsConfig[(app.currentStepIndex || 1) - 1]?.specificUserId === user.id);
+      curStep?.specificUserId === user.id ||
+      curStep?.manualApproverId === user.id ||
+      curStep?.resolvedApproverId === user.id ||
+      (Array.isArray(curStep?.orApproverUserIds) && curStep.orApproverUserIds.includes(user.id));
     const isApplicant = app.applicant?.id === user.id || app.applicant?.name === user.name;
 
     if (isApprover) {

@@ -7,7 +7,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { isPreviewable } from '../utils/fileUpload';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { triggerOpenUserModal } from '../utils/userModal';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
+import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails, isDuplicateApproverStep, isUserCurrentApprover as isUserCurrentApproverHelper } from '../utils/workflowHelpers';
 
 interface WorkflowProps {
   applications: WorkflowApplication[];
@@ -348,24 +348,16 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
       };
     }
 
-    // 特定ユーザー直接指定
-    if (stepConfig.approverType === 'specific_user' && stepConfig.specificUserId) {
-      const specUser = userByIdMap.get(stepConfig.specificUserId);
-      if (specUser) {
-        return { name: specUser.name, avatarUrl: specUser.avatarUrl, roleLabel: '個人指定' };
-      }
-    }
-
-    // 階層上長
-    const lvl = stepConfig.supervisorLevel || (stepConfig.approverType === 'supervisor_2' ? 2 : stepConfig.approverType === 'supervisor_1' ? 1 : stepIdx + 1);
-    const supId = getSupervisorIdAtLevel(app.applicant?.id, lvl);
-    const supUser = supId ? userByIdMap.get(supId) : null;
-
-    if (supUser) {
+    const details = resolveApproverForStepDetails(app.applicant, stepConfig, stepIdx, allUsers, {
+      offices,
+      applicationOfficeId: app.officeId,
+      applicationLocation: app.location,
+    });
+    if (details?.user) {
       return {
-        name: supUser.name,
-        avatarUrl: supUser.avatarUrl,
-        roleLabel: lvl === 1 ? '直属上長' : `第${lvl}階層上長`
+        name: details.user.name,
+        avatarUrl: details.user.avatarUrl,
+        roleLabel: details.label || stepConfig.stepName || `${stepIdx + 1}次承認`
       };
     }
 
@@ -383,7 +375,7 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
 
   // 動的に現在ログイン中のユーザーが対象申請のステップ承認者かをチェックする関数
   const isUserCurrentApprover = (app: WorkflowApplication, user: UserType) => {
-    return isUserCurrentApproverHelper(app, user, allUsers);
+    return isUserCurrentApproverHelper(app, user, allUsers, offices);
   };
 
   // 下書き件数
@@ -516,6 +508,19 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                         {getStatusConfig(app.status).icon}
                         {getStatusConfig(app.status).label}
                       </span>
+                      {(() => {
+                        const targetOffName =
+                          offices.find(o => o.id === app.officeId || o.name === app.location)?.name ||
+                          app.location ||
+                          '';
+                        if (!targetOffName) return null;
+                        return (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-sky-800 border border-sky-200 whitespace-nowrap">
+                            <Building2 className="w-3 h-3 text-sky-600" />
+                            <span>{targetOffName}</span>
+                          </span>
+                        );
+                      })()}
                       {app.type === 'purchase_order' && app.constructionDate && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
                           <Calendar className="w-3.5 h-3.5 text-indigo-600" />
@@ -809,7 +814,12 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                 )}
 
                 {app.stepsConfig && app.stepsConfig.length > 0 && (() => {
-                  const displaySteps = filterStepsForApplicant(app.applicant, app.stepsConfig, allUsers);
+                  const resolveCtx = {
+                    offices,
+                    applicationOfficeId: app.officeId,
+                    applicationLocation: app.location,
+                  };
+                  const displaySteps = app.stepsConfig;
                   const expanded = isFlowExpanded(app);
 
                   return (
@@ -899,7 +909,7 @@ export const Workflow = React.memo(function Workflow({ applications, onAddApplic
                               const stepNum = idx + 1;
                               const currentStep = app.currentStepIndex || 1;
                               const userInfo = resolveStepUserInfo(app, step, idx);
-                              const isDuplicate = isDuplicateApproverStep(app.applicant, displaySteps, idx, allUsers);
+                              const isDuplicate = isDuplicateApproverStep(app.applicant, displaySteps, idx, allUsers, resolveCtx);
 
                               let stepState: 'completed' | 'current' | 'upcoming' = 'upcoming';
                               if (app.status === 'approved') {

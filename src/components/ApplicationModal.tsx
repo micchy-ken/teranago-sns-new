@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, GitMerge, ArrowRight, CheckCircle2, UserCheck, ShieldCheck, AlertCircle, Plus, Trash2, Building2, ShoppingBag, Calculator, Calendar, Save, Send, Paperclip, Loader2, UploadCloud, Store, Clock, CreditCard, FileText, UserPlus, Zap, Coins } from 'lucide-react';
 import { ApplicationType, WorkflowApplication, User, ApprovalFlowRule, ApprovalStepConfig, ItemMaster, PurchaseOrderItem, ApplicationStatus, AttachmentFile, OfficeMaster } from '../types';
-import { filterStepsForApplicant, getSupervisorAtLevel, resolveApproverForStep, resolveApproverForStepDetails, isDuplicateApproverStep } from '../utils/workflowHelpers';
+import { findBestMatchingApprovalFlow, getFlowMatchBadge, buildApprovalRoutePreview } from '../utils/workflowHelpers';
+import { resolveOffice } from '../utils/masterResolver';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { markWorkflowAsRead } from '../utils/notifications';
@@ -158,6 +159,10 @@ export function ApplicationModal({
   // 承認フロー選択 ('manual' または 承認フローID)
   const [selectedFlowId, setSelectedFlowId] = useState<string>('manual');
   const [manualApproverId, setManualApproverId] = useState<string>('');
+  // 未設定ステップの手動承認者オーバーライド (originalStepIndex -> userId)
+  const [stepManualOverrides, setStepManualOverrides] = useState<Record<number, string>>({});
+  // 全ステップがスキップされた場合のフォールバック手動承認者
+  const [fallbackManualApproverId, setFallbackManualApproverId] = useState<string>('');
 
   // 添付ファイル関連ステート
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
@@ -254,8 +259,10 @@ export function ApplicationModal({
         setDescription(initialData.description);
         setPreviousBalance(initialData.previousBalance !== undefined ? initialData.previousBalance : '');
         setCurrentBalance(initialData.currentBalance !== undefined ? initialData.currentBalance : '');
-        const initOffId = initialData.officeId || offices.find(o => o.name === initialData.location || o.id === initialData.location || (initialData.applicant?.office && (o.name === initialData.applicant.office || o.id === initialData.applicant.office)))?.id || '';
-        const initOffName = offices.find(o => o.id === initOffId)?.name || initialData.location || initialData.applicant?.office || currentUser.office || '本社';
+        const matchedInitOffice =
+          resolveOffice(initialData.officeId || initialData.location || initialData.applicant?.officeId || initialData.applicant?.office || currentUser.officeId || currentUser.office, offices);
+        const initOffId = initialData.officeId || matchedInitOffice?.id || '';
+        const initOffName = matchedInitOffice?.name || initialData.location || initialData.applicant?.office || currentUser.office || '本社';
         setReportOfficeId(initOffId);
         setReportOffice(initOffName);
         setPurchasePurpose(initialData.purchasePurpose || '');
@@ -271,6 +278,23 @@ export function ApplicationModal({
         setConstructionDate(initialData.constructionDate ? initialData.constructionDate.substring(0, 10) : '');
         setSelectedFlowId(initialData.flowId || 'manual');
         setAttachments(initialData.attachments || []);
+        // 既存の手動オーバーライドを復元
+        const restoredOverrides: Record<number, string> = {};
+        if (initialData.flowId && Array.isArray(initialData.stepsConfig)) {
+          const matchedFlow = approvalFlows.find(f => f.id === initialData.flowId);
+          if (matchedFlow && Array.isArray(matchedFlow.steps)) {
+            matchedFlow.steps.forEach((fStep, idx) => {
+              const savedStep = initialData.stepsConfig?.find(
+                s => s.approverType === fStep.approverType && (s.stepName === fStep.stepName || s.stepNumber === fStep.stepNumber)
+              );
+              if (savedStep?.manualApproverId) {
+                restoredOverrides[idx] = savedStep.manualApproverId;
+              }
+            });
+          }
+        }
+        setStepManualOverrides(restoredOverrides);
+        setFallbackManualApproverId('');
         if (initialData.approver) {
           setManualApproverId(initialData.approver.id);
         }
@@ -281,12 +305,16 @@ export function ApplicationModal({
         }
       } else {
         const defaultType: ApplicationType = initialType || 'purchase_order';
-        const userOfficeObj = offices.find(o => (o.name && currentUser.office && o.name === currentUser.office) || o.id === currentUser.office || (o.name && currentUser.department && currentUser.department.includes(o.name)));
-        const initialOfficeId = userOfficeObj?.id || '';
+        const userOfficeObj =
+          resolveOffice(currentUser.officeId || currentUser.office || currentUser.department, offices) ||
+          offices.find(o => o.name && currentUser.department && currentUser.department.includes(o.name));
+        const initialOfficeId = userOfficeObj?.id || currentUser.officeId || (offices.length > 0 ? offices[0].id : '');
         const initialOfficeName = userOfficeObj?.name || currentUser.office || (offices.length > 0 ? offices[0].name : '本社');
         setReportOfficeId(initialOfficeId);
         setReportOffice(initialOfficeName);
         setType(defaultType);
+        setStepManualOverrides({});
+        setFallbackManualApproverId('');
         
         if (defaultType === 'gold_silver_daily_report') {
           setTitle(initialTitle || getGoldSilverReportTitle(initialOfficeName));
@@ -315,10 +343,7 @@ export function ApplicationModal({
         setPurchaseItems([{ itemName: '', quantity: 1, unitPrice: 0, amount: 0 }]);
 
         if (approvalFlows.length > 0) {
-          const matched =
-            approvalFlows.find(f => f.targetApplicationType === defaultType) ||
-            approvalFlows.find(f => f.isDefault) ||
-            approvalFlows[0];
+          const matched = findBestMatchingApprovalFlow(approvalFlows, defaultType, initialOfficeId, offices);
           if (matched) {
             setSelectedFlowId(matched.id);
           } else {
@@ -433,14 +458,41 @@ export function ApplicationModal({
   // 明細の小計合計計算
   const totalPurchaseAmount = purchaseItems.reduce((sum, item) => sum + (item.amount || 0), 0);
 
-  // 申請種別変更ハンドラー（対応するフローを自動マッチング）
+  // 対象拠点変更ハンドラー（拠点×種別で承認フロー自動切替・金銀日報残高自動引継）
+  const handleTargetOfficeChange = (selectedId: string) => {
+    const targetOffice = offices.find(o => o.id === selectedId);
+    const newName = targetOffice?.name || reportOffice;
+    setReportOfficeId(selectedId);
+    setReportOffice(newName);
+    setStepManualOverrides({});
+
+    if (type === 'gold_silver_daily_report') {
+      if (!initialData || title.startsWith('金銀日報-')) {
+        setTitle(getGoldSilverReportTitle(newName));
+      }
+      const latest = findLatestBalanceForOffice(selectedId, newName);
+      setPreviousBalance(latest !== undefined ? latest : '');
+    }
+
+    if (!initialData && approvalFlows.length > 0) {
+      const matched = findBestMatchingApprovalFlow(approvalFlows, type, selectedId, offices);
+      if (matched) {
+        setSelectedFlowId(matched.id);
+      }
+    }
+  };
+
+  // 申請種別変更ハンドラー（対象拠点×申請種別で対応するフローを自動マッチング）
   const handleTypeChange = (newType: ApplicationType) => {
     setType(newType);
+    let effectiveOfficeId = reportOfficeId;
     if (!initialData) {
       if (newType === 'gold_silver_daily_report') {
-        const userOffObj = offices.find(o => (reportOfficeId && o.id === reportOfficeId) || (reportOffice && o.name === reportOffice) || (currentUser.office && o.name === currentUser.office) || (currentUser.office && o.id === currentUser.office));
+        const userOffObj =
+          resolveOffice(reportOfficeId || reportOffice || currentUser.officeId || currentUser.office, offices);
         const offId = reportOfficeId || userOffObj?.id || (offices.length > 0 ? offices[0].id : '');
         const offName = userOffObj?.name || reportOffice || currentUser.office || (offices.length > 0 ? offices[0].name : '本社');
+        effectiveOfficeId = offId;
         setReportOfficeId(offId);
         setReportOffice(offName);
         setTitle(getGoldSilverReportTitle(offName));
@@ -451,33 +503,37 @@ export function ApplicationModal({
       }
     }
     if (!initialData && approvalFlows.length > 0) {
-      const matched =
-        approvalFlows.find(f => f.targetApplicationType === newType) ||
-        approvalFlows.find(f => f.isDefault) ||
-        approvalFlows[0];
+      const matched = findBestMatchingApprovalFlow(approvalFlows, newType, effectiveOfficeId, offices);
       if (matched) {
         setSelectedFlowId(matched.id);
+        setStepManualOverrides({});
       }
     }
   };
 
   if (!isOpen) return null;
 
-  // 現在選択中の承認フロー設定を取得し、申請者に応じてステップをフィルタリング (2次上長不在の場合は1次のみ)
-  const currentFlow = approvalFlows.find(f => f.id === selectedFlowId);
-  const activeStepsConfig = currentFlow ? filterStepsForApplicant(currentUser, currentFlow.steps, allUsers) : [];
+  const applicantUser = initialData?.applicant || currentUser;
+  const applicantOwnOffice = resolveOffice(applicantUser.officeId || applicantUser.office || applicantUser.department, offices);
+  const isOwnOfficeSelected = !reportOfficeId || (applicantOwnOffice ? applicantOwnOffice.id === reportOfficeId : true);
 
-  // 申請者(currentUser)の実際の承認ルートを計算
-  const actualRoute = activeStepsConfig.map((step, idx) => {
-    const details = resolveApproverForStepDetails(currentUser, step, idx, allUsers);
-    const isDuplicate = isDuplicateApproverStep(currentUser, activeStepsConfig, idx, allUsers);
-    return {
-      stepNumber: idx + 1,
-      stepName: step.stepName || `${idx + 1}次承認`,
-      isDuplicate,
-      ...details
-    };
-  });
+  // 現在選択中の承認フロー設定を取得し、拠点ロール・未設定・自己承認スキップ・重複スキップを評価
+  const currentFlow = approvalFlows.find(f => f.id === selectedFlowId);
+  const routePreview = currentFlow
+    ? buildApprovalRoutePreview(
+        applicantUser,
+        currentFlow.steps,
+        allUsers,
+        {
+          offices,
+          applicationOfficeId: reportOfficeId,
+          applicationLocation: reportOffice,
+        },
+        stepManualOverrides
+      )
+    : null;
+  const activeStepsConfig = routePreview ? routePreview.effectiveSteps : [];
+  const firstActiveItem = routePreview?.previewItems.find(item => item.skipReason === null && !item.isUnresolved && item.user);
 
   const handleSaveDraft = () => {
     const draftTitle = (title || '').trim() || (type === 'gold_silver_daily_report' ? getGoldSilverReportTitle(reportOffice) : '(無題の下書き)');
@@ -486,11 +542,24 @@ export function ApplicationModal({
     let stepsConfig: ApprovalStepConfig[] | undefined;
     let flowName: string | undefined;
 
-    if (selectedFlowId !== 'manual' && currentFlow) {
+    if (selectedFlowId !== 'manual' && currentFlow && routePreview) {
       flowName = currentFlow.name;
-      stepsConfig = activeStepsConfig;
-      if (actualRoute.length > 0) {
-        initialApprover = actualRoute[0].user;
+      if (routePreview.allStepsSkipped && fallbackManualApproverId) {
+        const fbUser = allUsers.find(u => u.id === fallbackManualApproverId);
+        initialApprover = fbUser;
+        stepsConfig = fbUser
+          ? [{
+              stepNumber: 1,
+              approverType: 'specific_user',
+              specificUserId: fbUser.id,
+              manualApproverId: fbUser.id,
+              resolvedApproverId: fbUser.id,
+              stepName: '手動承認者指定',
+            }]
+          : [];
+      } else {
+        stepsConfig = activeStepsConfig;
+        initialApprover = firstActiveItem?.user || undefined;
       }
     } else {
       initialApprover = allUsers.find(u => u.id === manualApproverId);
@@ -546,8 +615,8 @@ export function ApplicationModal({
       amount: finalAmount,
       previousBalance: isGoldSilver ? (previousBalance !== '' ? Number(previousBalance) : undefined) : undefined,
       currentBalance: isGoldSilver ? (currentBalance !== '' ? Number(currentBalance) : undefined) : undefined,
-      location: isGoldSilver ? (resolvedOff.name || reportOffice || currentUser.office || '本社') : undefined,
-      officeId: isGoldSilver ? (resolvedOff.id || reportOfficeId || undefined) : undefined,
+      location: resolvedOff.name || reportOffice || currentUser.office || undefined,
+      officeId: resolvedOff.id || reportOfficeId || undefined,
       purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
       purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
       purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
@@ -622,21 +691,66 @@ export function ApplicationModal({
     let stepsConfig: ApprovalStepConfig[] | undefined;
     let flowName: string | undefined;
 
-    if (selectedFlowId !== 'manual' && currentFlow) {
-      flowName = currentFlow.name;
-      stepsConfig = activeStepsConfig;
-      if (actualRoute.length > 0) {
-        initialApprover = actualRoute[0].user;
+    if (selectedFlowId !== 'manual' && currentFlow && routePreview) {
+      if (routePreview.hasUnresolved) {
+        setConfirmModal({
+          isOpen: true,
+          title: '承認者の手動指定が必要です',
+          message: '担当者が未設定の承認ステップがあります。承認ルート内の「未設定」ステップで承認者を手動選択してから提出してください。',
+          type: 'warning',
+          confirmText: '確認',
+        });
+        return;
+      }
+
+      if (routePreview.allStepsSkipped) {
+        const fbUser = allUsers.find(u => u.id === fallbackManualApproverId && u.id !== applicantUser.id);
+        if (!fbUser) {
+          setConfirmModal({
+            isOpen: true,
+            title: '承認者の手動指定が必要です',
+            message: '申請者本人の自動スキップにより有効な承認者が0名となっています。承認ルート欄から承認者を手動選択してください。',
+            type: 'warning',
+            confirmText: '確認',
+          });
+          return;
+        }
+        flowName = `${currentFlow.name}（手動承認者指定）`;
+        initialApprover = fbUser;
+        stepsConfig = [
+          {
+            stepNumber: 1,
+            approverType: 'specific_user',
+            specificUserId: fbUser.id,
+            manualApproverId: fbUser.id,
+            resolvedApproverId: fbUser.id,
+            stepName: '手動承認者指定',
+          },
+        ];
+      } else {
+        flowName = currentFlow.name;
+        stepsConfig = activeStepsConfig;
+        initialApprover = firstActiveItem?.user || undefined;
       }
     } else {
       initialApprover = allUsers.find(u => u.id === manualApproverId);
-      if (!initialApprover) return;
+      if (!initialApprover) {
+        setConfirmModal({
+          isOpen: true,
+          title: '承認者の選択',
+          message: '承認者を選択してください。',
+          type: 'warning',
+          confirmText: '確認',
+        });
+        return;
+      }
       flowName = '個別承認（1段階）';
       stepsConfig = [
         {
           stepNumber: 1,
           approverType: 'specific_user',
           specificUserId: initialApprover.id,
+          resolvedApproverId: initialApprover.id,
           stepName: '承認確認'
         }
       ];
@@ -680,8 +794,8 @@ export function ApplicationModal({
       amount: finalAmount,
       previousBalance: isGoldSilver ? Number(previousBalance) : undefined,
       currentBalance: isGoldSilver ? Number(currentBalance) : undefined,
-      location: isGoldSilver ? (resolvedOff.name || reportOffice || currentUser.office || '本社') : undefined,
-      officeId: isGoldSilver ? (resolvedOff.id || reportOfficeId || undefined) : undefined,
+      location: resolvedOff.name || reportOffice || currentUser.office || undefined,
+      officeId: resolvedOff.id || reportOfficeId || undefined,
       purchasePurpose: type === 'purchase_request' ? purchasePurpose : undefined,
       purchaseTiming: type === 'purchase_request' ? purchaseTiming : undefined,
       purchaseDueDate: (type === 'purchase_request' && purchaseTiming === 'by_date' && purchaseDueDate) ? purchaseDueDate : undefined,
@@ -760,19 +874,57 @@ export function ApplicationModal({
         </div>
 
         <form onSubmit={handleSubmit} autoComplete="off" className="p-6 space-y-5">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">申請種別</label>
-            <select
-              value={type}
-              onChange={e => handleTypeChange(e.target.value as ApplicationType)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors cursor-pointer"
-            >
-              {(Object.keys(typeLabels) as ApplicationType[]).map(key => (
-                <option key={key} value={key}>
-                  {typeLabels[key]}
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">申請種別</label>
+              <select
+                value={type}
+                onChange={e => handleTypeChange(e.target.value as ApplicationType)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium text-slate-800 transition-colors cursor-pointer"
+              >
+                {(Object.keys(typeLabels) as ApplicationType[]).map(key => (
+                  <option key={key} value={key}>
+                    {typeLabels[key]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-sky-600" />
+                  <span>対象拠点</span>
+                </span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${
+                  isOwnOfficeSelected
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-sky-50 text-sky-700 border-sky-200'
+                }`}>
+                  {isOwnOfficeSelected ? '自拠点' : '他拠点を選択中'}
+                </span>
+              </label>
+              {offices.length > 0 ? (
+                <select
+                  value={reportOfficeId || (offices.find(o => o.name === reportOffice)?.id || '')}
+                  onChange={e => handleTargetOfficeChange(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white font-medium text-slate-800 transition-colors cursor-pointer"
+                >
+                  {offices.map(off => {
+                    const isOwn = applicantOwnOffice?.id === off.id;
+                    return (
+                      <option key={off.id} value={off.id}>
+                        {off.name}{isOwn ? '（自拠点）' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <div className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700">
+                  {reportOffice || currentUser.office || '本社'}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* タイトル / 現場名 */}
@@ -1065,16 +1217,7 @@ export function ApplicationModal({
                       {offices.length > 0 ? (
                         <select
                           value={reportOfficeId || (offices.find(o => o.name === reportOffice)?.id || '')}
-                          onChange={(e) => {
-                            const selectedId = e.target.value;
-                            const targetOffice = offices.find(o => o.id === selectedId);
-                            const newName = targetOffice?.name || reportOffice;
-                            setReportOfficeId(selectedId);
-                            setReportOffice(newName);
-                            setTitle(getGoldSilverReportTitle(newName));
-                            const latest = findLatestBalanceForOffice(selectedId, newName);
-                            setPreviousBalance(latest !== undefined ? latest : '');
-                          }}
+                          onChange={(e) => handleTargetOfficeChange(e.target.value)}
                           className="text-xs font-extrabold text-amber-950 bg-white border border-amber-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-2xs"
                         >
                           {offices.map((off) => (
@@ -1467,15 +1610,20 @@ export function ApplicationModal({
 
               <select
                 value={selectedFlowId}
-                onChange={e => setSelectedFlowId(e.target.value)}
+                onChange={e => {
+                  setSelectedFlowId(e.target.value);
+                  setStepManualOverrides({});
+                }}
                 className="w-full px-3.5 py-2.5 bg-indigo-50/60 border border-indigo-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-950 transition-colors cursor-pointer"
               >
-                {approvalFlows.map(flow => (
-                  <option key={flow.id} value={flow.id}>
-                    {flow.name} ({flow.steps.length}段階承認)
-                    {flow.targetApplicationType === type ? ' ★おすすめ' : flow.isDefault ? ' (デフォルト)' : ''}
-                  </option>
-                ))}
+                {approvalFlows.map(flow => {
+                  const badge = getFlowMatchBadge(flow, type, reportOfficeId, offices);
+                  return (
+                    <option key={flow.id} value={flow.id}>
+                      {flow.name} ({flow.steps.length}段階承認){badge ? ` ${badge}` : ''}
+                    </option>
+                  );
+                })}
                 <option value="manual">-- 手動で承認者を直接1名指定 --</option>
               </select>
             </div>
@@ -1491,7 +1639,7 @@ export function ApplicationModal({
                 >
                   <option value="">-- 選択してください --</option>
                   {allUsers
-                    .filter(u => u.id !== currentUser.id)
+                    .filter(u => u.id !== applicantUser.id)
                     .map(u => (
                       <option key={u.id} value={u.id}>
                         {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
@@ -1502,16 +1650,23 @@ export function ApplicationModal({
             )}
 
             {/* 選択した承認フローにおける実際の承認ルート（プレビュー） */}
-            {selectedFlowId !== 'manual' && currentFlow && (
+            {selectedFlowId !== 'manual' && currentFlow && routePreview && (
               <div className="p-4 bg-slate-50 border border-indigo-100 rounded-2xl space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <UserCheck className="w-4 h-4 text-indigo-600" />
-                    <span>実際の承認ルート (あなたの組織階層を展開):</span>
+                    <span>実際の承認ルート（対象拠点: {reportOffice || applicantUser.office || '本社'}）</span>
                   </span>
-                  <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200">
-                    {actualRoute.length}段階ルート
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {routePreview.hasUnresolved && (
+                      <span className="text-[10px] font-extrabold text-rose-700 bg-rose-100 px-2 py-0.5 rounded border border-rose-200 whitespace-nowrap">
+                        未設定あり（要手動選択）
+                      </span>
+                    )}
+                    <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 whitespace-nowrap">
+                      有効 {routePreview.effectiveSteps.length}段階ルート
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -1521,56 +1676,178 @@ export function ApplicationModal({
                       発
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="font-bold text-slate-800">{currentUser.name}</span>
+                      <span className="font-bold text-slate-800">{applicantUser.name}</span>
                       <span className="text-slate-400 text-[10px] ml-1.5">(あなた / 申請者)</span>
                     </div>
                   </div>
 
                   {/* ステップ順序展開 */}
-                  {actualRoute.map((rt, idx) => (
-                    <React.Fragment key={idx}>
-                      <div className={`pl-2.5 border-l-2 ml-3 py-1 ${rt.isDuplicate ? 'border-slate-300' : 'border-indigo-200'}`}>
-                        <div className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
-                          rt.isDuplicate 
-                            ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-60 shadow-none' 
-                            : 'bg-white border-slate-200 shadow-2xs'
-                        }`}>
-                          <div className={`w-6 h-6 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
-                            rt.isDuplicate
-                              ? 'bg-slate-300 text-slate-600'
-                              : idx === 0 
-                              ? 'bg-indigo-600 text-white ring-2 ring-indigo-200' 
-                              : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {rt.stepNumber}
-                          </div>
+                  {routePreview.previewItems.map((item) => {
+                    const isSkipped = item.skipReason !== null;
+                    const isUnresolved = item.isUnresolved;
+                    const isFirstEffective = !isSkipped && !isUnresolved && item.effectiveStepNumber === 1;
+                    const hasManualPick = !!stepManualOverrides[item.originalIndex];
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`font-extrabold text-xs ${rt.isDuplicate ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
-                                {rt.user.name}
-                              </span>
-                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
-                                rt.isDuplicate 
-                                  ? 'bg-slate-200/80 text-slate-600 border-slate-300' 
-                                  : 'text-indigo-700 bg-indigo-50 border-indigo-100'
-                              }`}>
-                                {rt.stepName}
-                              </span>
-                              {rt.isDuplicate && (
-                                <span className="text-[10px] font-extrabold text-slate-500 bg-slate-200/90 px-1.5 py-0.2 rounded border border-slate-300">
-                                  同一承認者のため自動スキップ
-                                </span>
-                              )}
+                    return (
+                      <React.Fragment key={item.originalIndex}>
+                        <div className={`pl-2.5 border-l-2 ml-3 py-1 ${
+                          isUnresolved
+                            ? 'border-rose-400'
+                            : isSkipped
+                              ? 'border-slate-300'
+                              : 'border-indigo-200'
+                        }`}>
+                          {isUnresolved ? (
+                            <div className="p-3 rounded-xl border-2 border-rose-200 bg-rose-50/70 space-y-2">
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-extrabold text-rose-900">
+                                      {item.stepName}
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200 whitespace-nowrap">
+                                      担当者未設定（手動指定必須）
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-rose-800 mt-0.5">
+                                    {item.unresolvedReason || 'このステップの承認者が未設定です。承認者を手動で選択してください。'}
+                                  </p>
+                                </div>
+                              </div>
+                              <select
+                                value={stepManualOverrides[item.originalIndex] || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setStepManualOverrides(prev => {
+                                    const next = { ...prev };
+                                    if (val) next[item.originalIndex] = val;
+                                    else delete next[item.originalIndex];
+                                    return next;
+                                  });
+                                }}
+                                className="w-full px-3 py-2 bg-white border border-rose-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
+                              >
+                                <option value="">-- 承認者を手動で選択してください（必須） --</option>
+                                {allUsers
+                                  .filter(u => u.id !== applicantUser.id)
+                                  .map(u => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
+                                    </option>
+                                  ))}
+                              </select>
                             </div>
-                            <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                              {rt.user.office || ''} / {rt.user.division || ''} / {rt.user.position || ''}
+                          ) : (
+                            <div className={`flex flex-col gap-2 p-2.5 rounded-xl border transition-all ${
+                              isSkipped
+                                ? 'bg-slate-100/90 border-dashed border-slate-300 text-slate-400 opacity-70 shadow-none'
+                                : 'bg-white border-slate-200 shadow-2xs'
+                            }`}>
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-6 h-6 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
+                                  isSkipped
+                                    ? 'bg-slate-300 text-slate-600'
+                                    : isFirstEffective
+                                      ? 'bg-indigo-600 text-white ring-2 ring-indigo-200'
+                                      : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {isSkipped ? '−' : item.effectiveStepNumber}
+                                </div>
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`font-extrabold text-xs ${isSkipped ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                      {item.user?.name || '不明'}
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${
+                                      isSkipped
+                                        ? 'bg-slate-200/80 text-slate-600 border-slate-300'
+                                        : 'text-indigo-700 bg-indigo-50 border-indigo-100'
+                                    }`}>
+                                      {item.stepName}
+                                    </span>
+                                    {item.label && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 whitespace-nowrap">
+                                        {item.label}
+                                      </span>
+                                    )}
+                                    {item.isManualOverride && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">
+                                        手動指定
+                                      </span>
+                                    )}
+                                    {item.skipReason === 'self_approval' && (
+                                      <span className="text-[10px] font-extrabold text-slate-600 bg-slate-200/90 px-1.5 py-0.5 rounded border border-slate-300 whitespace-nowrap">
+                                        申請者本人のため自動スキップ
+                                      </span>
+                                    )}
+                                    {item.skipReason === 'duplicate_approver' && (
+                                      <span className="text-[10px] font-extrabold text-slate-600 bg-slate-200/90 px-1.5 py-0.5 rounded border border-slate-300 whitespace-nowrap">
+                                        同一承認者のため自動スキップ
+                                      </span>
+                                    )}
+                                  </div>
+                                  {item.user && (
+                                    <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                                      {item.user.office || ''} / {item.user.division || ''} / {item.user.position || ''}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {hasManualPick && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setStepManualOverrides(prev => {
+                                        const next = { ...prev };
+                                        delete next[item.originalIndex];
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-[10px] font-bold text-slate-500 hover:text-rose-600 px-1.5 py-0.5 rounded border border-slate-200 hover:border-rose-200 bg-slate-50 cursor-pointer shrink-0 whitespace-nowrap"
+                                  >
+                                    変更
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* 全ステップが自動スキップされた場合のフォールバック手動承認者指定 */}
+                  {routePreview.allStepsSkipped && (
+                    <div className="pl-2.5 border-l-2 border-amber-400 ml-3 py-1">
+                      <div className="p-3 rounded-xl border-2 border-amber-200 bg-amber-50/80 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="text-xs text-amber-900">
+                            <p className="font-extrabold">申請者本人スキップにより承認者が0名になりました</p>
+                            <p className="text-[11px] text-amber-800 mt-0.5">
+                              上位承認者または別の承認者を手動で1名指定してください（必須）。
                             </p>
                           </div>
                         </div>
+                        <select
+                          value={fallbackManualApproverId}
+                          onChange={(e) => setFallbackManualApproverId(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                        >
+                          <option value="">-- 承認者を手動で選択してください（必須） --</option>
+                          {allUsers
+                            .filter(u => u.id !== applicantUser.id)
+                            .map(u => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    </React.Fragment>
-                  ))}
+                    </div>
+                  )}
 
                   {/* 完了 */}
                   <div className="pl-2.5 border-l-2 border-emerald-300 ml-3 py-1">
@@ -1582,19 +1859,19 @@ export function ApplicationModal({
                 </div>
 
                 {/* 初回確認待ちの注意アナウンス */}
-                {actualRoute.length > 0 && (
+                {firstActiveItem?.user && !routePreview.hasUnresolved && (
                   <div className="pt-2 border-t border-slate-200/60 space-y-1 text-[11px] text-indigo-900">
                     <div className="flex items-start gap-1.5">
                       <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                       <span>
-                        申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{actualRoute[0].user.name}</strong> さんに承認依頼が届きます。
+                        申請提出後は、まず 1次承認者の <strong className="font-extrabold underline text-indigo-700">{firstActiveItem.user.name}</strong> さんに承認依頼が届きます。
                       </span>
                     </div>
-                    {actualRoute.some(r => r.isDuplicate) && (
+                    {routePreview.previewItems.some(r => r.skipReason !== null) && (
                       <div className="flex items-start gap-1.5 text-slate-600 pl-0.5 font-medium">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
                         <span>
-                          ※グレー表示のステップは前ステップの承認者と同一人物のため、前ステップ承認時に自動でスキップ（パス）されます。
+                          ※グレー表示のステップは申請者本人または重複承認者のため、自動的にスキップされます。
                         </span>
                       </div>
                     )}

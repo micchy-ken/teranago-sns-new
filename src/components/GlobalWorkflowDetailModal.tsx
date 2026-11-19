@@ -130,7 +130,11 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
   const currentStatus = statusConfig[application.status] || statusConfig.pending;
 
   const isAuthor = application.applicant?.id === currentUser?.id;
-  const canApprove = isUserCurrentApprover(application, currentUser, allUsers);
+  const canApprove = isUserCurrentApprover(application, currentUser, allUsers, offices);
+  const resolvedTargetOfficeName =
+    offices.find(o => o.id === application.officeId || o.name === application.location)?.name ||
+    application.location ||
+    '';
 
   // 金額のフォーマット
   const formatCurrency = (amount?: number) => {
@@ -308,8 +312,17 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
               </button>
             </div>
 
-            <div className="flex items-center gap-4 text-xs text-slate-500">
-              <div>
+            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+              {resolvedTargetOfficeName && (
+                <div>
+                  <span className="block text-[10px] text-sky-600 font-bold">対象拠点</span>
+                  <span className="font-bold text-sky-900 flex items-center gap-1">
+                    <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                    {resolvedTargetOfficeName}
+                  </span>
+                </div>
+              )}
+              <div className={resolvedTargetOfficeName ? 'pl-4 border-l border-slate-200' : ''}>
                 <span className="block text-[10px] text-slate-400 font-bold">申請日時</span>
                 <span className="font-semibold text-slate-700">{formatDateTime(application.createdAt)}</span>
               </div>
@@ -545,8 +558,13 @@ export const GlobalWorkflowDetailModal: React.FC<GlobalWorkflowDetailModalProps>
                   const currentStepIdx = (application.currentStepIndex || 1) - 1;
                   const isCurrent = application.status === 'pending' && currentStepIdx === idx;
                   const isPast = (application.currentStepIndex || 1) - 1 > idx || application.status === 'approved';
-                  const isDuplicate = isDuplicateApproverStep(application.applicant, application.stepsConfig, idx, allUsers);
-                  const { user: approverUser, label } = resolveApproverForStepDetails(application.applicant, step, idx, allUsers);
+                  const resolveCtx = {
+                    offices,
+                    applicationOfficeId: application.officeId,
+                    applicationLocation: application.location,
+                  };
+                  const isDuplicate = isDuplicateApproverStep(application.applicant, application.stepsConfig, idx, allUsers, resolveCtx);
+                  const { user: approverUser, label } = resolveApproverForStepDetails(application.applicant, step, idx, allUsers, resolveCtx);
 
                   // 履歴からこのステップの承認結果を探す
                   const stepHistory = application.history?.find(h => h.stepNumber === stepNum);

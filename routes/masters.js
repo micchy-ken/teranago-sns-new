@@ -39,6 +39,7 @@ function saveLocalConfigArray(filePath, configsList) {
 const router = Router();
 
 let officeSchemaEnsured = false;
+let approvalFlowSchemaEnsured = false;
 
 async function ensureOfficeMasterSchema(pool) {
   if (!pool || officeSchemaEnsured) return;
@@ -64,6 +65,22 @@ async function ensureOfficeMasterSchema(pool) {
     officeSchemaEnsured = true;
   } catch (err) {
     console.warn('[routes/masters] OfficeMaster schema auto-migration warning:', err.message);
+  }
+}
+
+async function ensureApprovalFlowSchema(pool) {
+  if (!pool || approvalFlowSchemaEnsured) return;
+  try {
+    await pool.request().query(`
+      IF OBJECT_ID('dbo.ApprovalFlows', 'U') IS NOT NULL
+      BEGIN
+        IF COL_LENGTH('dbo.ApprovalFlows', 'targetOfficeIdsJson') IS NULL ALTER TABLE dbo.ApprovalFlows ADD targetOfficeIdsJson NVARCHAR(MAX) NULL;
+        IF COL_LENGTH('dbo.ApprovalFlows', 'priority') IS NULL ALTER TABLE dbo.ApprovalFlows ADD priority INT NULL;
+      END
+    `);
+    approvalFlowSchemaEnsured = true;
+  } catch (err) {
+    console.warn('[routes/masters] ApprovalFlows schema auto-migration warning:', err.message);
   }
 }
 
@@ -136,13 +153,23 @@ const configs = {
   'approval-flows': {
     t1: 'dbo.ApprovalFlows', t2: 'dbo.ApprovalFlows', prefix: 'flow',
     cols: (b) => ({
-      name: b.name, description: b.description, targetApplicationType: b.targetApplicationType || 'all',
-      stepsJson: JSON.stringify(b.steps || []), isDefault: !!b.isDefault
+      name: b.name,
+      description: b.description,
+      targetApplicationType: b.targetApplicationType || 'all',
+      targetOfficeIdsJson: JSON.stringify(Array.isArray(b.targetOfficeIds) ? b.targetOfficeIds : []),
+      priority: Number.isFinite(Number(b.priority)) ? Number(b.priority) : 0,
+      stepsJson: JSON.stringify(b.steps || []),
+      isDefault: !!b.isDefault
     }),
     mapGet: (r) => (r.recordset || []).map(row => ({
-      id: row.id, name: row.name, description: row.description || '',
+      id: row.id,
+      name: row.name,
+      description: row.description || '',
       targetApplicationType: row.targetApplicationType || 'all',
-      steps: safeParseJSON(row.stepsJson, []), isDefault: row.isDefault === 1 || row.isDefault === true
+      targetOfficeIds: safeParseJSON(row.targetOfficeIdsJson, []),
+      priority: row.priority !== undefined && row.priority !== null ? Number(row.priority) : 0,
+      steps: safeParseJSON(row.stepsJson, []),
+      isDefault: row.isDefault === 1 || row.isDefault === true
     }))
   }
 };
@@ -215,6 +242,8 @@ Object.entries(configs).forEach(([key, cfg]) => {
       }
       if (key === 'offices') {
         await ensureOfficeMasterSchema(pool);
+      } else if (key === 'approval-flows') {
+        await ensureApprovalFlowSchema(pool);
       }
       let result;
       try { result = await pool.request().query(`SELECT * FROM ${cfg.t1}`); }
@@ -239,6 +268,8 @@ Object.entries(configs).forEach(([key, cfg]) => {
       }
       if (key === 'offices') {
         await ensureOfficeMasterSchema(pool);
+      } else if (key === 'approval-flows') {
+        await ensureApprovalFlowSchema(pool);
       }
       await upsertRecord(pool, cfg.t1, cfg.t2, id, cfg.cols(body));
       res.json({ success: true, id, ...body });

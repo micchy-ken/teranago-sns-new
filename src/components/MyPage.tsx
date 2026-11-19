@@ -1191,11 +1191,17 @@ export function MyPage({
         a.approver?.id === user?.id ||
         a.approver?.name === user?.name ||
         a.history?.some(h => h.approver?.id === user?.id || h.approver?.name === user?.name) ||
-        (a.stepsConfig && a.stepsConfig.some(s => s.specificUserId === user?.id)))
+        (a.stepsConfig && a.stepsConfig.some(s =>
+          s.specificUserId === user?.id ||
+          s.manualApproverId === user?.id ||
+          s.resolvedApproverId === user?.id ||
+          (Array.isArray(s.orApproverUserIds) && s.orApproverUserIds.includes(user?.id))
+        )) ||
+        isWorkflowPending(a, user, allUsers, offices))
     )
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const pendingApprovals = myApplications.filter((a) => isWorkflowPending(a, user, allUsers));
+  const pendingApprovals = myApplications.filter((a) => isWorkflowPending(a, user, allUsers, offices));
 
   // 5. 参加しているチャットルーム
   const myChatRooms = (chatRooms || [])
@@ -2242,7 +2248,7 @@ export function MyPage({
                 return displayedWorkflow.length > 0 ? (
                   <>
                     {displayedWorkflow.map((app) => {
-                      const isMyApproval = isWorkflowPending(app, user, allUsers);
+                      const isMyApproval = isWorkflowPending(app, user, allUsers, offices);
 
                       // 現在の担当承認者名（多段階ステップの場合は現在進行中のステップ担当者）
                       let currentApproverName = app.approver?.name || '未指定';
@@ -2250,7 +2256,11 @@ export function MyPage({
                         const curIdx = (app.currentStepIndex || 1) - 1;
                         const curStep = app.stepsConfig[curIdx];
                         if (curStep) {
-                          const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || []);
+                          const res = resolveApproverForStepDetails(app.applicant, curStep, curIdx, allUsers || [], {
+                            offices,
+                            applicationOfficeId: app.officeId,
+                            applicationLocation: app.location,
+                          });
                           if (res?.user?.name) {
                             currentApproverName = res.user.name;
                           }

@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月19日 (掲示板公開範囲のマイグループ・指定メンバー対応: targetUserIds / targetGroupName / isStrictScope 同期 & routes/bulletins.js 対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月19日 (承認フロー改修フェーズ1：対象拠点×申請種別自動切替・拠点ロール承認者・routes/masters.js dbo.ApprovalFlows targetOfficeIdsJson/priority 自動マイグレーション対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -7849,15 +7849,23 @@ async function startServer() {
   });
 
   // 承認フロー設定 (ApprovalFlows)
+  const normalizeApprovalFlow = (item: any) => ({
+    ...item,
+    targetOfficeIds: Array.isArray(item?.targetOfficeIds) ? item.targetOfficeIds.filter(Boolean).map(String) : [],
+    priority: Number.isFinite(Number(item?.priority)) ? Number(item.priority) : 0,
+    steps: Array.isArray(item?.steps) ? item.steps : [],
+  });
+
   app.get(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
-    res.json(loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows));
+    const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
+    res.json(Array.isArray(list) ? list.map(normalizeApprovalFlow) : []);
   });
 
   app.post(['/api/masters/approval-flows', '/api/masters/approval-flows/', '/api/approval-flows', '/api/approval-flows/'], (req, res) => {
     const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
     const item = req.body || {};
     const id = item.id || \`flow-\${Date.now()}\`;
-    const newItem = { ...item, id };
+    const newItem = normalizeApprovalFlow({ ...item, id });
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(approvalFlowsFilePath, list);
@@ -7868,7 +7876,7 @@ async function startServer() {
     const list = loadJsonMaster(approvalFlowsFilePath, defaultApprovalFlows);
     const id = req.params.id;
     const item = req.body || {};
-    const newItem = { ...item, id };
+    const newItem = normalizeApprovalFlow({ ...item, id });
     const idx = list.findIndex((i: any) => i.id === id);
     if (idx >= 0) list[idx] = newItem; else list.push(newItem);
     saveJsonMaster(approvalFlowsFilePath, list);
@@ -8740,9 +8748,9 @@ export interface ServerCodeHistoryItem {
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
   {
-    version: 'v2026.11.19.7',
+    version: 'v2026.11.19.3',
     date: '2026-11-19',
-    summary: '掲示板公開範囲のマイグループ・指定メンバー対応：routes/bulletins.js への targetUserIds / targetGroupName 自動マイグレーション＆取得・作成・更新API、通知対象絞り込み対応版',
+    summary: '承認フロー改修フェーズ1：routes/masters.js にて dbo.ApprovalFlows へ targetOfficeIdsJson / priority カラムを自動マイグレーション＆保存・取得対応（対象拠点×申請種別デフォルト自動切替・拠点ロール承認者対応版）',
   },
   {
     version: 'v2026.11.19.2',

@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月19日 (日程調整の未確定再編集PUT API・未確定削除権限＆確定済ガード対応 routes/schedulePolls.js 完全同期版)
+ * 最終更新日時 (最終アップデート): 2026年11月19日 (承認フロー改修フェーズ1：対象拠点×申請種別自動切替・拠点ロール承認者・routes/masters.js dbo.ApprovalFlows targetOfficeIdsJson/priority 自動マイグレーション対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.19.3',
+    date: '2026-11-19',
+    summary: '承認フロー改修フェーズ1：routes/masters.js にて dbo.ApprovalFlows へ targetOfficeIdsJson / priority カラムを自動マイグレーション＆保存・取得対応（対象拠点×申請種別デフォルト自動切替・拠点ロール承認者対応版）',
+  },
   {
     version: 'v2026.11.19.2',
     date: '2026-11-19',

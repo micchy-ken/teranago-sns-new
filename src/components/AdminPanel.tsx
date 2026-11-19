@@ -89,6 +89,7 @@ import {
 import { StampAdmin } from './StampAdmin';
 import { AdminLogs } from './AdminLogs';
 import { APP_VERSION } from '../config/version';
+import { OFFICE_ROLE_OPTIONS, isOfficeRoleApproverType, getOfficeRoleOption, getOfficeRoleLabel } from '../utils/workflowHelpers';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -395,12 +396,16 @@ export function AdminPanel({
     name: string;
     description: string;
     targetApplicationType: ApplicationType | 'all';
+    targetOfficeIds: string[];
+    priority: number;
     isDefault: boolean;
     steps: ApprovalStepConfig[];
   }>({
     name: '',
     description: '',
     targetApplicationType: 'all',
+    targetOfficeIds: [],
+    priority: 0,
     isDefault: false,
     steps: [
       { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
@@ -1707,6 +1712,8 @@ export function AdminPanel({
       name: '',
       description: '',
       targetApplicationType: 'all',
+      targetOfficeIds: [],
+      priority: 0,
       isDefault: false,
       steps: [
         { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
@@ -1721,10 +1728,24 @@ export function AdminPanel({
       name: flow.name,
       description: flow.description || '',
       targetApplicationType: flow.targetApplicationType || 'all',
+      targetOfficeIds: Array.isArray(flow.targetOfficeIds) ? [...flow.targetOfficeIds] : [],
+      priority: typeof flow.priority === 'number' ? flow.priority : 0,
       isDefault: !!flow.isDefault,
       steps: flow.steps.map(s => ({ ...s })),
     });
     setIsFlowModalOpen(true);
+  };
+
+  const handleToggleFlowTargetOffice = (officeId: string) => {
+    setFlowFormData(prev => {
+      const exists = prev.targetOfficeIds.includes(officeId);
+      return {
+        ...prev,
+        targetOfficeIds: exists
+          ? prev.targetOfficeIds.filter(id => id !== officeId)
+          : [...prev.targetOfficeIds, officeId],
+      };
+    });
   };
 
   const handleAddFlowStep = () => {
@@ -1766,14 +1787,18 @@ export function AdminPanel({
       defaultStepName = `${stepNum}次承認（上長 第${stepNum}階層）`;
     } else if (newType === 'specific_user') {
       defaultStepName = `${stepNum}次承認（特定個人指定）`;
+    } else if (isOfficeRoleApproverType(newType)) {
+      const roleOpt = getOfficeRoleOption(newType);
+      defaultStepName = `${roleOpt.label}承認`;
     }
 
     updatedSteps[index] = {
       ...updatedSteps[index],
       approverType: newType,
-      supervisorLevel: (newType === 'supervisor_1') ? 1 : (newType === 'supervisor_2') ? 2 : stepNum,
+      supervisorLevel: (newType === 'supervisor_1') ? 1 : (newType === 'supervisor_2') ? 2 : (newType === 'supervisor' || newType === 'supervisor_n') ? stepNum : undefined,
       stepName: defaultStepName,
-      specificUserId: newType === 'specific_user' ? (allUsers[0]?.id || '') : undefined,
+      specificUserId: newType === 'specific_user' ? (updatedSteps[index].specificUserId || allUsers[0]?.id || '') : undefined,
+      targetOfficeId: isOfficeRoleApproverType(newType) ? (updatedSteps[index].targetOfficeId || '') : undefined,
     };
     setFlowFormData({ ...flowFormData, steps: updatedSteps });
   };
@@ -1787,30 +1812,45 @@ export function AdminPanel({
     setFlowFormData({ ...flowFormData, steps: updatedSteps });
   };
 
+  const handleStepTargetOfficeChange = (index: number, targetOfficeId: string) => {
+    const updatedSteps = [...flowFormData.steps];
+    updatedSteps[index] = {
+      ...updatedSteps[index],
+      targetOfficeId: targetOfficeId || '',
+    };
+    setFlowFormData({ ...flowFormData, steps: updatedSteps });
+  };
+
   const handleSaveFlow = (e: React.FormEvent) => {
     e.preventDefault();
     if (!flowFormData.name || !flowFormData.name.trim() || flowFormData.steps.length === 0) return;
+
+    const normalizedSteps = flowFormData.steps.map((s, idx) => ({
+      ...s,
+      stepNumber: idx + 1,
+      targetOfficeId: isOfficeRoleApproverType(s.approverType) ? (s.targetOfficeId || '') : undefined,
+    }));
+
+    const payload = {
+      name: (flowFormData.name || '').trim(),
+      description: (flowFormData.description || '').trim(),
+      targetApplicationType: flowFormData.targetApplicationType,
+      targetOfficeIds: flowFormData.targetOfficeIds,
+      priority: Number.isFinite(Number(flowFormData.priority)) ? Number(flowFormData.priority) : 0,
+      isDefault: flowFormData.isDefault,
+      steps: normalizedSteps,
+    };
 
     if (editingFlow) {
       if (onUpdateApprovalFlow) {
         onUpdateApprovalFlow({
           ...editingFlow,
-          name: (flowFormData.name || '').trim(),
-          description: (flowFormData.description || '').trim(),
-          targetApplicationType: flowFormData.targetApplicationType,
-          isDefault: flowFormData.isDefault,
-          steps: flowFormData.steps,
+          ...payload,
         });
       }
     } else {
       if (onAddApprovalFlow) {
-        onAddApprovalFlow({
-          name: (flowFormData.name || '').trim(),
-          description: (flowFormData.description || '').trim(),
-          targetApplicationType: flowFormData.targetApplicationType,
-          isDefault: flowFormData.isDefault,
-          steps: flowFormData.steps,
-        });
+        onAddApprovalFlow(payload);
       }
     }
     setIsFlowModalOpen(false);
@@ -3425,14 +3465,14 @@ export function AdminPanel({
                 承認フローの定義・ステップ設定
               </h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                申請内容や種別に応じた1段階・最大2段階の承認プロセスを設定できます。<br />
-                「上長（一次）」「上長（二次）」を指定すると、個人ではなく動的に対象者の直属上長・上位上長に確認依頼が届きます。
+                対象拠点 × 申請種別の組み合わせで初期適用される承認フローを自動切替できます。<br />
+                「直属上長」「拠点長」「出庫担当」「経理担当」「安全運転管理者」などの動的ロールと特定個人を自由に組み合わせ可能です。
               </p>
             </div>
 
             <button
               onClick={handleOpenAddFlowModal}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm shrink-0 cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
               <span>新規承認フロー作成</span>
@@ -3458,6 +3498,10 @@ export function AdminPanel({
                   gold_silver_daily_report: '金銀日報',
                   other: 'その他',
                 };
+                const targetOfficeIds = Array.isArray(flow.targetOfficeIds) ? flow.targetOfficeIds : [];
+                const targetOfficeNames = targetOfficeIds
+                  .map(oid => offices.find(o => o.id === oid || o.name === oid)?.name || oid)
+                  .filter(Boolean);
 
                 return (
                   <div
@@ -3468,19 +3512,40 @@ export function AdminPanel({
                       <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-sm font-bold text-slate-900">{flow.name}</h4>
                         {flow.isDefault && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 whitespace-nowrap">
                             デフォルト
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
                           {appTypeLabels[flow.targetApplicationType || 'all']}
                         </span>
+                        {targetOfficeNames.length === 0 ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1 whitespace-nowrap">
+                            <Building2 className="w-3 h-3" />
+                            全拠点共通
+                          </span>
+                        ) : (
+                          targetOfficeNames.map((oName, oIdx) => (
+                            <span
+                              key={`${flow.id}-off-${oIdx}`}
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 flex items-center gap-1 whitespace-nowrap"
+                            >
+                              <Building2 className="w-3 h-3" />
+                              {oName}
+                            </span>
+                          ))
+                        )}
+                        {typeof flow.priority === 'number' && flow.priority > 0 && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+                            優先度 {flow.priority}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 self-end sm:self-auto">
                         <button
                           onClick={() => handleOpenEditFlowModal(flow)}
-                          className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                           <span>編集</span>
@@ -3500,7 +3565,7 @@ export function AdminPanel({
                                 }
                               });
                             }}
-                            className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>削除</span>
@@ -3524,6 +3589,7 @@ export function AdminPanel({
                         {flow.steps.map((step, idx) => {
                           let approverBadge = '';
                           let approverDesc = '';
+                          let isRoleBadge = false;
                           const lvl = step.supervisorLevel || (step.approverType === 'supervisor_2' ? 2 : step.approverType === 'supervisor_1' ? 1 : idx + 1);
 
                           if (step.approverType === 'supervisor_1') {
@@ -3535,6 +3601,21 @@ export function AdminPanel({
                           } else if (step.approverType === 'supervisor' || step.approverType === 'supervisor_n') {
                             approverBadge = `上長（第${lvl}階層）`;
                             approverDesc = `申請者から${lvl}階層上の上長`;
+                          } else if (isOfficeRoleApproverType(step.approverType)) {
+                            isRoleBadge = true;
+                            const roleOpt = getOfficeRoleOption(step.approverType);
+                            const roleLabel = roleOpt?.label || getOfficeRoleLabel(step.approverType);
+                            if (step.targetOfficeId) {
+                              const fixedOffice = offices.find(o => o.id === step.targetOfficeId || o.name === step.targetOfficeId);
+                              const fixedOfficeName = fixedOffice?.name || step.targetOfficeId;
+                              const mgrId = fixedOffice && roleOpt ? fixedOffice[roleOpt.idField] : undefined;
+                              const mgrUser = mgrId ? allUsers.find(u => u.id === mgrId) : undefined;
+                              approverBadge = `${roleLabel}（${fixedOfficeName}固定）`;
+                              approverDesc = mgrUser ? `現在設定: ${mgrUser.name}` : `※ ${fixedOfficeName}の${roleLabel}は未設定（申請時に手動選択）`;
+                            } else {
+                              approverBadge = `${roleLabel}（申請対象拠点）`;
+                              approverDesc = `申請時に選択された拠点の${roleLabel}を自動割当`;
+                            }
                           } else {
                             const specUser = allUsers.find(u => u.id === step.specificUserId);
                             approverBadge = specUser ? `${specUser.name}（個人指定）` : '指定個人';
@@ -3544,15 +3625,15 @@ export function AdminPanel({
                           return (
                             <React.Fragment key={step.stepNumber || idx}>
                               <div className="flex-1 min-w-[200px] bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-3">
-                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                                <div className={`w-7 h-7 rounded-full ${isRoleBadge ? 'bg-sky-600' : 'bg-indigo-600'} text-white font-extrabold text-xs flex items-center justify-center shrink-0`}>
                                   {idx + 1}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-bold text-slate-800 truncate">
                                     {step.stepName || `${idx + 1}次承認`}
                                   </div>
-                                  <div className="text-[11px] font-extrabold text-indigo-700 flex items-center gap-1 mt-0.5">
-                                    <span className="bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                  <div className={`text-[11px] font-extrabold flex items-center gap-1 mt-0.5 ${isRoleBadge ? 'text-sky-700' : 'text-indigo-700'}`}>
+                                    <span className={`px-1.5 py-0.5 rounded border ${isRoleBadge ? 'bg-sky-50 border-sky-200' : 'bg-indigo-50 border-indigo-100'}`}>
                                       {approverBadge}
                                     </span>
                                   </div>
@@ -5643,7 +5724,7 @@ END;`}
                   type="text"
                   required
                   autoComplete="off"
-                  placeholder="例: 標準2段階承認フロー（上長1次 → 上長2次）"
+                  placeholder="例: 静岡営業所 補充申請（拠点長 → 出庫担当）"
                   value={flowFormData.name}
                   onChange={(e) => setFlowFormData({ ...flowFormData, name: e.target.value })}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
@@ -5654,15 +5735,15 @@ END;`}
                 <label className="block text-xs font-bold text-slate-700 mb-1">説明・運用メモ</label>
                 <textarea
                   rows={2}
-                  placeholder="例: 直属上長と、その上の二次上長の二段階で確認・承認を行います。"
+                  placeholder="例: 対象拠点の拠点長承認後、出庫担当が確認を行います。"
                   value={flowFormData.description}
                   onChange={(e) => setFlowFormData({ ...flowFormData, description: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1">対象申請タイプ</label>
                   <select
                     value={flowFormData.targetApplicationType}
@@ -5679,17 +5760,81 @@ END;`}
                   </select>
                 </div>
 
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={flowFormData.isDefault}
-                      onChange={(e) => setFlowFormData({ ...flowFormData, isDefault: e.target.checked })}
-                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                    />
-                    <span>デフォルトフローとして設定</span>
-                  </label>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">優先度（大＝優先）</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={flowFormData.priority}
+                    onChange={(e) => setFlowFormData({ ...flowFormData, priority: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
                 </div>
+              </div>
+
+              {/* Target Offices (Multi-select chips) */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                    <span>対象拠点（複数選択可・未選択＝全拠点共通）</span>
+                  </label>
+                  {flowFormData.targetOfficeIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFlowFormData({ ...flowFormData, targetOfficeIds: [] })}
+                      className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 cursor-pointer whitespace-nowrap"
+                    >
+                      全拠点共通に戻す
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setFlowFormData({ ...flowFormData, targetOfficeIds: [] })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                      flowFormData.targetOfficeIds.length === 0
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    全拠点共通
+                  </button>
+                  {offices.map((off) => {
+                    const selected = flowFormData.targetOfficeIds.includes(off.id);
+                    return (
+                      <button
+                        key={off.id}
+                        type="button"
+                        onClick={() => handleToggleFlowTargetOffice(off.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                          selected
+                            ? 'bg-sky-600 text-white border-sky-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300'
+                        }`}
+                      >
+                        {off.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  ※ 申請時の自動初期選択は「拠点＋種別一致 → 全拠点共通＋種別一致 → 拠点一致＋全種別 → デフォルト」の順に優先されます。
+                </p>
+              </div>
+
+              <div className="flex items-center">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={flowFormData.isDefault}
+                    onChange={(e) => setFlowFormData({ ...flowFormData, isDefault: e.target.checked })}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                  />
+                  <span>同一条件のデフォルトフローとして優先設定</span>
+                </label>
               </div>
 
               {/* Step Configuration Section */}
@@ -5702,7 +5847,7 @@ END;`}
                   <button
                     type="button"
                     onClick={handleAddFlowStep}
-                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>ステップを追加</span>
@@ -5710,79 +5855,124 @@ END;`}
                 </div>
 
                 <div className="space-y-3">
-                  {flowFormData.steps.map((step, idx) => (
-                    <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3 relative">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded">
-                          ステップ {idx + 1}: {idx + 1}次承認
-                        </span>
-                        {flowFormData.steps.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFlowStep(idx)}
-                            className="text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-100 p-1 rounded transition-colors cursor-pointer"
-                            title="このステップを削除"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                  {flowFormData.steps.map((step, idx) => {
+                    const roleOpt = isOfficeRoleApproverType(step.approverType)
+                      ? getOfficeRoleOption(step.approverType)
+                      : null;
+                    const isOfficeRole = roleOpt !== null;
+
+                    return (
+                      <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3 relative">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded whitespace-nowrap">
+                            ステップ {idx + 1}: {idx + 1}次承認
+                          </span>
+                          {flowFormData.steps.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFlowStep(idx)}
+                              className="text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-100 p-1 rounded transition-colors cursor-pointer"
+                              title="このステップを削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                              承認者の指定方法
+                            </label>
+                            <select
+                              value={step.approverType}
+                              onChange={(e) => handleStepTypeChange(idx, e.target.value as ApproverType)}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                            >
+                              <optgroup label="上長（組織階層）">
+                                <option value="supervisor_1">直属上長 (1階層目)</option>
+                                <option value="supervisor_2">二次上長 (2階層目)</option>
+                                <option value="supervisor">階層上長 (第{idx + 1}階層上長)</option>
+                              </optgroup>
+                              <optgroup label="拠点ロール（拠点マスター連携）">
+                                {OFFICE_ROLE_OPTIONS.map((opt) => (
+                                  <option key={opt.type} value={opt.type}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="個人指定">
+                                <option value="specific_user">特定ユーザー (個人指定)</option>
+                              </optgroup>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                              ステップ表示名
+                            </label>
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              value={step.stepName || ''}
+                              onChange={(e) => {
+                                const updatedSteps = [...flowFormData.steps];
+                                updatedSteps[idx].stepName = e.target.value;
+                                setFlowFormData({ ...flowFormData, steps: updatedSteps });
+                              }}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+
+                        {isOfficeRole && roleOpt && (
+                          <div className="bg-sky-50/70 border border-sky-200 rounded-lg p-3 space-y-1.5">
+                            <label className="block text-[11px] font-bold text-sky-900">
+                              参照する拠点（{roleOpt.label}の取得元）
+                            </label>
+                            <select
+                              value={step.targetOfficeId || ''}
+                              onChange={(e) => handleStepTargetOfficeChange(idx, e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-sky-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+                            >
+                              <option value="">申請対象拠点（自拠点／フォームで選択した拠点）</option>
+                              {offices.map((off) => {
+                                const mgrId = off[roleOpt.idField];
+                                const mgrUser = mgrId ? allUsers.find(u => u.id === mgrId) : undefined;
+                                return (
+                                  <option key={off.id} value={off.id}>
+                                    {off.name}（固定） — {mgrUser ? `${roleOpt.label}: ${mgrUser.name}` : `${roleOpt.label}: 未設定`}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <p className="text-[10px] text-sky-800/80">
+                              ※ 対象拠点の{roleOpt.label}が未設定の場合、申請フォームで手動指定が必須になります。申請者本人または重複承認者は自動スキップされます。
+                            </p>
+                          </div>
+                        )}
+
+                        {step.approverType === 'specific_user' && (
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                              承認者を選択
+                            </label>
+                            <select
+                              value={step.specificUserId || ''}
+                              onChange={(e) => handleStepUserChange(idx, e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                            >
+                              {allUsers.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         )}
                       </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                            承認者の指定方法
-                          </label>
-                          <select
-                            value={step.approverType}
-                            onChange={(e) => handleStepTypeChange(idx, e.target.value as ApproverType)}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                          >
-                            <option value="supervisor_1">直属上長 (1階層目)</option>
-                            <option value="supervisor_2">二次上長 (2階層目)</option>
-                            <option value="supervisor">階層上長 (第{idx + 1}階層上長)</option>
-                            <option value="specific_user">特定ユーザー (個人指定)</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                            ステップ表示名
-                          </label>
-                          <input
-                            type="text"
-                            autoComplete="off"
-                            value={step.stepName || ''}
-                            onChange={(e) => {
-                              const updatedSteps = [...flowFormData.steps];
-                              updatedSteps[idx].stepName = e.target.value;
-                              setFlowFormData({ ...flowFormData, steps: updatedSteps });
-                            }}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          />
-                        </div>
-                      </div>
-
-                      {step.approverType === 'specific_user' && (
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                            承認者を選択
-                          </label>
-                          <select
-                            value={step.specificUserId || ''}
-                            onChange={(e) => handleStepUserChange(idx, e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                          >
-                            {allUsers.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name} ({u.office || ''} / {u.division || ''} / {u.position || ''})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

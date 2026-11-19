@@ -68,7 +68,7 @@ import { GlobalReportDetailModal } from './components/GlobalReportDetailModal';
 import { GlobalWorkflowDetailModal } from './components/GlobalWorkflowDetailModal';
 import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
-import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel } from './utils/workflowHelpers';
+import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel, findBestMatchingApprovalFlow } from './utils/workflowHelpers';
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
 import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
@@ -1303,12 +1303,19 @@ export default function App() {
           else if (['pending', 'approved', 'rejected', 'draft'].includes(rawStatus)) { /* keep */ }
           else rawStatus = 'pending';
 
+          const rawOfficeIdEarly = app.officeId || detailsObj.officeId || undefined;
+          const rawLocationEarly = app.location || detailsObj.location || undefined;
+
           // 多段階承認ステップがあり、申請中の場合は、現在のステップの承認者に解決・同期する
           if (detailsObj.stepsConfig && detailsObj.stepsConfig.length > 0 && rawStatus === 'pending') {
             const curStepIdx = (detailsObj.currentStepIndex || 1) - 1;
             const curStep = detailsObj.stepsConfig[curStepIdx];
             if (curStep) {
-              const resolved = resolveApproverForStep(applicantUser, curStep, currentUsers);
+              const resolved = resolveApproverForStep(applicantUser, curStep, currentUsers, {
+                offices,
+                applicationOfficeId: rawOfficeIdEarly,
+                applicationLocation: rawLocationEarly,
+              });
               if (resolved) {
                 approverUserObj = resolved;
               }
@@ -3230,24 +3237,30 @@ export default function App() {
 
   // Handle new workflow application
   const handleAddApplication = async (appData: Omit<WorkflowApplication, 'id' | 'createdAt' | 'status'> & { status?: ApplicationStatus }) => {
-    // 送信データに承認フローが指定されていればそれを優先、なければ自動検索
+    // 送信データに承認フローが指定されていればそれを優先、なければ拠点×種別で自動検索
     let selectedFlow = approvalFlows.find(f => f.id === appData.flowId);
     if (!selectedFlow) {
-      selectedFlow = approvalFlows.find(f => f.targetApplicationType === appData.type) 
-        || approvalFlows.find(f => f.isDefault) 
-        || approvalFlows[0];
+      selectedFlow = findBestMatchingApprovalFlow(approvalFlows, appData.type, (appData as any).officeId, offices) || undefined;
     }
 
-    let rawSteps: ApprovalStepConfig[] = appData.stepsConfig && appData.stepsConfig.length > 0 
+    const resolveCtx = {
+      offices,
+      applicationOfficeId: (appData as any).officeId,
+      applicationLocation: (appData as any).location,
+    };
+
+    const rawSteps: ApprovalStepConfig[] = appData.stepsConfig && appData.stepsConfig.length > 0 
       ? appData.stepsConfig 
       : (selectedFlow ? selectedFlow.steps : [
           { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
         ]);
 
-    // 申請者に合わせたステップ調整（2次上長不在の場合は1次のみ）
-    const stepsConfig = filterStepsForApplicant(appData.applicant, rawSteps, usersList);
+    // 申請者に合わせたステップ調整（自己承認・重複承認・不在上長を除外）
+    const stepsConfig = appData.stepsConfig && appData.stepsConfig.length > 0
+      ? rawSteps
+      : filterStepsForApplicant(appData.applicant, rawSteps, usersList, resolveCtx);
 
-    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0] || rawSteps[0], usersList);
+    const initialApprover = appData.approver || resolveApproverForStep(appData.applicant, stepsConfig[0] || rawSteps[0], usersList, resolveCtx);
 
     const tempId = `wf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newApp: WorkflowApplication = {
@@ -3394,12 +3407,32 @@ export default function App() {
       // 次のステップへ
       currentStep++;
 
-      // 次のステップが存在し、かつ次のステップの承認者が今回の承認者(userState)と同一人物の場合、自動スキップ承認
+      const resolveCtx = {
+        offices,
+        applicationOfficeId: targetApp.officeId,
+        applicationLocation: targetApp.location,
+      };
+      const alreadyApprovedIds = new Set<string>(
+        newHistory
+          .filter(h => h.status === 'approved' && h.approver?.id)
+          .map(h => h.approver.id)
+      );
+
+      // 次のステップが存在し、かつ次の承認者が今回の承認者・既承認者・申請者本人と同一の場合、自動スキップ承認
       while (currentStep <= totalSteps && stepsConfig) {
         const nextStepConfig = stepsConfig[currentStep - 1];
-        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList);
+        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
 
-        if (nextApprover && nextApprover.id === userState.id) {
+        if (nextApprover && targetApp.applicant?.id && nextApprover.id === targetApp.applicant.id) {
+          newHistory.push({
+            stepNumber: currentStep,
+            approver: nextApprover,
+            status: 'approved',
+            actionAt: new Date().toISOString(),
+            comment: '（申請者本人のため自動スキップ）',
+          });
+          currentStep++;
+        } else if (nextApprover && (nextApprover.id === userState.id || alreadyApprovedIds.has(nextApprover.id))) {
           newHistory.push({
             stepNumber: currentStep,
             approver: nextApprover,
@@ -3415,7 +3448,7 @@ export default function App() {
 
       if (currentStep <= totalSteps && stepsConfig) {
         const nextStepConfig = stepsConfig[currentStep - 1];
-        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList);
+        const nextApprover = resolveApproverForStep(targetApp.applicant, nextStepConfig, usersList, resolveCtx);
         resultApp = {
           ...targetApp,
           currentStepIndex: currentStep,
@@ -3611,10 +3644,14 @@ export default function App() {
 
       let selectedFlow = approvalFlows.find(f => f.id === updatedApp.flowId);
       if (!selectedFlow) {
-        selectedFlow = approvalFlows.find(f => f.targetApplicationType === updatedApp.type) 
-          || approvalFlows.find(f => f.isDefault) 
-          || approvalFlows[0];
+        selectedFlow = findBestMatchingApprovalFlow(approvalFlows, updatedApp.type, updatedApp.officeId, offices) || undefined;
       }
+
+      const resolveCtx = {
+        offices,
+        applicationOfficeId: updatedApp.officeId,
+        applicationLocation: updatedApp.location,
+      };
 
       const stepsConfig: ApprovalStepConfig[] = updatedApp.stepsConfig && updatedApp.stepsConfig.length > 0 
         ? updatedApp.stepsConfig 
@@ -3622,7 +3659,7 @@ export default function App() {
             { stepNumber: 1, approverType: 'supervisor_1', stepName: '一次承認（直属上長）' }
           ]);
 
-      const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList);
+      const initialApprover = updatedApp.approver || resolveApproverForStep(updatedApp.applicant, stepsConfig[0], usersList, resolveCtx);
       const isSubmittingFromDraftOrReject = (app.status === 'draft' || app.status === 'rejected') && targetStatus === 'pending';
 
       const resultApp: WorkflowApplication = {
