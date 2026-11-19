@@ -5,9 +5,32 @@ import { isEventVisibleToUser } from './eventVisibility';
 import { getSupervisorAtLevel } from './workflowHelpers';
 import { doesUserMatchOffice, doesUserMatchDivision } from './masterResolver';
 
-export type ProjectNotificationCard = ProjectCard & {
+export interface ProjectSummaryCommentPreview {
+  id: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
+}
+
+export type ProjectNotificationCard = Partial<ProjectCard> & {
+  id: string;
+  projectId: string;
+  title: string;
   projectTitle?: string;
+  projectType?: string;
+  checklistTotal?: number;
+  checklistDone?: number;
+  commentCount?: number;
+  latestOtherComment?: ProjectSummaryCommentPreview | null;
 };
+
+export interface ProjectMySummary {
+  myPendingCount: number;
+  overdueCount: number;
+  dueSoonCount: number;
+  tasks: ProjectNotificationCard[];
+}
 
 export interface NotificationItem {
   id: string;
@@ -1305,11 +1328,18 @@ export function getAllNotifications({
       else readList.push(item);
     }
 
-    // 8-2. 担当または作成タスクへの他者からの最新コメント
-    if ((isAssignedToMe || isCreatedByMe) && Array.isArray(card.comments) && card.comments.length > 0) {
-      const otherComments = card.comments.filter((c) => c && String(c.authorId || '') !== myUserIdStr);
-      if (otherComments.length > 0) {
-        const latestComment = otherComments[otherComments.length - 1];
+    // 8-2. 担当または作成タスクへの他者からの最新コメント（軽量サマリー latestOtherComment と従来 comments 配列の両対応）
+    if (isAssignedToMe || isCreatedByMe) {
+      let latestComment: { id: string; authorId?: string; authorName?: string; content?: string; createdAt?: string } | null = null;
+      if (card.latestOtherComment && String(card.latestOtherComment.authorId || '') !== myUserIdStr) {
+        latestComment = card.latestOtherComment;
+      } else if (Array.isArray(card.comments) && card.comments.length > 0) {
+        const otherComments = card.comments.filter((c) => c && String(c.authorId || '') !== myUserIdStr);
+        if (otherComments.length > 0) {
+          latestComment = otherComments[otherComments.length - 1];
+        }
+      }
+      if (latestComment && latestComment.id) {
         const commentReadKey = `cmt_${card.id}_${latestComment.id}`;
         const unread = !readProjectIds.includes(commentReadKey);
         const snippet = (latestComment.content || '').trim().slice(0, 60) || 'ファイルが添付されました';

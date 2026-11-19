@@ -37,6 +37,9 @@ import {
   isChatUnread,
   isReportUnread,
   isUserReadStatusSynced,
+  markProjectCardAsRead,
+  ProjectMySummary,
+  ProjectNotificationCard,
 } from '../utils/notifications';
 import { resolveApproverForStepDetails } from '../utils/workflowHelpers';
 import { triggerOpenUserModal } from '../utils/userModal';
@@ -114,7 +117,6 @@ import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTING
 import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
-import { ProjectCard } from '../types/project';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
 
 interface MyPageProps {
@@ -165,6 +167,9 @@ interface MyPageProps {
   pendingSchedulePolls?: SchedulePoll[];
   schedulePolls?: SchedulePoll[];
   onOpenSchedulePollModal?: (pollId?: string) => void;
+  projectSummary?: ProjectMySummary;
+  isProjectSummaryLoading?: boolean;
+  onUpdateProjectSummary?: React.Dispatch<React.SetStateAction<ProjectMySummary>>;
 }
 
 export function MyPage({
@@ -202,6 +207,9 @@ export function MyPage({
   pendingSchedulePolls = [],
   schedulePolls = [],
   onOpenSchedulePollModal,
+  projectSummary: externalProjectSummary,
+  isProjectSummaryLoading: externalProjectSummaryLoading,
+  onUpdateProjectSummary,
 }: MyPageProps) {
   // ローカル既読状態管理（サーバー既読データ同期状態を含めて即時参照し1フレームのチラつきを防止）
   const [notificationSyncTick, setNotificationSyncTick] = useState(0);
@@ -1215,24 +1223,25 @@ export function MyPage({
     return myReports.filter((r) => isReportUnread(r, user, readReportIds));
   }, [myReports, user, readReportIds, isReadSynced]);
 
-  // 7. プロジェクト・マイタスク サマリー取得
-  type MyProjectSummaryTask = ProjectCard & { projectTitle?: string; projectType?: string };
-  const [myProjectSummary, setMyProjectSummary] = useState<{
-    myPendingCount: number;
-    overdueCount: number;
-    dueSoonCount: number;
-    tasks: MyProjectSummaryTask[];
-  }>({
+  // 7. プロジェクト・マイタスク サマリー（App.tsx からの共有データを優先利用し重複通信を排除）
+  type MyProjectSummaryTask = ProjectNotificationCard;
+  const hasExternalProjectSummary = externalProjectSummary !== undefined;
+  const [localProjectSummary, setLocalProjectSummary] = useState<ProjectMySummary>({
     myPendingCount: 0,
     overdueCount: 0,
     dueSoonCount: 0,
     tasks: [],
   });
-  const [loadingProjectSummary, setLoadingProjectSummary] = useState(false);
+  const [localLoadingProjectSummary, setLocalLoadingProjectSummary] = useState(false);
 
-  const fetchMyProjectSummary = React.useCallback(async () => {
-    if (!user?.id) return;
-    setLoadingProjectSummary(true);
+  const myProjectSummary = hasExternalProjectSummary ? externalProjectSummary : localProjectSummary;
+  const loadingProjectSummary = hasExternalProjectSummary
+    ? Boolean(externalProjectSummaryLoading)
+    : localLoadingProjectSummary;
+
+  const fetchMyProjectSummaryFallback = React.useCallback(async () => {
+    if (hasExternalProjectSummary || !user?.id) return;
+    setLocalLoadingProjectSummary(true);
     try {
       const params = new URLSearchParams({
         userId: String(user.id),
@@ -1246,7 +1255,7 @@ export function MyPage({
       const res = await fetch(`${API_BASE_URL}/projects/my-summary?${params.toString()}`);
       if (!res.ok) return;
       const data = await res.json();
-      setMyProjectSummary({
+      setLocalProjectSummary({
         myPendingCount: Number(data.myPendingCount || 0),
         overdueCount: Number(data.overdueCount || 0),
         dueSoonCount: Number(data.dueSoonCount || 0),
@@ -1255,18 +1264,19 @@ export function MyPage({
     } catch (err) {
       console.warn('[MyPage] Failed to fetch project summary:', err);
     } finally {
-      setLoadingProjectSummary(false);
+      setLocalLoadingProjectSummary(false);
     }
-  }, [user?.id, user?.name, user?.officeId, user?.office, user?.divisionId, user?.division, user?.isAdmin, user?.role]);
+  }, [hasExternalProjectSummary, user?.id, user?.name, user?.officeId, user?.office, user?.divisionId, user?.division, user?.isAdmin, user?.role]);
 
   useEffect(() => {
-    fetchMyProjectSummary();
+    if (hasExternalProjectSummary) return;
+    fetchMyProjectSummaryFallback();
     const handleProjectsUpdated = () => {
-      fetchMyProjectSummary();
+      fetchMyProjectSummaryFallback();
     };
     window.addEventListener('projects_updated', handleProjectsUpdated);
     return () => window.removeEventListener('projects_updated', handleProjectsUpdated);
-  }, [fetchMyProjectSummary]);
+  }, [hasExternalProjectSummary, fetchMyProjectSummaryFallback]);
 
   const handleToggleProjectTaskComplete = async (task: MyProjectSummaryTask, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1277,12 +1287,18 @@ export function MyPage({
     const soonStr = getLocalDateStr(soonDate);
     const isDueSoon = Boolean(task.dueDate && task.dueDate >= todayStr && task.dueDate <= soonStr);
 
-    setMyProjectSummary(prev => ({
+    const applyOptimistic = (prev: ProjectMySummary): ProjectMySummary => ({
       myPendingCount: Math.max(0, prev.myPendingCount - 1),
       overdueCount: isOverdue ? Math.max(0, prev.overdueCount - 1) : prev.overdueCount,
       dueSoonCount: isDueSoon ? Math.max(0, prev.dueSoonCount - 1) : prev.dueSoonCount,
       tasks: prev.tasks.filter(t => t.id !== task.id),
-    }));
+    });
+
+    if (onUpdateProjectSummary) {
+      onUpdateProjectSummary(applyOptimistic);
+    } else {
+      setLocalProjectSummary(applyOptimistic);
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/projects/cards/${encodeURIComponent(task.id)}`, {
@@ -1296,9 +1312,16 @@ export function MyPage({
         }),
       });
       if (!res.ok) throw new Error('完了更新失敗');
+      if (user?.id) {
+        markProjectCardAsRead(user.id, String(task.id));
+      }
       window.dispatchEvent(new Event('projects_updated'));
     } catch {
-      setMyProjectSummary(prevSnapshot);
+      if (onUpdateProjectSummary) {
+        onUpdateProjectSummary(prevSnapshot);
+      } else {
+        setLocalProjectSummary(prevSnapshot);
+      }
     }
   };
 
@@ -2015,8 +2038,18 @@ export function MyPage({
                     {displayedTasks.map((task) => {
                       const isOverdue = Boolean(task.dueDate && task.dueDate < todayStr);
                       const isTodayDue = Boolean(task.dueDate && task.dueDate === todayStr);
-                      const checkTotal = (task.checklist || []).length;
-                      const checkDone = (task.checklist || []).filter(c => c.done).length;
+                      const checkTotal =
+                        typeof task.checklistTotal === 'number'
+                          ? task.checklistTotal
+                          : (task.checklist || []).length;
+                      const checkDone =
+                        typeof task.checklistDone === 'number'
+                          ? task.checklistDone
+                          : (task.checklist || []).filter(c => c.done).length;
+                      const commentCount =
+                        typeof task.commentCount === 'number'
+                          ? task.commentCount
+                          : (task.comments || []).length;
 
                       return (
                         <div
@@ -2085,7 +2118,7 @@ export function MyPage({
                               {task.title}
                             </h3>
 
-                            {(checkTotal > 0 || (task.comments && task.comments.length > 0)) && (
+                            {(checkTotal > 0 || commentCount > 0) && (
                               <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-400">
                                 {checkTotal > 0 && (
                                   <span className="flex items-center gap-1">
@@ -2093,10 +2126,10 @@ export function MyPage({
                                     {checkDone}/{checkTotal}
                                   </span>
                                 )}
-                                {task.comments && task.comments.length > 0 && (
+                                {commentCount > 0 && (
                                   <span className="flex items-center gap-1">
                                     <MessageSquare className="w-3 h-3" />
-                                    {task.comments.length}
+                                    {commentCount}
                                   </span>
                                 )}
                               </div>

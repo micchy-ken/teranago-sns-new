@@ -2,7 +2,7 @@
  * routes/projects.js
  * 寺岡オートドアSNS プロジェクト・Todo・資料メモボード APIモジュール
  * （事務・営業・設計向け チーム＆個人ボード / カンバン / リスト / URL・資料・チェックリスト / コメント / 複製 / マイタスク横断集計）
- * 最終更新: 2026年11月18日 (ProjectCards 担当者アサイン・JSON配列カラム旧互換・大文字小文字吸収・SQL/JSON双方向同期強化)
+ * 最終更新: 2026年11月19日 (マイタスクサマリー /my-summary のSQL軽量絞り込み・複合インデックス追加・読み込み時同期JSON書込の廃止・レスポンス軽量化による遅延＆トラフィック最適化)
  */
 import { Router } from 'express';
 import sql from 'mssql';
@@ -249,6 +249,8 @@ async function ensureProjectTables(pool, force = false) {
             CREATE INDEX IX_ProjectCards_ProjectId ON dbo.ProjectCards(projectId);
           IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProjectCards_ColumnId' AND object_id = OBJECT_ID('dbo.ProjectCards'))
             CREATE INDEX IX_ProjectCards_ColumnId ON dbo.ProjectCards(columnId);
+          IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProjectCards_ActiveTasks' AND object_id = OBJECT_ID('dbo.ProjectCards'))
+            CREATE INDEX IX_ProjectCards_ActiveTasks ON dbo.ProjectCards(isArchived, isCompleted, cardType, projectId) INCLUDE (dueDate, priority, updatedAt);
         `);
       } catch (idxErr) {
         console.warn('[Projects] Index creation notice:', idxErr.message);
@@ -620,6 +622,23 @@ async function executeCardSqlUpsert(pool, normalized) {
 // ---------------------------------------------------------------------------
 // データ取得・保存（SQL Server Primary + Local JSON Fallback）
 // ---------------------------------------------------------------------------
+// ローカルJSONファイルが存在しない初回のみ非同期でバックアップシードを作成するヘルパー
+// （通常読み込み毎の fs.writeFileSync によるイベントループ停止・ディスク負荷を防止）
+function seedJsonBackupOnceAsync(filePath, data) {
+  if (!Array.isArray(data) || data.length === 0) return;
+  if (fs.existsSync(filePath)) return;
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.promises
+      .writeFile(filePath, JSON.stringify(data, null, 2), 'utf8')
+      .catch(err => console.warn(`[Projects] Async backup seed warning (${filePath}):`, err.message));
+  } catch (e) {
+    console.warn(`[Projects] Async backup seed setup warning (${filePath}):`, e.message);
+  }
+}
+
 async function readAllBoards() {
   const pool = await getPool().catch(() => null);
   if (pool) {
@@ -631,7 +650,7 @@ async function readAllBoards() {
       `);
       const rows = (result.recordset || []).map(mapBoardRow);
       if (rows.length > 0) {
-        saveJsonArray(boardsFilePath, rows);
+        seedJsonBackupOnceAsync(boardsFilePath, rows);
         return rows;
       }
       const localRows = loadJsonArray(boardsFilePath).map(mapBoardRow);
@@ -671,7 +690,7 @@ async function readAllCards(projectId = null) {
 
       if (!projectId) {
         if (rows.length > 0) {
-          saveJsonArray(cardsFilePath, rows);
+          seedJsonBackupOnceAsync(cardsFilePath, rows);
           return rows;
         }
         const localRows = loadJsonArray(cardsFilePath).map(mapCardRow);
@@ -695,6 +714,161 @@ async function readAllCards(projectId = null) {
   }
   const local = loadJsonArray(cardsFilePath).map(mapCardRow);
   return projectId ? local.filter(c => String(c.projectId) === String(projectId)) : local;
+}
+
+// マイタスクサマリー専用：未アーカイブのボードを必要最小限のカラムのみ軽量取得
+async function readActiveBoardsForSummary() {
+  const pool = await getPool().catch(() => null);
+  if (pool) {
+    try {
+      await ensureProjectTables(pool);
+      const legacyMemberCol = cachedBoardColumns?.has('memberids') ? ', memberIds' : '';
+      const result = await pool.request().query(`
+        SELECT id, title, boardType, visibility, ownerId, officeId, office, divisionId, division,
+               memberIdsJson, isArchived${legacyMemberCol}
+        FROM dbo.ProjectBoards
+        WHERE ISNULL(isArchived, 0) = 0
+      `);
+      const rows = (result.recordset || []).map(row => {
+        const memberIdsRaw = pickFirstJsonArray(
+          row.memberIdsJson,
+          row.MemberIdsJson,
+          row.memberidsjson,
+          row.memberIds,
+          row.MemberIds
+        );
+        const boardType = row.boardType === 'personal' ? 'personal' : 'team';
+        const ownerId = String(row.ownerId || '');
+        const memberSet = new Set(memberIdsRaw.map(String).filter(Boolean));
+        if (ownerId && (boardType === 'personal' || memberSet.size === 0)) {
+          memberSet.add(ownerId);
+        }
+        return {
+          id: String(row.id),
+          title: String(row.title || '無題のボード'),
+          boardType,
+          visibility: row.visibility || (boardType === 'personal' ? 'private' : 'members'),
+          ownerId,
+          officeId: row.officeId ? String(row.officeId) : undefined,
+          office: row.office ? String(row.office) : undefined,
+          divisionId: row.divisionId ? String(row.divisionId) : undefined,
+          division: row.division ? String(row.division) : undefined,
+          memberIds: Array.from(memberSet),
+          isArchived: Boolean(row.isArchived),
+        };
+      });
+      if (rows.length > 0) return rows;
+      // SQL側が空の場合は既存の自動復元パスへフォールバック
+      return (await readAllBoards()).filter(b => !b.isArchived);
+    } catch (err) {
+      console.warn('[Projects] SQL readActiveBoardsForSummary fallback:', err.message);
+    }
+  }
+  return loadJsonArray(boardsFilePath).map(mapBoardRow).filter(b => !b.isArchived);
+}
+
+// マイタスクサマリー専用：未完了・未アーカイブ・対象ユーザー関連タスクのみを軽量カラムでSQL抽出
+async function readActiveTaskCandidatesForUser(userId) {
+  const pool = await getPool().catch(() => null);
+  if (pool) {
+    try {
+      await ensureProjectTables(pool);
+      const hasLegacyAssignees = cachedCardColumns?.has('assigneeids');
+      const hasLegacyChecklist = cachedCardColumns?.has('checklist');
+      const hasLegacyComments = cachedCardColumns?.has('comments');
+      const extraCols = [
+        hasLegacyAssignees ? 'assigneeIds' : '',
+        hasLegacyChecklist ? 'checklist' : '',
+        hasLegacyComments ? 'comments' : '',
+      ].filter(Boolean);
+      const extraSelect = extraCols.length > 0 ? ', ' + extraCols.join(', ') : '';
+      const legacyAssigneeFilter = hasLegacyAssignees ? ' OR assigneeIds LIKE @userIdLike' : '';
+
+      const req = pool.request();
+      req.input('userId', sql.NVarChar(100), String(userId));
+      req.input('userIdLike', sql.NVarChar(120), `%${String(userId)}%`);
+
+      const result = await req.query(`
+        SELECT id, projectId, columnId, cardType, title, priority,
+               assigneeIdsJson, dueDate, startDate, checklistJson, commentsJson,
+               isCompleted, isPinned, isArchived, sortOrder,
+               createdBy, createdByName, updatedBy, createdAt, updatedAt${extraSelect}
+        FROM dbo.ProjectCards
+        WHERE ISNULL(isArchived, 0) = 0
+          AND ISNULL(isCompleted, 0) = 0
+          AND ISNULL(cardType, 'task') <> 'memo'
+          AND (
+            assigneeIdsJson LIKE @userIdLike
+            OR createdBy = @userId${legacyAssigneeFilter}
+          )
+      `);
+
+      const rows = (result.recordset || []).map(mapCardRow);
+      if (rows.length > 0) return rows;
+
+      // 対象タスクが0件でも、SQLテーブル自体が空（初回移行前）でないか軽量確認
+      const countCheck = await pool.request().query(`SELECT TOP 1 1 AS hasAny FROM dbo.ProjectCards`);
+      if (countCheck.recordset && countCheck.recordset.length > 0) {
+        return [];
+      }
+      // テーブルが空の場合はローカルJSONフォールバック
+    } catch (err) {
+      console.warn('[Projects] SQL readActiveTaskCandidatesForUser fallback:', err.message);
+    }
+  }
+  const local = loadJsonArray(cardsFilePath).map(mapCardRow);
+  return local.filter(c => !c.isArchived && !c.isCompleted && c.cardType !== 'memo');
+}
+
+// マイタスクサマリー用に不要な重量フィールド（description/attachments/links/全コメント本文等）を除いた軽量構造へ整形
+function toSummaryTaskItem(card, projectTitle, userId) {
+  const checklistArr = Array.isArray(card.checklist) ? card.checklist : [];
+  const checklistTotal = checklistArr.length;
+  const checklistDone = checklistArr.filter(item => item && item.done).length;
+
+  const commentsArr = Array.isArray(card.comments) ? card.comments : [];
+  const commentCount = commentsArr.length;
+  const userIdStr = String(userId || '');
+  let latestOtherComment = null;
+  for (let i = commentsArr.length - 1; i >= 0; i--) {
+    const c = commentsArr[i];
+    if (c && String(c.authorId || '') !== userIdStr) {
+      latestOtherComment = {
+        id: String(c.id || ''),
+        authorId: String(c.authorId || ''),
+        authorName: String(c.authorName || 'メンバー'),
+        content: String(c.content || '').trim().slice(0, 80),
+        createdAt: c.createdAt ? String(c.createdAt) : (card.updatedAt || card.createdAt || getJstNowIso()),
+      };
+      break;
+    }
+  }
+
+  return {
+    id: card.id,
+    projectId: card.projectId,
+    projectTitle,
+    columnId: card.columnId,
+    cardType: card.cardType,
+    title: card.title,
+    priority: card.priority,
+    assigneeIds: card.assigneeIds || [],
+    dueDate: card.dueDate,
+    startDate: card.startDate,
+    isCompleted: Boolean(card.isCompleted),
+    isPinned: Boolean(card.isPinned),
+    isArchived: Boolean(card.isArchived),
+    sortOrder: card.sortOrder,
+    createdBy: card.createdBy,
+    createdByName: card.createdByName,
+    updatedBy: card.updatedBy,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    checklistTotal,
+    checklistDone,
+    commentCount,
+    latestOtherComment,
+  };
 }
 
 async function persistBoard(board) {
@@ -949,7 +1123,7 @@ async function handleCreateBoard(req, res) {
 router.post(['/', '/boards'], handleCreateBoard);
 
 // ---------------------------------------------------------------------------
-// 3. マイタスク横断サマリー（自分の担当・期限アラート取得）
+// 3. マイタスク横断サマリー（自分の担当・期限アラート取得：軽量SQL＆軽量ペイロード版）
 //    GET /api/projects/my-summary
 // ---------------------------------------------------------------------------
 router.get('/my-summary', async (req, res) => {
@@ -963,25 +1137,31 @@ router.get('/my-summary', async (req, res) => {
     const divisionId = req.query.divisionId ? String(req.query.divisionId) : '';
     const division = req.query.division ? String(req.query.division) : '';
     const isAdmin = req.query.isAdmin === 'true' || req.query.isAdmin === '1';
+    const parsedLimit = parseInt(String(req.query.limit || '50'), 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
 
-    const boards = await readAllBoards();
+    // ボード一覧と対象ユーザー候補タスクを並列で軽量取得
+    const [boards, candidateCards] = await Promise.all([
+      readActiveBoardsForSummary(),
+      readActiveTaskCandidatesForUser(userId),
+    ]);
+
     const accessibleBoards = boards.filter(
       b => !b.isArchived && canAccessBoard(b, { userId, officeId, office, divisionId, division, isAdmin })
     );
     const boardMap = new Map(accessibleBoards.map(b => [b.id, b]));
 
-    const allCards = await readAllCards();
     const todayStr = getJstTodayStr();
     const soonDate = new Date(`${todayStr}T00:00:00+09:00`);
     soonDate.setDate(soonDate.getDate() + 3);
     const soonStr = normalizeDateStr(soonDate);
 
-    const myTasks = allCards.filter(c => {
-      if (c.isArchived || !boardMap.has(c.projectId)) return false;
+    const myTasks = candidateCards.filter(c => {
+      if (c.isArchived || c.isCompleted || !boardMap.has(c.projectId)) return false;
       if (c.cardType === 'memo') return false;
       const isAssigned = Array.isArray(c.assigneeIds) && c.assigneeIds.map(String).includes(userId);
       const isPersonalOwn = boardMap.get(c.projectId)?.boardType === 'personal' && String(c.createdBy || '') === userId && (!c.assigneeIds || c.assigneeIds.length === 0);
-      return (isAssigned || isPersonalOwn) && !c.isCompleted;
+      return isAssigned || isPersonalOwn;
     });
 
     const overdueTasks = myTasks.filter(c => c.dueDate && c.dueDate < todayStr);
@@ -999,10 +1179,9 @@ router.get('/my-summary', async (req, res) => {
       myPendingCount: myTasks.length,
       overdueCount: overdueTasks.length,
       dueSoonCount: dueSoonTasks.length,
-      tasks: sorted.slice(0, 50).map(t => ({
-        ...t,
-        projectTitle: boardMap.get(t.projectId)?.title || '',
-      })),
+      tasks: sorted.slice(0, limit).map(t =>
+        toSummaryTaskItem(t, boardMap.get(t.projectId)?.title || '', userId)
+      ),
     });
   } catch (err) {
     console.error('[Projects] GET my-summary error:', err);

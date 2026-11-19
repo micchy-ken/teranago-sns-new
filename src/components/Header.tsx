@@ -1762,13 +1762,21 @@ export function Header({
                   ? 'border-slate-200/80 bg-white/80 hover:bg-amber-50/70 hover:border-amber-300 text-slate-700 hover:text-amber-600 shadow-2xs'
                   : 'border-slate-200/80 bg-white/80 hover:bg-slate-50 hover:border-slate-300 text-slate-600 shadow-2xs'
               }`}
-              title={`お気に入り・ブックマーク (${bookmarks.length}件)`}
-              aria-label={`お気に入り・ブックマーク (${bookmarks.length}件)`}
+              title={
+                pinnedBookmarkCount > 0
+                  ? `お気に入り・ブックマーク (ピン留め ${pinnedBookmarkCount}件 / 全${bookmarks.length}件)`
+                  : `お気に入り・ブックマーク (${bookmarks.length}件)`
+              }
+              aria-label={
+                pinnedBookmarkCount > 0
+                  ? `お気に入り・ブックマーク (ピン留め ${pinnedBookmarkCount}件 / 全${bookmarks.length}件)`
+                  : `お気に入り・ブックマーク (${bookmarks.length}件)`
+              }
             >
               <Bookmark className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${pinnedBookmarkCount > 0 ? 'fill-amber-400 text-amber-500' : ''}`} />
-              {bookmarks.length > 0 && (
+              {pinnedBookmarkCount > 0 && (
                 <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-indigo-600 rounded-full ring-2 ring-white shadow-xs">
-                  {bookmarks.length > 99 ? '99+' : bookmarks.length}
+                  {pinnedBookmarkCount > 99 ? '99+' : pinnedBookmarkCount}
                 </span>
               )}
             </button>

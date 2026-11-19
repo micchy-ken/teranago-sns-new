@@ -56,7 +56,7 @@ import {
   markChatRoomAsRead,
   getRespondedSafetyEventIds,
   getUnreadNotifications,
-  ProjectNotificationCard
+  ProjectMySummary
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
@@ -963,7 +963,16 @@ export default function App() {
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [safetyEvents, setSafetyEvents] = useState<SafetyConfirmationEvent[]>([]);
   const [safetyResponses, setSafetyResponses] = useState<SafetyConfirmationResponse[]>([]);
-  const [projectTasks, setProjectTasks] = useState<ProjectNotificationCard[]>([]);
+  const [projectSummary, setProjectSummary] = useState<ProjectMySummary>({
+    myPendingCount: 0,
+    overdueCount: 0,
+    dueSoonCount: 0,
+    tasks: [],
+  });
+  const [isProjectSummaryLoading, setIsProjectSummaryLoading] = useState(false);
+  const projectTasks = projectSummary.tasks;
+  const projectSummaryInFlightRef = useRef<Promise<void> | null>(null);
+  const lastProjectSummaryFetchRef = useRef<{ userId: string; at: number }>({ userId: '', at: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -1419,30 +1428,68 @@ export default function App() {
     }
   };
 
-  const refetchProjectTasks = async (targetUser: User | null = userState) => {
+  const refetchProjectTasks = async (
+    targetUser: User | null = userState,
+    options?: { force?: boolean }
+  ) => {
     const u = targetUser || userState;
     if (!u?.id) return;
-    try {
-      const params = new URLSearchParams({
-        userId: String(u.id),
-        userName: u.name || '',
-        officeId: u.officeId || '',
-        office: u.office || '',
-        divisionId: u.divisionId || '',
-        division: u.division || '',
-        isAdmin: String(Boolean(u.isAdmin || u.role === 'admin')),
-      });
-      const res = await fetch(`${API_BASE_URL}/projects/my-summary?${params.toString()}`, {
-        headers: { 'Accept': 'application/json' },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data?.tasks)) {
-        setProjectTasks(data.tasks);
+    const uid = String(u.id);
+    const now = Date.now();
+    const isSameUser = lastProjectSummaryFetchRef.current.userId === uid;
+
+    // 同一ユーザーへの同時重複呼び出し・直近3秒以内のバースト再取得を抑止（force時は即時再取得）
+    if (!options?.force && isSameUser) {
+      if (projectSummaryInFlightRef.current) {
+        return projectSummaryInFlightRef.current;
       }
-    } catch (err) {
-      console.warn('Failed to fetch project tasks for notifications:', err);
+      if (lastProjectSummaryFetchRef.current.at > 0 && now - lastProjectSummaryFetchRef.current.at < 3000) {
+        return;
+      }
     }
+
+    // 初回実行直後の同時発火も1本に束ねるため、await 前に userId を確定
+    lastProjectSummaryFetchRef.current = {
+      userId: uid,
+      at: isSameUser ? lastProjectSummaryFetchRef.current.at : 0,
+    };
+
+    const runFetch = (async () => {
+      if (!isSameUser || projectSummary.tasks.length === 0) {
+        setIsProjectSummaryLoading(true);
+      }
+      try {
+        const params = new URLSearchParams({
+          userId: uid,
+          userName: u.name || '',
+          officeId: u.officeId || '',
+          office: u.office || '',
+          divisionId: u.divisionId || '',
+          division: u.division || '',
+          isAdmin: String(Boolean(u.isAdmin || u.role === 'admin')),
+        });
+        const res = await fetch(`${API_BASE_URL}/projects/my-summary?${params.toString()}`, {
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        lastProjectSummaryFetchRef.current = { userId: uid, at: Date.now() };
+        setProjectSummary({
+          myPendingCount: Number(data?.myPendingCount || 0),
+          overdueCount: Number(data?.overdueCount || 0),
+          dueSoonCount: Number(data?.dueSoonCount || 0),
+          tasks: Array.isArray(data?.tasks) ? data.tasks : [],
+        });
+      } catch (err) {
+        console.warn('Failed to fetch project tasks for notifications:', err);
+      } finally {
+        setIsProjectSummaryLoading(false);
+        projectSummaryInFlightRef.current = null;
+      }
+    })();
+
+    projectSummaryInFlightRef.current = runFetch;
+    return runFetch;
   };
 
   const refetchTopics = async (currentUsers = usersList, options?: { summary?: boolean }) => {
@@ -2235,7 +2282,7 @@ export default function App() {
     };
     const handleProjectsUpdated = () => {
       lastResourceFetchAtRef.current.projects = Date.now();
-      refetchProjectTasks();
+      refetchProjectTasks(userState, { force: true });
     };
 
     window.addEventListener('focus', handleVisibilityOrFocus);
@@ -4294,6 +4341,9 @@ export default function App() {
                 setInitialSchedulePollId(pollId || null);
                 setShowSchedulePollModal(true);
               }}
+              projectSummary={projectSummary}
+              isProjectSummaryLoading={isProjectSummaryLoading}
+              onUpdateProjectSummary={setProjectSummary}
             />
           )}
           {activeTab === 'admin' && (
