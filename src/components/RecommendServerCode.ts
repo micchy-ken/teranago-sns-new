@@ -1,7 +1,7 @@
 export const RECOMMEND_SERVER_JS = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月18日 (掲示板サマリーAPI /api/bulletins/summary への閲覧者viewers情報同梱対応：未読バッジ一時点滅解消・拠点マスター項目拡充版)
+ * 最終更新日時 (最終アップデート): 2026年11月19日 (日程調整の未確定再編集PUT API・未確定削除権限＆確定済ガード対応 routes/schedulePolls.js 完全同期版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -8672,6 +8672,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.19.2',
+    date: '2026-11-19',
+    summary: '日程調整(routes/schedulePolls.js)の未確定再編集API(PUT /api/schedule-polls/:id)・削除対象候補の回答自動クリーンアップ・未確定調整削除時の権限＆確定済ガード対応版',
+  },
   {
     version: 'v2026.11.18.9',
     date: '2026-11-18',

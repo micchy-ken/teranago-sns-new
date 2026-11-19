@@ -22,7 +22,11 @@ import {
   MessageSquare,
   Sparkle,
   RefreshCw,
-  Award
+  Award,
+  Edit2,
+  Bell,
+  AlertTriangle,
+  Save
 } from 'lucide-react';
 import { SchedulePoll, SchedulePollAnswer, ScheduleCandidate, FreeSlotSuggestion, PollResponseStatus } from '../types/schedulePoll';
 import { User, OfficeMaster, DivisionMaster } from '../types';
@@ -108,15 +112,30 @@ export function SchedulePollModal({
   });
   const [manualStartTime, setManualStartTime] = useState<string>('10:00');
 
+  // 編集・削除モードState
+  const [editingPollId, setEditingPollId] = useState<string | null>(null);
+  const [editOriginalPoll, setEditOriginalPoll] = useState<SchedulePoll | null>(null);
+  const [notifyAddedMembers, setNotifyAddedMembers] = useState<boolean>(true);
+  const [notifyExistingMembers, setNotifyExistingMembers] = useState<boolean>(false);
+  const [deletingPoll, setDeletingPoll] = useState<boolean>(false);
+  const [statusBanner, setStatusBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // 回答フォームState
   const [myResponses, setMyResponses] = useState<{ [candidateId: string]: PollResponseStatus }>({});
   const [myComments, setMyComments] = useState<{ [candidateId: string]: string }>({});
   const [myOverallComment, setMyOverallComment] = useState<string>('');
+  const [myAnsweredCandidateIds, setMyAnsweredCandidateIds] = useState<string[]>([]);
   const [submittingAnswer, setSubmittingAnswer] = useState<boolean>(false);
 
   // 日程確定モーダルState
   const [confirmCandidateId, setConfirmCandidateId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<boolean>(false);
+
+  // 操作権限判定（主催者本人または管理者）
+  const isAdmin = currentUser.isAdmin === true || currentUser.role === 'admin' || String(currentUser.id) === 'u1';
+  const canManageSelectedPoll = selectedPoll
+    ? (String(selectedPoll.organizerId) === String(currentUser.id) || isAdmin)
+    : false;
 
   // ----------------------------------------------------
   // 一覧取得
@@ -160,20 +179,24 @@ export function SchedulePollModal({
         setAnswers(data.answers || []);
 
         // 自分の既存回答を初期化
-        const myAns = (data.answers || []).find((a: SchedulePollAnswer) => a.userId === currentUser.id);
+        const myAns = (data.answers || []).find((a: SchedulePollAnswer) => String(a.userId) === String(currentUser.id));
         const respMap: { [cid: string]: PollResponseStatus } = {};
         const commMap: { [cid: string]: string } = {};
         if (myAns && Array.isArray(myAns.responses)) {
+          const answeredCids: string[] = [];
           myAns.responses.forEach((r: any) => {
             respMap[r.candidateId] = r.status;
+            answeredCids.push(String(r.candidateId));
             if (r.comment) commMap[r.candidateId] = r.comment;
           });
+          setMyAnsweredCandidateIds(answeredCids);
           setMyOverallComment(myAns.overallComment || '');
         } else {
           // デフォルト未回答または'ok'
           data.poll.candidates.forEach((c: ScheduleCandidate) => {
             respMap[c.id] = 'ok';
           });
+          setMyAnsweredCandidateIds([]);
           setMyOverallComment('');
         }
         setMyResponses(respMap);
@@ -305,8 +328,119 @@ export function SchedulePollModal({
     setFormCandidates([...formCandidates, newCand]);
   };
 
+  // 各候補IDに対する既存回答数マップ（編集時の警告表示用）
+  const candidateAnswerCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    answers.forEach(a => {
+      (a.responses || []).forEach(r => {
+        const cid = String(r.candidateId);
+        map[cid] = (map[cid] || 0) + 1;
+      });
+    });
+    return map;
+  }, [answers]);
+
+  // 編集時の差分サマリー（新規追加メンバー・既存メンバー・候補変更有無）
+  const editDiffSummary = useMemo(() => {
+    if (!editingPollId || !editOriginalPoll) {
+      return {
+        addedTargetIds: [] as string[],
+        existingTargetIds: [] as string[],
+        addedCandidatesCount: 0,
+        removedCandidatesCount: 0,
+        deadlineChanged: false,
+      };
+    }
+    const prevTargets = new Set((editOriginalPoll.targetUserIds || []).map(String));
+    const addedTargetIds = formTargetUserIds.map(String).filter(id => id && !prevTargets.has(id));
+    const existingTargetIds = formTargetUserIds.map(String).filter(id => id && prevTargets.has(id));
+
+    const prevCandIds = new Set((editOriginalPoll.candidates || []).map(c => String(c.id)));
+    const nextCandIds = new Set(formCandidates.map(c => String(c.id)));
+    const addedCandidatesCount = formCandidates.filter(c => !prevCandIds.has(String(c.id))).length;
+    const removedCandidatesCount = (editOriginalPoll.candidates || []).filter(c => !nextCandIds.has(String(c.id))).length;
+
+    const origDeadlineYmd = editOriginalPoll.deadlineAt ? getLocalDateStr(new Date(editOriginalPoll.deadlineAt)) : '';
+    const deadlineChanged = (formDeadline || '') !== origDeadlineYmd;
+
+    return {
+      addedTargetIds,
+      existingTargetIds,
+      addedCandidatesCount,
+      removedCandidatesCount,
+      deadlineChanged,
+    };
+  }, [editingPollId, editOriginalPoll, formTargetUserIds, formCandidates, formDeadline]);
+
   const handleRemoveCandidate = (id: string) => {
+    const answerCount = editingPollId ? (candidateAnswerCounts[id] || 0) : 0;
+    if (answerCount > 0) {
+      setConfirmModal({
+        isOpen: true,
+        title: '回答済み候補の削除確認',
+        message: `この候補日時にはすでに ${answerCount}名の回答が登録されています。\n削除して保存すると、この候補に対する回答データは失われます。削除してもよろしいですか？`,
+        confirmText: '候補を削除',
+        cancelText: 'キャンセル',
+        type: 'warning',
+        onConfirm: () => {
+          setFormCandidates(prev => prev.filter(c => c.id !== id));
+        },
+      });
+      return;
+    }
     setFormCandidates(formCandidates.filter(c => c.id !== id));
+  };
+
+  const handleClearAllCandidates = () => {
+    const totalAnsweredSlots = editingPollId
+      ? formCandidates.filter(c => (candidateAnswerCounts[c.id] || 0) > 0).length
+      : 0;
+    if (totalAnsweredSlots > 0) {
+      setConfirmModal({
+        isOpen: true,
+        title: '全候補のクリア確認',
+        message: `すでに回答が登録されている候補枠が ${totalAnsweredSlots}枠 含まれています。\nすべてクリアして保存すると、該当する回答データは失われます。本当にクリアしますか？`,
+        confirmText: 'すべてクリア',
+        cancelText: 'キャンセル',
+        type: 'warning',
+        onConfirm: () => {
+          setFormCandidates([]);
+        },
+      });
+      return;
+    }
+    setFormCandidates([]);
+  };
+
+  // ----------------------------------------------------
+  // 未確定日程調整の再編集開始・キャンセル
+  // ----------------------------------------------------
+  const handleStartEditPoll = () => {
+    if (!selectedPoll || selectedPoll.status === 'confirmed' || !canManageSelectedPoll) return;
+    setStatusBanner(null);
+    setEditingPollId(selectedPoll.id);
+    setEditOriginalPoll(selectedPoll);
+    setFormTitle(selectedPoll.title || '');
+    setFormDesc(selectedPoll.description || '');
+    setFormDuration(selectedPoll.durationMinutes || 60);
+    setFormLocation(selectedPoll.location || '');
+    setFormTargetUserIds([...(selectedPoll.targetUserIds || [])]);
+    setFormDeadline(selectedPoll.deadlineAt ? getLocalDateStr(new Date(selectedPoll.deadlineAt)) : '');
+    setFormCandidates([...(selectedPoll.candidates || [])]);
+    setSuggestedSlots([]);
+    setNotifyAddedMembers(true);
+    setNotifyExistingMembers(false);
+    setViewMode('create_step1');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPollId(null);
+    setEditOriginalPoll(null);
+    if (selectedPoll) {
+      setViewMode('detail');
+    } else {
+      setViewMode('list');
+    }
   };
 
   // ----------------------------------------------------
@@ -314,7 +448,13 @@ export function SchedulePollModal({
   // ----------------------------------------------------
   const handleCreatePoll = async () => {
     if (!formTitle.trim() || formCandidates.length === 0) {
-      alert('タイトルと1件以上の候補日時を入力してください。');
+      setConfirmModal({
+        isOpen: true,
+        title: '入力不足',
+        message: 'タイトルと1件以上の候補日時を入力してください。',
+        confirmText: '確認',
+        type: 'warning',
+      });
       return;
     }
 
@@ -332,12 +472,13 @@ export function SchedulePollModal({
           location: formLocation,
           targetUserIds: formTargetUserIds,
           candidates: formCandidates,
-          deadlineAt: formDeadline ? `${formDeadline}T23:59:59` : null,
+          deadlineAt: formDeadline ? `${formDeadline}T23:59:59+09:00` : null,
         }),
       });
 
       if (res.ok) {
         const created = await res.json();
+        setStatusBanner({ type: 'success', text: '日程調整を作成・公開しました。' });
         await fetchPolls();
         fetchPollDetail(created.id);
         if (onPollChange) onPollChange();
@@ -382,15 +523,246 @@ export function SchedulePollModal({
           }
         }
       } else {
-        const err = await res.json();
-        alert(err.error || '日程調整の作成に失敗しました');
+        const err = await res.json().catch(() => ({}));
+        setConfirmModal({
+          isOpen: true,
+          title: '作成エラー',
+          message: err.error || '日程調整の作成に失敗しました',
+          confirmText: '閉じる',
+          type: 'danger',
+        });
       }
     } catch (err) {
       console.error('作成エラー:', err);
-      alert('通信エラーが発生しました');
+      setConfirmModal({
+        isOpen: true,
+        title: '通信エラー',
+        message: '通信エラーが発生しました。ネットワーク接続を確認してください。',
+        confirmText: '閉じる',
+        type: 'danger',
+      });
     } finally {
       setLoading(false);
     }
+  };
+
+  // ----------------------------------------------------
+  // 再編集保存実行 (PUT /api/schedule-polls/:id)
+  // ----------------------------------------------------
+  const handleSaveEditedPoll = async () => {
+    if (!editingPollId) return;
+    if (!formTitle.trim() || formCandidates.length === 0) {
+      setConfirmModal({
+        isOpen: true,
+        title: '入力不足',
+        message: 'タイトルと1件以上の候補日時を入力してください。',
+        confirmText: '確認',
+        type: 'warning',
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/schedule-polls/${editingPollId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formTitle,
+          description: formDesc,
+          durationMinutes: formDuration,
+          location: formLocation,
+          targetUserIds: formTargetUserIds,
+          candidates: formCandidates,
+          deadlineAt: formDeadline ? `${formDeadline}T23:59:59+09:00` : null,
+          actorId: currentUser.id,
+          isAdmin,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        const targetPollId = editingPollId;
+        const addedIds: string[] = (updated.diff?.addedTargetUserIds || editDiffSummary.addedTargetIds || [])
+          .map(String)
+          .filter((uid: string) => uid && uid !== String(currentUser.id));
+        const addedSet = new Set(addedIds);
+        const existingIds: string[] = formTargetUserIds
+          .map(String)
+          .filter(uid => uid && uid !== String(currentUser.id) && !addedSet.has(uid));
+
+        const candidateSummary = formCandidates
+          .map((c, i) => `候補${i + 1}: ${c.text || `${c.startAt}〜${c.endAt}`}`)
+          .join('\n');
+
+        // 1. 新規追加メンバーへの回答依頼通知
+        if (notifyAddedMembers && addedIds.length > 0) {
+          triggerPushNotification({
+            targetUserIds: addedIds,
+            excludeUserId: currentUser.id,
+            title: `📅 日程調整のお願い: ${formTitle}`,
+            body: `${currentUser.name}さんから「${formTitle}」の日程調整に追加されました。候補日への回答をお願いします。`,
+            url: `/?tab=calendar&pollId=${targetPollId}`,
+            tag: `poll-${targetPollId}`,
+          });
+
+          const addedUsers = addedIds
+            .map(id => users.find(u => String(u.id) === id))
+            .filter((u): u is User => !!u && String(u.id) !== String(currentUser.id));
+
+          if (addedUsers.length > 0) {
+            dispatchNotificationEmail(addedUsers, {
+              category: 'schedule',
+              categoryLabel: '日程調整',
+              title: `日程調整のお願い: ${formTitle}`,
+              actorName: currentUser.name,
+              details: [
+                { label: '案件名', value: formTitle },
+                { label: '所要時間', value: `${formDuration}分` },
+                { label: '主催者', value: currentUser.name },
+                { label: '場所', value: formLocation || '未定' },
+                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
+                { label: '候補日時一覧', value: '\n' + candidateSummary },
+              ],
+              mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
+              pathParams: `tab=calendar&pollId=${targetPollId}`,
+            }, currentUser);
+          }
+        }
+
+        // 2. 既存メンバーへの内容更新通知
+        if (notifyExistingMembers && existingIds.length > 0) {
+          const addedCandCount = updated.diff?.addedCandidateIds?.length ?? editDiffSummary.addedCandidatesCount;
+          const removedCandCount = updated.diff?.removedCandidateIds?.length ?? editDiffSummary.removedCandidatesCount;
+          const changeNotes: string[] = [];
+          if (addedCandCount > 0) changeNotes.push(`候補枠を${addedCandCount}件追加`);
+          if (removedCandCount > 0) changeNotes.push(`候補枠を${removedCandCount}件削除`);
+          if (editDiffSummary.deadlineChanged) changeNotes.push('回答締切を変更');
+          const changeHint = changeNotes.length > 0 ? `（${changeNotes.join('・')}）` : '';
+
+          triggerPushNotification({
+            targetUserIds: existingIds,
+            excludeUserId: currentUser.id,
+            title: `📅 日程調整が更新されました: ${formTitle}`,
+            body: `${currentUser.name}さんが「${formTitle}」の内容を更新しました${changeHint}。必要に応じて回答をご確認ください。`,
+            url: `/?tab=calendar&pollId=${targetPollId}`,
+            tag: `poll-updated-${targetPollId}`,
+          });
+
+          const existingUsers = existingIds
+            .map(id => users.find(u => String(u.id) === id))
+            .filter((u): u is User => !!u && String(u.id) !== String(currentUser.id));
+
+          if (existingUsers.length > 0) {
+            dispatchNotificationEmail(existingUsers, {
+              category: 'schedule',
+              categoryLabel: '日程調整更新',
+              title: `【内容更新】日程調整: ${formTitle}`,
+              actorName: currentUser.name,
+              details: [
+                { label: '案件名', value: formTitle },
+                { label: '所要時間', value: `${formDuration}分` },
+                { label: '場所', value: formLocation || '未定' },
+                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
+                { label: '更新内容', value: changeNotes.length > 0 ? changeNotes.join(' / ') : '基本情報・設定を更新' },
+                { label: '最新の候補日時一覧', value: '\n' + candidateSummary },
+              ],
+              mainContent: `日程調整の内容が更新されました。\n候補日時の追加・変更がある場合は、下記リンクより回答内容の確認・更新をお願いいたします。${formDesc ? `\n\n【概要・連絡事項】\n${formDesc}` : ''}`,
+              pathParams: `tab=calendar&pollId=${targetPollId}`,
+            }, currentUser);
+          }
+        }
+
+        setEditingPollId(null);
+        setEditOriginalPoll(null);
+        setStatusBanner({ type: 'success', text: '日程調整の内容を更新しました。' });
+        await fetchPolls();
+        await fetchPollDetail(targetPollId);
+        if (onPollChange) onPollChange();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setConfirmModal({
+          isOpen: true,
+          title: '更新エラー',
+          message: err.error || '日程調整の更新に失敗しました。',
+          confirmText: '閉じる',
+          type: 'danger',
+        });
+      }
+    } catch (err) {
+      console.error('更新エラー:', err);
+      setConfirmModal({
+        isOpen: true,
+        title: '通信エラー',
+        message: '通信エラーが発生しました。ネットワーク接続を確認してください。',
+        confirmText: '閉じる',
+        type: 'danger',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // 未確定日程調整の削除実行 (DELETE /api/schedule-polls/:id)
+  // ----------------------------------------------------
+  const handleDeletePoll = () => {
+    if (!selectedPoll || selectedPoll.status === 'confirmed' || !canManageSelectedPoll) return;
+    const targetPoll = selectedPoll;
+    const answerMsg = answers.length > 0
+      ? `\nすでに ${answers.length}名の回答が登録されています。削除するとこの日程調整とすべての回答データが完全に消去され、元に戻せません。`
+      : '\n削除するとこの日程調整データは完全に消去され、元に戻せません。';
+
+    setConfirmModal({
+      isOpen: true,
+      title: '未確定の日程調整を削除',
+      message: `「${targetPoll.title}」を削除しますか？${answerMsg}`,
+      confirmText: '削除する',
+      cancelText: 'キャンセル',
+      type: 'danger',
+      onConfirm: async () => {
+        setDeletingPoll(true);
+        try {
+          const query = new URLSearchParams({
+            actorId: String(currentUser.id),
+            isAdmin: isAdmin ? 'true' : 'false',
+          }).toString();
+          const res = await fetch(`${API_BASE_URL}/schedule-polls/${targetPoll.id}?${query}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            setSelectedPoll(null);
+            setAnswers([]);
+            setEditingPollId(null);
+            setEditOriginalPoll(null);
+            setViewMode('list');
+            setStatusBanner({ type: 'success', text: `日程調整「${targetPoll.title}」を削除しました。` });
+            await fetchPolls();
+            if (onPollChange) onPollChange();
+          } else {
+            const err = await res.json().catch(() => ({}));
+            setConfirmModal({
+              isOpen: true,
+              title: '削除エラー',
+              message: err.error || '日程調整の削除に失敗しました。',
+              confirmText: '閉じる',
+              type: 'danger',
+            });
+          }
+        } catch (err) {
+          console.error('日程調整削除エラー:', err);
+          setConfirmModal({
+            isOpen: true,
+            title: '通信エラー',
+            message: '通信エラーが発生しました。',
+            confirmText: '閉じる',
+            type: 'danger',
+          });
+        } finally {
+          setDeletingPoll(false);
+        }
+      },
+    });
   };
 
   // ----------------------------------------------------
@@ -628,6 +1000,34 @@ export function SchedulePollModal({
         {/* モーダルボディ */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
 
+          {/* フィードバックバナー */}
+          {statusBanner && (
+            <div
+              className={`px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 ${
+                statusBanner.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {statusBanner.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{statusBanner.text}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusBanner(null)}
+                className="p-0.5 rounded hover:bg-black/5 cursor-pointer"
+                aria-label="閉じる"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* ============================================================ */}
           {/* VIEW 1: 日程調整一覧リスト */}
           {/* ============================================================ */}
@@ -640,6 +1040,9 @@ export function SchedulePollModal({
                 </h3>
                 <button
                   onClick={() => {
+                    setStatusBanner(null);
+                    setEditingPollId(null);
+                    setEditOriginalPoll(null);
                     setFormTitle('');
                     setFormDesc('');
                     setFormDuration(60);
@@ -670,7 +1073,20 @@ export function SchedulePollModal({
                     会議や現場打ち合わせの候補日時を設定して、メンバーへ回答を依頼しましょう。
                   </p>
                   <button
-                    onClick={() => setViewMode('create_step1')}
+                    onClick={() => {
+                      setStatusBanner(null);
+                      setEditingPollId(null);
+                      setEditOriginalPoll(null);
+                      setFormTitle('');
+                      setFormDesc('');
+                      setFormDuration(60);
+                      setFormLocation('');
+                      setFormTargetUserIds([]);
+                      setFormDeadline('');
+                      setFormCandidates([]);
+                      setSuggestedSlots([]);
+                      setViewMode('create_step1');
+                    }}
                     className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-xs rounded-xl transition-colors inline-flex items-center gap-1.5"
                   >
                     <Plus className="w-4 h-4" />
@@ -804,18 +1220,26 @@ export function SchedulePollModal({
           )}
 
           {/* ============================================================ */}
-          {/* VIEW 2: 新規作成ウィザード Step 1 (基本情報) */}
+          {/* VIEW 2: 新規作成 / 編集ウィザード Step 1 (基本情報) */}
           {/* ============================================================ */}
           {viewMode === 'create_step1' && (
             <div className="space-y-5 max-w-2xl mx-auto">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">1</span>
-                  <h3 className="font-bold text-slate-800 text-sm">ステップ1: 調整の基本情報を入力</h3>
+                  <h3 className="font-bold text-slate-800 text-sm">
+                    {editingPollId ? 'ステップ1: 調整の基本情報を編集' : 'ステップ1: 調整の基本情報を入力'}
+                  </h3>
+                  {editingPollId && (
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">
+                      再編集中
+                    </span>
+                  )}
                 </div>
                 <button
-                  onClick={() => setViewMode('list')}
-                  className="text-xs text-slate-400 hover:text-slate-600"
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   キャンセル
                 </button>
@@ -853,6 +1277,12 @@ export function SchedulePollModal({
                       <option value={90}>90分 (1時間30分)</option>
                       <option value={120}>120分 (2時間)</option>
                     </select>
+                    {editingPollId && editOriginalPoll && formDuration !== editOriginalPoll.durationMinutes && (
+                      <p className="mt-1 text-[11px] text-amber-700 font-medium flex items-start gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                        <span>既存の候補枠の終了時刻は自動変更されません。次のステップで必要に応じて候補を再設定してください。</span>
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -912,10 +1342,10 @@ export function SchedulePollModal({
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => setViewMode('list')}
-                  className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors"
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                 >
-                  一覧へ戻る
+                  {editingPollId ? '詳細へ戻る' : '一覧へ戻る'}
                 </button>
                 <button
                   type="button"
@@ -928,7 +1358,7 @@ export function SchedulePollModal({
                   }}
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                 >
-                  <span>次へ: 候補日時の設定</span>
+                  <span>{editingPollId ? '次へ: 候補日時の編集' : '次へ: 候補日時の設定'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -936,16 +1366,23 @@ export function SchedulePollModal({
           )}
 
           {/* ============================================================ */}
-          {/* VIEW 3: 新規作成ウィザード Step 2 (候補日時の設定) */}
+          {/* VIEW 3: 新規作成 / 編集ウィザード Step 2 (候補日時の設定) */}
           {/* ============================================================ */}
           {viewMode === 'create_step2' && (
             <div className="space-y-5 max-w-3xl mx-auto">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">2</span>
-                  <h3 className="font-bold text-slate-800 text-sm">ステップ2: 候補日時を設定</h3>
+                  <h3 className="font-bold text-slate-800 text-sm">
+                    {editingPollId ? 'ステップ2: 候補日時を編集' : 'ステップ2: 候補日時を設定'}
+                  </h3>
+                  {editingPollId && (
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">
+                      再編集中
+                    </span>
+                  )}
                 </div>
-                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
+                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full whitespace-nowrap">
                   現在 {formCandidates.length} 枠登録済
                 </span>
               </div>
@@ -1204,8 +1641,8 @@ export function SchedulePollModal({
                   {formCandidates.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setFormCandidates([])}
-                      className="text-[11px] text-rose-600 hover:underline"
+                      onClick={handleClearAllCandidates}
+                      className="text-[11px] text-rose-600 hover:underline cursor-pointer"
                     >
                       すべてクリア
                     </button>
@@ -1218,50 +1655,145 @@ export function SchedulePollModal({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {formCandidates.map((cand, idx) => (
-                      <div
-                        key={cand.id}
-                        className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-2 text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-                          <span className="font-bold text-slate-800">{cand.text}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCandidate(cand.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                          title="削除"
+                    {formCandidates.map((cand, idx) => {
+                      const ansCount = editingPollId ? (candidateAnswerCounts[cand.id] || 0) : 0;
+                      return (
+                        <div
+                          key={cand.id}
+                          className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-2 text-xs"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="font-bold text-slate-800 truncate">{cand.text}</span>
+                            {ansCount > 0 && (
+                              <span
+                                className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap shrink-0"
+                                title={`この候補枠にはすでに ${ansCount}名の回答が登録されています`}
+                              >
+                                回答あり {ansCount}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCandidate(cand.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer shrink-0"
+                            title={ansCount > 0 ? `削除（回答 ${ansCount}件が失われます）` : '削除'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+
+              {/* 編集モード専用：変更通知オプション */}
+              {editingPollId && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Bell className="w-4 h-4 text-indigo-600" />
+                      <span>保存時の通知設定</span>
+                    </div>
+                    {(editDiffSummary.addedCandidatesCount > 0 || editDiffSummary.removedCandidatesCount > 0 || editDiffSummary.addedTargetIds.length > 0 || editDiffSummary.deadlineChanged) && (
+                      <div className="flex items-center gap-1.5 flex-wrap text-[10px] font-bold">
+                        {editDiffSummary.addedTargetIds.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">
+                            対象追加 +{editDiffSummary.addedTargetIds.length}名
+                          </span>
+                        )}
+                        {editDiffSummary.addedCandidatesCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 whitespace-nowrap">
+                            候補追加 +{editDiffSummary.addedCandidatesCount}枠
+                          </span>
+                        )}
+                        {editDiffSummary.removedCandidatesCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 whitespace-nowrap">
+                            候補削除 -{editDiffSummary.removedCandidatesCount}枠
+                          </span>
+                        )}
+                        {editDiffSummary.deadlineChanged && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">
+                            締切変更
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    {editDiffSummary.addedTargetIds.filter(uid => uid !== String(currentUser.id)).length > 0 && (
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={notifyAddedMembers}
+                          onChange={e => setNotifyAddedMembers(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-medium">
+                          新しく追加したメンバー（{editDiffSummary.addedTargetIds.filter(uid => uid !== String(currentUser.id)).length}名）に回答依頼を通知する（Push・メール）
+                        </span>
+                      </label>
+                    )}
+
+                    {editDiffSummary.existingTargetIds.filter(uid => uid !== String(currentUser.id)).length > 0 && (
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={notifyExistingMembers}
+                          onChange={e => setNotifyExistingMembers(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-medium">
+                          既存の参加メンバー（{editDiffSummary.existingTargetIds.filter(uid => uid !== String(currentUser.id)).length}名）にも変更内容を通知する（Push・メール）
+                        </span>
+                      </label>
+                    )}
+
+                    {(editDiffSummary.addedCandidatesCount > 0 || editDiffSummary.removedCandidatesCount > 0) && !notifyExistingMembers && (
+                      <p className="text-[11px] text-amber-700 font-medium pl-6">
+                        ※ 候補日時が変更されています。回答済みメンバーに再確認を促す場合は、上のチェックをONにすることをおすすめします。
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* ボトムボタン */}
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 <button
                   type="button"
                   onClick={() => setViewMode('create_step1')}
-                  className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
+                  className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   <span>基本情報へ戻る</span>
                 </button>
-                <button
-                  type="button"
-                  disabled={formCandidates.length === 0 || loading}
-                  onClick={handleCreatePoll}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>日程調整を作成・公開</span>
-                </button>
+                {editingPollId ? (
+                  <button
+                    type="button"
+                    disabled={formCandidates.length === 0 || loading}
+                    onClick={handleSaveEditedPoll}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{loading ? '保存中...' : '変更を保存'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={formCandidates.length === 0 || loading}
+                    onClick={handleCreatePoll}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{loading ? '作成中...' : '日程調整を作成・公開'}</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1269,26 +1801,74 @@ export function SchedulePollModal({
           {/* ============================================================ */}
           {/* VIEW 4: 回答マトリクス＆詳細・確定ビュー */}
           {/* ============================================================ */}
-          {viewMode === 'detail' && selectedPoll && (
+          {viewMode === 'detail' && selectedPoll && (() => {
+            const targetIdSet = new Set((selectedPoll.targetUserIds || []).map(String));
+            const targetTotalCount = selectedPoll.targetUserIds?.length || 0;
+            const targetAnsweredCount = answers.filter(a => targetIdSet.has(String(a.userId))).length;
+            const targetProgressPercent = Math.min(100, Math.round((targetAnsweredCount / Math.max(1, targetTotalCount)) * 100));
+            const isAllTargetAnswered = targetTotalCount > 0 && targetAnsweredCount >= targetTotalCount;
+            const myUnansweredAddedCandidates = myAnsweredCandidateIds.length > 0
+              ? selectedPoll.candidates.filter(c => !myAnsweredCandidateIds.includes(String(c.id)))
+              : [];
+
+            return (
             <div className="space-y-6">
-              {/* トップナビ ＆ 基本メタ情報 */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              {/* トップナビ ＆ 基本メタ情報 ＆ 主催者編集/削除操作 */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-100">
                 <button
-                  onClick={() => setViewMode('list')}
+                  type="button"
+                  onClick={() => {
+                    setStatusBanner(null);
+                    setViewMode('list');
+                  }}
                   className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1 cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   <span>調整一覧へ戻る</span>
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${
                     selectedPoll.status === 'confirmed'
                       ? 'bg-emerald-100 text-emerald-700'
                       : 'bg-amber-100 text-amber-800 animate-pulse'
                   }`}>
                     {selectedPoll.status === 'confirmed' ? '日程確定済' : '回答受付中'}
                   </span>
+
+                  {canManageSelectedPoll && selectedPoll.status !== 'confirmed' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleStartEditPoll}
+                        className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-2xs cursor-pointer whitespace-nowrap"
+                        title="この日程調整の基本情報・対象メンバー・候補日時を再編集"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>編集</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeletePoll}
+                        disabled={deletingPoll}
+                        className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 hover:border-rose-300 disabled:opacity-50 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-2xs cursor-pointer whitespace-nowrap"
+                        title="この未確定の日程調整を削除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{deletingPoll ? '削除中...' : '削除'}</span>
+                      </button>
+                    </>
+                  )}
+
+                  {selectedPoll.status === 'confirmed' && (
+                    <span
+                      className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 whitespace-nowrap"
+                      title="確定済みのため編集・削除できません。予定の変更はカレンダーから行ってください。"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>確定済・編集不可</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1320,20 +1900,20 @@ export function SchedulePollModal({
                   )}
                 </div>
 
-                {/* 回答進捗状況 */}
+                {/* 回答進捗状況（対象メンバー基準で正確に集計） */}
                 <div className="pt-2 border-t border-slate-200/60 space-y-1">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                     <span className="flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-indigo-600" />
                       <span>回答進捗:</span>
-                      <strong className={answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 ? 'text-emerald-700' : 'text-slate-900'}>
-                        {answers.length} / {selectedPoll.targetUserIds?.length || 0}人 回答済み
+                      <strong className={isAllTargetAnswered ? 'text-emerald-700' : 'text-slate-900'}>
+                        {targetAnsweredCount} / {targetTotalCount}人 回答済み
                       </strong>
                       <span className="text-slate-500 font-normal">
-                        ({Math.min(100, Math.round((answers.length / Math.max(1, selectedPoll.targetUserIds?.length || 0)) * 100))}%)
+                        ({targetProgressPercent}%)
                       </span>
                     </span>
-                    {answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 && selectedPoll.status !== 'confirmed' && (
+                    {isAllTargetAnswered && selectedPoll.status !== 'confirmed' && (
                       <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full animate-pulse shadow-2xs">
                         全員回答完了
                       </span>
@@ -1342,10 +1922,10 @@ export function SchedulePollModal({
                   <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
                     <div
                       className={`h-1.5 rounded-full transition-all duration-300 ${
-                        answers.length >= (selectedPoll.targetUserIds?.length || 0) && (selectedPoll.targetUserIds?.length || 0) > 0 ? 'bg-emerald-500' : 'bg-indigo-500'
+                        isAllTargetAnswered ? 'bg-emerald-500' : 'bg-indigo-500'
                       }`}
                       style={{
-                        width: `${Math.min(100, Math.round((answers.length / Math.max(1, selectedPoll.targetUserIds?.length || 0)) * 100))}%`
+                        width: `${targetProgressPercent}%`
                       }}
                     />
                   </div>
@@ -1354,8 +1934,7 @@ export function SchedulePollModal({
 
               {/* 主催者向け：全員回答完了の確定案内バナー */}
               {selectedPoll.organizerId === currentUser.id &&
-                (selectedPoll.targetUserIds?.length || 0) > 0 &&
-                answers.length >= (selectedPoll.targetUserIds?.length || 0) &&
+                isAllTargetAnswered &&
                 selectedPoll.status !== 'confirmed' && (
                   <div className="p-3.5 bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border-2 border-emerald-400 rounded-2xl text-emerald-950 flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
                     <div className="flex items-center gap-2.5">
@@ -1364,7 +1943,7 @@ export function SchedulePollModal({
                       </div>
                       <div>
                         <div className="text-xs font-black text-emerald-900">
-                          参加対象の全員（{selectedPoll.targetUserIds?.length || 0}名）から回答が集まりました！
+                          参加対象の全員（{targetTotalCount}名）から回答が集まりました！
                         </div>
                         <div className="text-[11px] text-emerald-700 mt-0.5">
                           下の「希望日程マトリクス集計」から最適な候補枠を選び、「この日程で確定」ボタンを押してください。
@@ -1389,22 +1968,41 @@ export function SchedulePollModal({
                         selectedPoll.candidates.forEach(c => (allOk[c.id] = 'ok'));
                         setMyResponses(allOk);
                       }}
-                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800"
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
                     >
                       すべて「〇 (参加可)」にする
                     </button>
                   </div>
 
+                  {myUnansweredAddedCandidates.length > 0 && (
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 font-semibold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        前回回答後に新しい候補枠が {myUnansweredAddedCandidates.length}件 追加されました。参加可否を確認のうえ「回答を保存」を押してください。
+                      </span>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     {selectedPoll.candidates.map(cand => {
                       const currentStatus = myResponses[cand.id] || 'ok';
+                      const isNewlyAddedUnanswered = myAnsweredCandidateIds.length > 0 && !myAnsweredCandidateIds.includes(String(cand.id));
                       return (
                         <div
                           key={cand.id}
-                          className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                            isNewlyAddedUnanswered
+                              ? 'bg-amber-50/50 border-amber-300'
+                              : 'bg-slate-50 border-slate-200'
+                          }`}
                         >
-                          <div className="text-xs font-bold text-slate-800">
-                            {cand.text}
+                          <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                            <span>{cand.text}</span>
+                            {isNewlyAddedUnanswered && (
+                              <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 whitespace-nowrap">
+                                新着・未回答
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -1650,7 +2248,8 @@ export function SchedulePollModal({
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
         </div>
 

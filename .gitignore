@@ -8,4 +8,5 @@ coverage/
 !.env.example
 data/*.json
 data/*.key
+public/assets/aistudio/
 

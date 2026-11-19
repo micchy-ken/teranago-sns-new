@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.19.1',
+  version: '2026.11.19.2',
   date: '2026-11-19',
-  releaseNumber: 1,
+  releaseNumber: 2,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.19 #1 (JST)',
-  description: 'マイページ上部サマリーカードのレスポンシブ最適化（幅狭時のアイコン＋バッジ自動切替・アイコン重複解消）'
+  display: 'v2026.11.19 #2 (JST)',
+  description: '日程調整の未確定再編集機能（PUT）・未確定調整の削除対応・確定済み編集不可ガードおよび通知制御'
 } as const;

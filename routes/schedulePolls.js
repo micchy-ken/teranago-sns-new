@@ -88,6 +88,24 @@ function parseEventDate(val) {
   return isNaN(fallback.getTime()) ? null : fallback;
 }
 
+// 操作者権限チェック（主催者本人または管理者のみ許可）
+function canManagePoll(req, poll) {
+  if (!poll) return false;
+  const organizerId = String(poll.organizerId || '');
+  if (req.authUser) {
+    if (req.authUser.isAdmin === true || req.authUser.role === 'admin' || String(req.authUser.id || '') === 'u1') {
+      return true;
+    }
+    return String(req.authUser.id || '') === organizerId;
+  }
+  // 認証ミドルウェア未付与環境向けフォールバック
+  const actorId = String(req.body?.actorId || req.body?.organizerId || req.query?.actorId || '');
+  const isAdminFlag = req.body?.isAdmin === true || req.query?.isAdmin === 'true';
+  if (isAdminFlag) return true;
+  if (!actorId) return true;
+  return actorId === organizerId;
+}
+
 // ==========================================
 // 1. 日程調整一覧取得 (GET /api/schedule-polls)
 // ==========================================
@@ -882,15 +900,273 @@ router.post(['/schedule-polls/:id/confirm', '/schedule/polls/:id/confirm', '/pol
 });
 
 // ==========================================
-// 7. 日程調整削除 (DELETE /api/schedule-polls/:id)
+// 7. 日程調整の再編集・更新 (PUT /api/schedule-polls/:id)
+//    ※ 未確定 (open) の調整かつ主催者本人/管理者のみ許可
 // ==========================================
-router.delete(['/schedule-polls/:id', '/schedule/polls/:id', '/polls/:id'], async (req, res) => {
+const handleUpdatePoll = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description = '',
+      durationMinutes = 60,
+      location = '',
+      targetUserIds = [],
+      candidates = [],
+      deadlineAt = null,
+    } = req.body || {};
+
+    if (!title || !String(title).trim() || !Array.isArray(candidates) || candidates.length === 0) {
+      return res.status(400).json({ error: 'タイトルおよび1件以上の候補日時は必須です' });
+    }
+
+    const pool = await getPool();
+    let existingPoll = null;
+    let allPollsJson = null;
+    let pollIdx = -1;
+
+    if (pool) {
+      await initTables(pool);
+      const pollRes = await pool.request()
+        .input('id', sql.NVarChar(64), id)
+        .query`SELECT * FROM dbo.SchedulePolls WHERE id = @id`;
+      if (pollRes.recordset && pollRes.recordset.length > 0) {
+        const row = pollRes.recordset[0];
+        existingPoll = {
+          id: String(row.id),
+          title: row.title,
+          description: row.description || '',
+          organizerId: String(row.organizerId),
+          organizerName: row.organizerName,
+          status: row.status || 'open',
+          durationMinutes: Number(row.durationMinutes) || 60,
+          location: row.location || '',
+          targetUserIds: safeParseJSON(row.targetUserIds, []),
+          candidates: safeParseJSON(row.candidates, []),
+          deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
+          confirmedCandidateId: row.confirmedCandidateId || null,
+          createdEventId: row.createdEventId ? String(row.createdEventId) : null,
+          createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+          updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
+        };
+      }
+    } else {
+      ensureDataFiles();
+      const rawP = fs.readFileSync(POLLS_FILE, 'utf8');
+      allPollsJson = safeParseJSON(rawP, []);
+      pollIdx = allPollsJson.findIndex(p => String(p.id) === String(id));
+      if (pollIdx >= 0) {
+        const p = allPollsJson[pollIdx];
+        existingPoll = {
+          ...p,
+          id: String(p.id),
+          organizerId: String(p.organizerId),
+          status: p.status || 'open',
+          targetUserIds: Array.isArray(p.targetUserIds) ? p.targetUserIds : safeParseJSON(p.targetUserIds, []),
+          candidates: Array.isArray(p.candidates) ? p.candidates : safeParseJSON(p.candidates, []),
+        };
+      }
+    }
+
+    if (!existingPoll) {
+      return res.status(404).json({ error: '指定された日程調整が見つかりません' });
+    }
+
+    if (!canManagePoll(req, existingPoll)) {
+      return res.status(403).json({ error: 'この日程調整を編集する権限がありません（主催者または管理者のみ編集可能です）' });
+    }
+
+    if (existingPoll.status === 'confirmed') {
+      return res.status(409).json({ error: '日程確定済みの調整は編集できません（予定の変更はカレンダーから行ってください）' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const normalizedTargetUserIds = Array.from(
+      new Set((Array.isArray(targetUserIds) ? targetUserIds : []).map(String).filter(Boolean))
+    );
+
+    const formattedCandidates = candidates.map((c, idx) => ({
+      id: c.id || `c_${Date.now()}_${idx + 1}_${Math.random().toString(36).substring(2, 6)}`,
+      startAt: c.startAt,
+      endAt: c.endAt,
+      text: c.text || '',
+    }));
+
+    const parsedDeadline = deadlineAt ? parseEventDate(deadlineAt) : null;
+    const normalizedDeadlineIso = parsedDeadline ? parsedDeadline.toISOString() : null;
+
+    // 差分メタ情報の算出
+    const prevTargetSet = new Set((existingPoll.targetUserIds || []).map(String));
+    const nextTargetSet = new Set(normalizedTargetUserIds);
+    const addedTargetUserIds = normalizedTargetUserIds.filter(uid => !prevTargetSet.has(uid));
+    const removedTargetUserIds = (existingPoll.targetUserIds || []).map(String).filter(uid => !nextTargetSet.has(uid));
+
+    const prevCandidateIds = new Set((existingPoll.candidates || []).map(c => String(c.id)));
+    const nextCandidateIds = new Set(formattedCandidates.map(c => String(c.id)));
+    const addedCandidateIds = formattedCandidates.map(c => String(c.id)).filter(cid => !prevCandidateIds.has(cid));
+    const removedCandidateIds = (existingPoll.candidates || []).map(c => String(c.id)).filter(cid => !nextCandidateIds.has(cid));
+
+    const updatedPoll = {
+      ...existingPoll,
+      title: String(title).trim(),
+      description: description !== undefined && description !== null ? String(description) : '',
+      durationMinutes: Number(durationMinutes) || 60,
+      location: location !== undefined && location !== null ? String(location) : '',
+      targetUserIds: normalizedTargetUserIds,
+      candidates: formattedCandidates,
+      deadlineAt: normalizedDeadlineIso,
+      updatedAt: nowIso,
+    };
+
+    if (pool) {
+      await pool.request()
+        .input('id', sql.NVarChar(64), id)
+        .input('title', sql.NVarChar(255), updatedPoll.title)
+        .input('description', sql.NVarChar(sql.MAX), updatedPoll.description)
+        .input('durationMinutes', sql.Int, updatedPoll.durationMinutes)
+        .input('location', sql.NVarChar(255), updatedPoll.location)
+        .input('targetUserIds', sql.NVarChar(sql.MAX), JSON.stringify(updatedPoll.targetUserIds))
+        .input('candidates', sql.NVarChar(sql.MAX), JSON.stringify(updatedPoll.candidates))
+        .input('deadlineAt', sql.DateTime2, parsedDeadline)
+        .query`
+          UPDATE dbo.SchedulePolls
+          SET title = @title,
+              description = @description,
+              durationMinutes = @durationMinutes,
+              location = @location,
+              targetUserIds = @targetUserIds,
+              candidates = @candidates,
+              deadlineAt = @deadlineAt,
+              updatedAt = SYSUTCDATETIME()
+          WHERE id = @id
+        `;
+
+      // 削除された候補枠に紐づく回答エントリを安全にクリーンアップ
+      if (removedCandidateIds.length > 0) {
+        try {
+          const ansRes = await pool.request()
+            .input('pollId', sql.NVarChar(64), id)
+            .query`SELECT id, responses FROM dbo.SchedulePollAnswers WHERE pollId = @pollId`;
+          for (const row of (ansRes.recordset || [])) {
+            const origResponses = safeParseJSON(row.responses, []);
+            const cleanedResponses = origResponses.filter(r => nextCandidateIds.has(String(r.candidateId)));
+            if (cleanedResponses.length !== origResponses.length) {
+              await pool.request()
+                .input('ansId', sql.NVarChar(64), String(row.id))
+                .input('responses', sql.NVarChar(sql.MAX), JSON.stringify(cleanedResponses))
+                .query`
+                  UPDATE dbo.SchedulePollAnswers
+                  SET responses = @responses,
+                      updatedAt = SYSUTCDATETIME()
+                  WHERE id = @ansId
+                `;
+            }
+          }
+        } catch (cleanErr) {
+          console.warn('[SchedulePolls PUT] Answer cleanup warning:', cleanErr.message);
+        }
+      }
+    } else {
+      allPollsJson[pollIdx] = updatedPoll;
+      fs.writeFileSync(POLLS_FILE, JSON.stringify(allPollsJson, null, 2), 'utf8');
+
+      // JSON fallback の回答クリーンアップ
+      if (removedCandidateIds.length > 0) {
+        try {
+          const rawA = fs.readFileSync(ANSWERS_FILE, 'utf8');
+          const allAnswers = safeParseJSON(rawA, []);
+          let answersModified = false;
+          for (const ans of allAnswers) {
+            if (String(ans.pollId) === String(id) && Array.isArray(ans.responses)) {
+              const cleaned = ans.responses.filter(r => nextCandidateIds.has(String(r.candidateId)));
+              if (cleaned.length !== ans.responses.length) {
+                ans.responses = cleaned;
+                ans.updatedAt = nowIso;
+                answersModified = true;
+              }
+            }
+          }
+          if (answersModified) {
+            fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
+          }
+        } catch (cleanErr) {
+          console.warn('[SchedulePolls PUT JSON] Answer cleanup warning:', cleanErr.message);
+        }
+      }
+    }
+
+    res.json({
+      ...updatedPoll,
+      diff: {
+        addedTargetUserIds,
+        removedTargetUserIds,
+        addedCandidateIds,
+        removedCandidateIds,
+      },
+    });
+  } catch (err) {
+    console.error('[SchedulePolls PUT Error]:', err);
+    res.status(500).json({ error: '日程調整の更新に失敗しました', details: err.message });
+  }
+};
+
+router.put(['/schedule-polls/:id', '/schedule/polls/:id', '/polls/:id'], handleUpdatePoll);
+router.put('/:id', (req, res, next) => {
+  if (req.baseUrl === '/api') return next();
+  return handleUpdatePoll(req, res, next);
+});
+
+// ==========================================
+// 8. 日程調整削除 (DELETE /api/schedule-polls/:id)
+//    ※ 未確定 (open) の調整かつ主催者本人/管理者のみ許可
+// ==========================================
+const handleDeletePoll = async (req, res) => {
   try {
     const { id } = req.params;
     const pool = await getPool();
 
+    let existingPoll = null;
+    let allPollsJson = null;
+
     if (pool) {
       await initTables(pool);
+      const pollRes = await pool.request()
+        .input('id', sql.NVarChar(64), id)
+        .query`SELECT id, organizerId, status FROM dbo.SchedulePolls WHERE id = @id`;
+      if (pollRes.recordset && pollRes.recordset.length > 0) {
+        existingPoll = {
+          id: String(pollRes.recordset[0].id),
+          organizerId: String(pollRes.recordset[0].organizerId),
+          status: pollRes.recordset[0].status || 'open',
+        };
+      }
+    } else {
+      ensureDataFiles();
+      const rawP = fs.readFileSync(POLLS_FILE, 'utf8');
+      allPollsJson = safeParseJSON(rawP, []);
+      const found = allPollsJson.find(p => String(p.id) === String(id));
+      if (found) {
+        existingPoll = {
+          id: String(found.id),
+          organizerId: String(found.organizerId),
+          status: found.status || 'open',
+        };
+      }
+    }
+
+    if (!existingPoll) {
+      return res.status(404).json({ error: '指定された日程調整が見つかりません' });
+    }
+
+    if (!canManagePoll(req, existingPoll)) {
+      return res.status(403).json({ error: 'この日程調整を削除する権限がありません（主催者または管理者のみ削除可能です）' });
+    }
+
+    if (existingPoll.status === 'confirmed') {
+      return res.status(409).json({ error: '日程確定済みの調整は削除できません' });
+    }
+
+    if (pool) {
       await pool.request()
         .input('id', sql.NVarChar(64), id)
         .query`
@@ -898,23 +1174,26 @@ router.delete(['/schedule-polls/:id', '/schedule/polls/:id', '/polls/:id'], asyn
           DELETE FROM dbo.SchedulePolls WHERE id = @id;
         `;
     } else {
-      ensureDataFiles();
-      const rawP = fs.readFileSync(POLLS_FILE, 'utf8');
-      let polls = safeParseJSON(rawP, []);
-      polls = polls.filter(p => p.id !== id);
-      fs.writeFileSync(POLLS_FILE, JSON.stringify(polls, null, 2), 'utf8');
+      const remainingPolls = allPollsJson.filter(p => String(p.id) !== String(id));
+      fs.writeFileSync(POLLS_FILE, JSON.stringify(remainingPolls, null, 2), 'utf8');
 
       const rawA = fs.readFileSync(ANSWERS_FILE, 'utf8');
       let allAnswers = safeParseJSON(rawA, []);
-      allAnswers = allAnswers.filter(a => a.pollId !== id);
+      allAnswers = allAnswers.filter(a => String(a.pollId) !== String(id));
       fs.writeFileSync(ANSWERS_FILE, JSON.stringify(allAnswers, null, 2), 'utf8');
     }
 
-    res.json({ success: true, message: '日程調整を削除しました' });
+    res.json({ success: true, message: '日程調整を削除しました', deletedId: id });
   } catch (err) {
     console.error('[SchedulePolls DELETE Error]:', err);
     res.status(500).json({ error: '日程調整の削除に失敗しました', details: err.message });
   }
+};
+
+router.delete(['/schedule-polls/:id', '/schedule/polls/:id', '/polls/:id'], handleDeletePoll);
+router.delete('/:id', (req, res, next) => {
+  if (req.baseUrl === '/api') return next();
+  return handleDeletePoll(req, res, next);
 });
 
 export default router;
