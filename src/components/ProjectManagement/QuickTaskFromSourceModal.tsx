@@ -205,7 +205,11 @@ export const QuickTaskFromSourceModal: React.FC<QuickTaskFromSourceModalProps> =
       'col-todo';
 
     const finalAssignees =
-      selectedBoard.boardType === 'personal' ? [String(currentUser.id)] : assigneeIds;
+      cardType === 'memo'
+        ? []
+        : selectedBoard.boardType === 'personal'
+        ? [String(currentUser.id)]
+        : assigneeIds;
 
     setIsSaving(true);
     setErrorMsg(null);
@@ -219,8 +223,8 @@ export const QuickTaskFromSourceModal: React.FC<QuickTaskFromSourceModalProps> =
           cardType,
           title: trimmedTitle,
           description: description.trim(),
-          priority,
-          dueDate: dueDate || undefined,
+          priority: cardType === 'memo' ? 'none' : priority,
+          dueDate: cardType === 'memo' ? undefined : dueDate || undefined,
           assigneeIds: finalAssignees,
           tags: initialTags,
           links: initialLinks,
@@ -236,7 +240,7 @@ export const QuickTaskFromSourceModal: React.FC<QuickTaskFromSourceModalProps> =
       const data = await res.json();
       const createdCard: ProjectCard = data.card;
 
-      if (finalAssignees.some(id => String(id) !== String(currentUser.id))) {
+      if (cardType !== 'memo' && finalAssignees.some(id => String(id) !== String(currentUser.id))) {
         void notifyProjectAssignees({
           board: selectedBoard,
           card: createdCard,
@@ -343,7 +347,14 @@ export const QuickTaskFromSourceModal: React.FC<QuickTaskFromSourceModalProps> =
               </label>
               <select
                 value={selectedColumnId}
-                onChange={e => setSelectedColumnId(e.target.value)}
+                onChange={e => {
+                  const nextColId = e.target.value;
+                  setSelectedColumnId(nextColId);
+                  const col = selectedBoard?.columns.find(c => c.id === nextColId);
+                  if (col) {
+                    setCardType(col.kind === 'memo' ? 'memo' : 'task');
+                  }
+                }}
                 disabled={!selectedBoard}
                 className="w-full px-2.5 py-2 border border-slate-200 rounded-lg bg-white text-slate-800 font-medium focus:outline-none focus:border-indigo-400"
               >
@@ -413,47 +424,56 @@ export const QuickTaskFromSourceModal: React.FC<QuickTaskFromSourceModalProps> =
             />
           </div>
 
-          {/* 期限 & 優先度 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 mb-1">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                期限日（任意）
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-indigo-400"
-              />
-            </div>
+          {/* 期限 & 優先度（Todo時のみ） */}
+          {cardType === 'task' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 mb-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  期限日（任意）
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-indigo-400"
+                />
+              </div>
 
-            <div>
-              <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 mb-1">
-                <Flag className="w-3.5 h-3.5 text-slate-400" />
-                優先度
-              </label>
-              <div className="grid grid-cols-4 gap-1">
-                {PRIORITY_OPTIONS.map(opt => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setPriority(opt.id)}
-                    className={`py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
-                      priority === opt.id
-                        ? 'bg-slate-800 text-white border-slate-800'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div>
+                <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 mb-1">
+                  <Flag className="w-3.5 h-3.5 text-slate-400" />
+                  優先度
+                </label>
+                <div className="grid grid-cols-4 gap-1">
+                  {PRIORITY_OPTIONS.map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPriority(opt.id)}
+                      className={`py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer ${
+                        priority === opt.id
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* 担当者（チームボード選択時） */}
-          {selectedBoard?.boardType === 'team' && (
+          {/* 担当者（チームボードのTodo選択時のみ。資料カテゴリはメンバー全員共有） */}
+          {selectedBoard?.boardType === 'team' && cardType === 'memo' && (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900">
+              <Users className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>資料カテゴリに担当者はなく、ボードメンバー全員で共有されます。</span>
+            </div>
+          )}
+
+          {selectedBoard?.boardType === 'team' && cardType === 'task' && (
             <div>
               <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 mb-1.5">
                 <Users className="w-3.5 h-3.5 text-slate-400" />

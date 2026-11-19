@@ -100,7 +100,6 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   // フィルター＆クイック作成
   const [boardSearch, setBoardSearch] = useState('');
   const [cardSearch, setCardSearch] = useState('');
-  const [cardTypeFilter, setCardTypeFilter] = useState<'all' | 'task' | 'memo' | 'mine'>('all');
   const [quickDraftByCol, setQuickDraftByCol] = useState<Record<string, string>>({});
   const [creatingColId, setCreatingColId] = useState<string | null>(null);
 
@@ -125,11 +124,79 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
   const [isBoardSwitcherOpen, setIsBoardSwitcherOpen] = useState(false);
   const boardSwitcherRef = useRef<HTMLDivElement>(null);
 
-  // 1行目（資料欄）の折り畳み＆カテゴリ追加状態
-  const [isMemoRowCollapsed, setIsMemoRowCollapsed] = useState(false);
+  // 1行目（資料欄）の折り畳み＆カテゴリ追加状態（ユーザーごとに記憶）
+  const [isMemoRowCollapsed, setIsMemoRowCollapsed] = useState<boolean>(() => {
+    if (!currentUser?.id) return false;
+    try {
+      return localStorage.getItem(`teranago_project_memo_collapsed_${currentUser.id}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isAddingMemoCat, setIsAddingMemoCat] = useState(false);
   const [newMemoCatTitle, setNewMemoCatTitle] = useState('');
   const [isSavingMemoCat, setIsSavingMemoCat] = useState(false);
+
+  // 2行目（Todo欄）の「自分がアサインされているものだけ抽出」チェック状態（ユーザーごとに記憶）
+  const [onlyMyTodo, setOnlyMyTodo] = useState<boolean>(() => {
+    if (!currentUser?.id) return false;
+    try {
+      return localStorage.getItem(`teranago_project_todo_only_mine_${currentUser.id}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    try {
+      setIsMemoRowCollapsed(
+        localStorage.getItem(`teranago_project_memo_collapsed_${currentUser.id}`) === 'true'
+      );
+      setOnlyMyTodo(
+        localStorage.getItem(`teranago_project_todo_only_mine_${currentUser.id}`) === 'true'
+      );
+    } catch {
+      setIsMemoRowCollapsed(false);
+      setOnlyMyTodo(false);
+    }
+  }, [currentUser?.id]);
+
+  const updateMemoRowCollapsed = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setIsMemoRowCollapsed(prev => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        if (currentUser?.id) {
+          try {
+            localStorage.setItem(
+              `teranago_project_memo_collapsed_${currentUser.id}`,
+              resolved ? 'true' : 'false'
+            );
+          } catch (_) {}
+        }
+        return resolved;
+      });
+    },
+    [currentUser?.id]
+  );
+
+  const updateOnlyMyTodo = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setOnlyMyTodo(prev => {
+        const resolved = typeof next === 'function' ? next(prev) : next;
+        if (currentUser?.id) {
+          try {
+            localStorage.setItem(
+              `teranago_project_todo_only_mine_${currentUser.id}`,
+              resolved ? 'true' : 'false'
+            );
+          } catch (_) {}
+        }
+        return resolved;
+      });
+    },
+    [currentUser?.id]
+  );
 
   useEffect(() => {
     if (!isBoardSwitcherOpen) return;
@@ -294,18 +361,29 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     [filteredBoards]
   );
 
-  // アクティブボード内のカード集計＆フィルタ
+  // 自分がアサインされているTodoか判定（個人ボードは未アサインでも自分のカード扱い）
+  const isTodoAssignedToMe = useCallback(
+    (card: ProjectCard, board: ProjectBoard | null): boolean => {
+      const myUid = String(currentUser.id);
+      if ((card.assigneeIds || []).map(String).includes(myUid)) return true;
+      if (
+        board?.boardType === 'personal' &&
+        (String(card.createdBy || '') === myUid || (card.assigneeIds || []).length === 0)
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [currentUser.id]
+  );
+
+  // アクティブボード内のカード集計＆キーワード検索フィルタ
   const activeBoardCards = useMemo(() => {
     if (!activeBoard) return [];
     const q = cardSearch.trim().toLowerCase();
     return cards
       .filter(c => c.projectId === activeBoard.id && !c.isArchived)
       .filter(c => {
-        if (cardTypeFilter === 'task' && c.cardType !== 'task') return false;
-        if (cardTypeFilter === 'memo' && c.cardType !== 'memo') return false;
-        if (cardTypeFilter === 'mine' && !(c.assigneeIds || []).includes(String(currentUser.id))) {
-          return false;
-        }
         if (q) {
           const hay = [
             c.title,
@@ -323,7 +401,39 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return (a.sortOrder || 0) - (b.sortOrder || 0);
       });
-  }, [cards, activeBoard, cardSearch, cardTypeFilter, currentUser.id]);
+  }, [cards, activeBoard, cardSearch]);
+
+  // Todo欄用カード（「自分の担当のみ」チェック時はアサイン済みのTodoのみ抽出）
+  const visibleTodoCards = useMemo(() => {
+    if (!onlyMyTodo) return activeBoardCards;
+    return activeBoardCards.filter(c => isTodoAssignedToMe(c, activeBoard));
+  }, [activeBoardCards, onlyMyTodo, isTodoAssignedToMe, activeBoard]);
+
+  // リストビュー用カード（資料カテゴリは全員共有のため常時表示、Todoのみ「自分の担当のみ」を反映）
+  const listViewCards = useMemo(() => {
+    if (!onlyMyTodo) return activeBoardCards;
+    return activeBoardCards.filter(c => c.cardType === 'memo' || isTodoAssignedToMe(c, activeBoard));
+  }, [activeBoardCards, onlyMyTodo, isTodoAssignedToMe, activeBoard]);
+
+  // Todo欄ヘッダー表示用の件数集計（抽出ON時は自分の担当件数を反映）
+  const todoHeaderCounts = useMemo(() => {
+    if (!activeBoard) return { active: 0, completed: 0 };
+    const todoColIdSet = new Set(todoColumns.map(c => c.id));
+    const baseTodos = cards.filter(
+      c =>
+        c.projectId === activeBoard.id &&
+        !c.isArchived &&
+        c.cardType !== 'memo' &&
+        (todoColIdSet.size === 0 || todoColIdSet.has(c.columnId))
+    );
+    const scoped = onlyMyTodo
+      ? baseTodos.filter(c => isTodoAssignedToMe(c, activeBoard))
+      : baseTodos;
+    return {
+      active: scoped.filter(c => !c.isCompleted).length,
+      completed: scoped.filter(c => c.isCompleted).length,
+    };
+  }, [cards, activeBoard, todoColumns, onlyMyTodo, isTodoAssignedToMe]);
 
   // ボードごとの統計リアルタイム再計算
   const liveStatsForBoard = useCallback(
@@ -404,7 +514,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       setBoards(prev => prev.map(b => (b.id === saved.id ? saved : b)));
       setNewMemoCatTitle('');
       setIsAddingMemoCat(false);
-      setIsMemoRowCollapsed(false);
+      updateMemoRowCollapsed(false);
       showToast(`資料カテゴリ「${cleanTitles.join('」「')}」を追加しました`);
     } catch (err: any) {
       showToast(err?.message || '資料カテゴリの追加に失敗しました');
@@ -482,7 +592,12 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
         cardType,
         title: isUrlOnly ? trimmed.replace(/^https?:\/\//i, '').slice(0, 60) : trimmed,
         description: isUrlOnly ? trimmed : '',
-        assigneeIds: activeBoard.boardType === 'personal' ? [String(currentUser.id)] : [],
+        assigneeIds:
+          cardType === 'memo'
+            ? []
+            : activeBoard.boardType === 'personal' || onlyMyTodo
+            ? [String(currentUser.id)]
+            : [],
         createdBy: currentUser.id,
         createdByName: currentUser.name,
       }),
@@ -514,7 +629,12 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
           cardType,
           title: isUrlOnly ? raw.replace(/^https?:\/\//i, '').slice(0, 60) : raw,
           description: isUrlOnly ? raw : '',
-          assigneeIds: activeBoard.boardType === 'personal' ? [String(currentUser.id)] : [],
+          assigneeIds:
+            cardType === 'memo'
+              ? []
+              : activeBoard.boardType === 'personal' || onlyMyTodo
+              ? [String(currentUser.id)]
+              : [],
           createdBy: currentUser.id,
           createdByName: currentUser.name,
         }),
@@ -537,6 +657,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     const isEdit = Boolean(payload.id);
     const prevCard = isEdit ? cards.find(c => c.id === payload.id) : undefined;
     const prevAssigneeSet = new Set((prevCard?.assigneeIds || []).map(String));
+    const isMemoCard = payload.cardType === 'memo';
 
     const url = isEdit
       ? `${API_BASE_URL}/projects/cards/${encodeURIComponent(String(payload.id))}`
@@ -546,6 +667,7 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...payload,
+        assigneeIds: isMemoCard ? [] : payload.assigneeIds,
         createdBy: isEdit ? undefined : currentUser.id,
         createdByName: isEdit ? undefined : currentUser.name,
         updatedBy: currentUser.id,
@@ -563,20 +685,22 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     });
     window.dispatchEvent(new Event('projects_updated'));
 
-    // 新規追加された担当者（操作本人以外）へ Web Push + メール通知を配信
-    const targetBoard = boards.find(b => b.id === saved.projectId) || activeBoard;
-    const newlyAssignedIds = (saved.assigneeIds || [])
-      .map(String)
-      .filter(id => id !== String(currentUser.id) && (!isEdit || !prevAssigneeSet.has(id)));
-    if (targetBoard && newlyAssignedIds.length > 0) {
-      void notifyProjectAssignees({
-        board: targetBoard,
-        card: saved,
-        targetUserIds: newlyAssignedIds,
-        actor: currentUser,
-        allUsers,
-        isNewCard: !isEdit,
-      });
+    // 新規追加された担当者（操作本人以外）へ Web Push + メール通知を配信（資料カテゴリは担当者なしのため除外）
+    if (saved.cardType !== 'memo') {
+      const targetBoard = boards.find(b => b.id === saved.projectId) || activeBoard;
+      const newlyAssignedIds = (saved.assigneeIds || [])
+        .map(String)
+        .filter(id => id !== String(currentUser.id) && (!isEdit || !prevAssigneeSet.has(id)));
+      if (targetBoard && newlyAssignedIds.length > 0) {
+        void notifyProjectAssignees({
+          board: targetBoard,
+          card: saved,
+          targetUserIds: newlyAssignedIds,
+          actor: currentUser,
+          allUsers,
+          isNewCard: !isEdit,
+        });
+      }
     }
 
     showToast(isEdit ? 'カードを更新しました' : 'カードを追加しました');
@@ -623,22 +747,37 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
     }
   };
 
-  // ドラッグ＆ドロップまたはボタンでの列移動
+  // ドラッグ＆ドロップまたはボタンでの列移動（資料⇔Todo間の相互移動は不可）
   const handleMoveCardToColumn = async (card: ProjectCard, targetColumnId: string) => {
     const targetBoard = boards.find(b => b.id === card.projectId) || activeBoard;
     if (!targetBoard || card.columnId === targetColumnId) return;
     const targetCol = targetBoard.columns.find(c => c.id === targetColumnId);
+    if (!targetCol) return;
+
+    const isCardMemo = card.cardType === 'memo';
+    const isTargetMemo = targetCol.kind === 'memo';
+    if (isCardMemo !== isTargetMemo) {
+      showToast('資料とTodoの間では移動できません');
+      return;
+    }
+
     const nextCompleted =
-      card.cardType === 'memo'
+      isCardMemo
         ? false
-        : targetCol?.kind === 'done'
+        : targetCol.kind === 'done'
         ? true
         : false;
 
     // 楽観的更新
     setCards(prev =>
       prev.map(c =>
-        c.id === card.id ? { ...c, columnId: targetColumnId, isCompleted: nextCompleted } : c
+        c.id === card.id
+          ? {
+              ...c,
+              columnId: targetColumnId,
+              isCompleted: nextCompleted,
+            }
+          : c
       )
     );
 
@@ -888,40 +1027,42 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
               ))}
             </div>
 
-            {/* 担当者アバター ＋ 次の列へ移動アクション */}
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="flex -space-x-1.5 overflow-hidden">
-                {(card.assigneeIds || []).slice(0, 4).map(uid => {
-                  const u = allUsers.find(x => String(x.id) === String(uid));
-                  if (!u) return null;
-                  return (
-                    <img
-                      key={uid}
-                      src={getAvatarUrl(u.avatarUrl)}
-                      alt={u.name}
-                      title={u.name}
-                      onError={handleAvatarError}
-                      className="w-5 h-5 rounded-full ring-2 ring-white object-cover bg-slate-100"
-                    />
-                  );
-                })}
-              </div>
+            {/* 担当者アバター ＋ 次の列へ移動アクション（資料カテゴリは担当者なしのため非表示） */}
+            {card.cardType !== 'memo' && ((card.assigneeIds || []).length > 0 || (nextCol && !card.isCompleted)) && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex -space-x-1.5 overflow-hidden">
+                  {(card.assigneeIds || []).slice(0, 4).map(uid => {
+                    const u = allUsers.find(x => String(x.id) === String(uid));
+                    if (!u) return null;
+                    return (
+                      <img
+                        key={uid}
+                        src={getAvatarUrl(u.avatarUrl)}
+                        alt={u.name}
+                        title={u.name}
+                        onError={handleAvatarError}
+                        className="w-5 h-5 rounded-full ring-2 ring-white object-cover bg-slate-100"
+                      />
+                    );
+                  })}
+                </div>
 
-              {nextCol && !card.isCompleted && (
-                <button
-                  type="button"
-                  onClick={e => {
-                    e.stopPropagation();
-                    handleMoveCardToColumn(card, nextCol.id);
-                  }}
-                  title={`「${nextCol.title}」へ移動`}
-                  className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-opacity cursor-pointer whitespace-nowrap max-w-[115px]"
-                >
-                  <span className="truncate">{nextCol.title}</span>
-                  <ArrowRight className="w-2.5 h-2.5 shrink-0" />
-                </button>
-              )}
-            </div>
+                {nextCol && !card.isCompleted && (
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      handleMoveCardToColumn(card, nextCol.id);
+                    }}
+                    title={`「${nextCol.title}」へ移動`}
+                    className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-opacity cursor-pointer whitespace-nowrap max-w-[115px]"
+                  >
+                    <span className="truncate">{nextCol.title}</span>
+                    <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1349,47 +1490,43 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                   <span>ボード設定</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingCard(null);
-                    setModalInitialColId(todoColumns[0]?.id || activeBoard.columns[0]?.id);
-                    setModalInitialCardType('task');
-                    setIsCardModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>カード追加</span>
-                </button>
+                {activeView === 'list' && memoColumns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCard(null);
+                      setModalInitialColId(memoColumns[0].id);
+                      setModalInitialCardType('memo');
+                      setIsCardModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>資料追加</span>
+                  </button>
+                )}
+
+                {todoColumns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCard(null);
+                      setModalInitialColId(todoColumns[0].id);
+                      setModalInitialCardType('task');
+                      setIsCardModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Todo追加</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* ツールバー（キーワード検索＆種別切替） */}
+            {/* ツールバー（キーワード検索） */}
             <div className="px-4 sm:px-5 py-2.5 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
-                {[
-                  { id: 'all', label: 'すべて' },
-                  { id: 'task', label: 'Todo' },
-                  { id: 'memo', label: 'メモ・資料' },
-                  { id: 'mine', label: '自分の担当' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setCardTypeFilter(tab.id as any)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                      cardTypeFilter === tab.id
-                        ? 'bg-white text-slate-900 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative w-full sm:w-64">
+              <div className="relative w-full sm:w-72">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -1399,12 +1536,31 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
                 />
               </div>
+
+              {activeView === 'list' && (
+                <label
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer select-none whitespace-nowrap ${
+                    onlyMyTodo
+                      ? 'border-indigo-400 bg-indigo-50 text-indigo-800'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  title="自分がアサインされているTodoのみ抽出します（資料は全員共有のため常時表示・設定は記憶されます）"
+                >
+                  <input
+                    type="checkbox"
+                    checked={onlyMyTodo}
+                    onChange={e => updateOnlyMyTodo(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 accent-indigo-600 cursor-pointer"
+                  />
+                  <span>自分の担当Todoのみ</span>
+                </label>
+              )}
             </div>
 
             {activeView === 'list' ? (
               <ProjectListView
                 board={activeBoard}
-                cards={activeBoardCards}
+                cards={listViewCards}
                 allUsers={allUsers}
                 todayStr={todayStr}
                 onSelectCard={card => {
@@ -1419,23 +1575,24 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
               /* 2段構成ボード（1行目：資料欄（カテゴリ別・進行なし）／ 2行目：Todo欄（左→右に進行）） */
               <div className="divide-y divide-slate-200">
                 {/* 1行目：資料・ドキュメント欄 */}
-                {cardTypeFilter !== 'task' && (
-                  <div className="bg-amber-50/20">
-                    <div className="px-4 sm:px-5 py-2.5 bg-amber-50/60 border-b border-amber-200/70 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        <div className="inline-flex items-center gap-1.5">
-                          <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
-                          <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-                            1. 資料欄
-                          </h3>
-                        </div>
-                        <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 rounded tabular-nums">
-                          {activeBoardCards.filter(c => memoColumns.some(mc => mc.id === c.columnId)).length}件
-                        </span>
-                        <span className="text-[11px] text-slate-500 hidden sm:inline">
-                          進行しない固定資料（業務計画関係・ミーティング関係などカテゴリ別に管理）
-                        </span>
+                <div className="bg-amber-50/20">
+                  <div className="px-4 sm:px-5 py-2.5 bg-amber-50/60 border-b border-amber-200/70 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <div className="inline-flex items-center gap-1.5">
+                        <BookOpen className="w-4 h-4 text-amber-600 shrink-0" />
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+                          1. 資料欄
+                        </h3>
                       </div>
+                      <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 rounded tabular-nums">
+                        {activeBoardCards.filter(c => memoColumns.some(mc => mc.id === c.columnId)).length}件
+                      </span>
+                      <span className="text-[11px] text-slate-500 hidden sm:inline">
+                        {activeBoard.boardType === 'personal'
+                          ? '進行しない固定資料（個人メモ・URLなどカテゴリ別に管理）'
+                          : '進行しない固定資料（担当者なし・メンバー全員で共有）'}
+                      </span>
+                    </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                         {isAddingMemoCat ? (
@@ -1502,7 +1659,8 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => setIsMemoRowCollapsed(prev => !prev)}
+                          onClick={() => updateMemoRowCollapsed(prev => !prev)}
+                          title="資料欄の折り畳み状態はユーザーごとに記憶されます"
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-amber-100/60 cursor-pointer whitespace-nowrap"
                         >
                           {isMemoRowCollapsed ? (
@@ -1551,6 +1709,10 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                                 <div
                                   key={col.id}
                                   onDragOver={e => {
+                                    const dragged = draggingCardId
+                                      ? cards.find(c => c.id === draggingCardId)
+                                      : undefined;
+                                    if (!dragged || dragged.cardType !== 'memo') return;
                                     e.preventDefault();
                                     if (dragOverColId !== col.id) setDragOverColId(col.id);
                                   }}
@@ -1562,7 +1724,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                                     setDragOverColId(null);
                                     if (draggingCardId) {
                                       const dragged = cards.find(c => c.id === draggingCardId);
-                                      if (dragged) handleMoveCardToColumn(dragged, col.id);
+                                      if (dragged && dragged.cardType === 'memo') {
+                                        handleMoveCardToColumn(dragged, col.id);
+                                      }
                                       setDraggingCardId(null);
                                     }
                                   }}
@@ -1632,26 +1796,42 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                       </div>
                     )}
                   </div>
-                )}
 
                 {/* 2行目：Todo・タスク進行欄 */}
-                {cardTypeFilter !== 'memo' && (
-                  <div>
-                    <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        <div className="inline-flex items-center gap-1.5">
-                          <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" />
-                          <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-                            2. Todo欄
-                          </h3>
-                        </div>
-                        <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 rounded tabular-nums">
-                          未完了 {liveStatsForBoard(activeBoard.id).activeTasks}件 / 完了 {liveStatsForBoard(activeBoard.id).completedTasks}件
-                        </span>
-                        <span className="text-[11px] text-slate-500 hidden sm:inline">
-                          左の列から右の列へ進捗を移動（ドラッグまたはカード右下の「→」）
-                        </span>
+                <div>
+                  <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <div className="inline-flex items-center gap-1.5">
+                        <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+                          2. Todo欄
+                        </h3>
                       </div>
+                      <span className="px-1.5 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 rounded tabular-nums">
+                        {onlyMyTodo ? '自分の担当: ' : ''}未完了 {todoHeaderCounts.active}件 / 完了 {todoHeaderCounts.completed}件
+                      </span>
+                      <span className="text-[11px] text-slate-500 hidden lg:inline">
+                        左の列から右の列へ進捗を移動（ドラッグまたはカード右下の「→」）
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <label
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors cursor-pointer select-none whitespace-nowrap ${
+                          onlyMyTodo
+                            ? 'border-indigo-400 bg-indigo-50 text-indigo-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                        title="自分がアサインされているTodoのみ抽出します（設定は記憶されます）"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={onlyMyTodo}
+                          onChange={e => updateOnlyMyTodo(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-slate-300 accent-indigo-600 cursor-pointer"
+                        />
+                        <span>自分の担当のみ</span>
+                      </label>
 
                       {todoColumns.length > 0 && (
                         <button
@@ -1669,21 +1849,22 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                         </button>
                       )}
                     </div>
+                  </div>
 
-                    <div className="p-3 sm:p-4 overflow-x-auto">
-                      {todoColumns.length === 0 ? (
-                        <div className="py-8 text-center text-xs text-slate-400">
-                          Todo列がありません。「ボード設定」から進行列を追加してください。
-                        </div>
-                      ) : (
-                        <div
-                          className="grid gap-3 items-start"
-                          style={{
-                            gridTemplateColumns: `repeat(${todoColumns.length}, minmax(215px, 1fr))`,
-                          }}
-                        >
-                          {todoColumns.map((col, colIndex) => {
-                            const colCards = activeBoardCards.filter(c => c.columnId === col.id);
+                  <div className="p-3 sm:p-4 overflow-x-auto">
+                    {todoColumns.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        Todo列がありません。「ボード設定」から進行列を追加してください。
+                      </div>
+                    ) : (
+                      <div
+                        className="grid gap-3 items-start"
+                        style={{
+                          gridTemplateColumns: `repeat(${todoColumns.length}, minmax(215px, 1fr))`,
+                        }}
+                      >
+                        {todoColumns.map((col, colIndex) => {
+                          const colCards = visibleTodoCards.filter(c => c.columnId === col.id);
                             const isDoneColumn = col.kind === 'done';
                             const activeCardsInCol = isDoneColumn
                               ? []
@@ -1699,6 +1880,10 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                               <div
                                 key={col.id}
                                 onDragOver={e => {
+                                  const dragged = draggingCardId
+                                    ? cards.find(c => c.id === draggingCardId)
+                                    : undefined;
+                                  if (!dragged || dragged.cardType === 'memo') return;
                                   e.preventDefault();
                                   if (dragOverColId !== col.id) setDragOverColId(col.id);
                                 }}
@@ -1710,7 +1895,9 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                                   setDragOverColId(null);
                                   if (draggingCardId) {
                                     const dragged = cards.find(c => c.id === draggingCardId);
-                                    if (dragged) handleMoveCardToColumn(dragged, col.id);
+                                    if (dragged && dragged.cardType !== 'memo') {
+                                      handleMoveCardToColumn(dragged, col.id);
+                                    }
                                     setDraggingCardId(null);
                                   }
                                 }}
@@ -1771,66 +1958,65 @@ export const ProjectManagement: React.FC<ProjectManagementProps> = ({
                                 {!isDoneColumn && (
                                   <div className="space-y-2">
                                     {activeCardsInCol.map(c => renderCardItem(c, { nextCol }))}
-                                    {activeCardsInCol.length === 0 && completedCardsInCol.length === 0 && (
-                                      <div className="py-5 text-center text-[11px] text-slate-400">
-                                        タスクはありません
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                      {activeCardsInCol.length === 0 && completedCardsInCol.length === 0 && (
+                                        <div className="py-5 text-center text-[11px] text-slate-400">
+                                          {onlyMyTodo ? '自分の担当タスクはありません' : 'タスクはありません'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
-                                {/* 完了カードの折り畳みセクション */}
-                                {completedCardsInCol.length > 0 && (
-                                  <div className={!isDoneColumn && activeCardsInCol.length > 0 ? 'mt-3 pt-2 border-t border-slate-200/80' : ''}>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedDoneCols(prev => ({
-                                          ...prev,
-                                          [col.id]: !prev[col.id],
-                                        }))
-                                      }
-                                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-xs font-medium text-slate-600 transition-colors cursor-pointer"
-                                    >
-                                      <span className="inline-flex items-center gap-1.5 min-w-0">
-                                        {isDoneExpanded ? (
-                                          <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        ) : (
-                                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        )}
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                        <span className="truncate">
-                                          {isDoneExpanded
-                                            ? '完了済みを折り畳む'
-                                            : `完了済み (${completedCardsInCol.length}件) を表示`}
+                                  {/* 完了カードの折り畳みセクション */}
+                                  {completedCardsInCol.length > 0 && (
+                                    <div className={!isDoneColumn && activeCardsInCol.length > 0 ? 'mt-3 pt-2 border-t border-slate-200/80' : ''}>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedDoneCols(prev => ({
+                                            ...prev,
+                                            [col.id]: !prev[col.id],
+                                          }))
+                                        }
+                                        className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-white/80 hover:bg-white border border-slate-200 text-xs font-medium text-slate-600 transition-colors cursor-pointer"
+                                      >
+                                        <span className="inline-flex items-center gap-1.5 min-w-0">
+                                          {isDoneExpanded ? (
+                                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          ) : (
+                                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          )}
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                          <span className="truncate">
+                                            {isDoneExpanded
+                                              ? '完了済みを折り畳む'
+                                              : `完了済み (${completedCardsInCol.length}件) を表示`}
+                                          </span>
                                         </span>
-                                      </span>
-                                      <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
-                                        {completedCardsInCol.length}
-                                      </span>
-                                    </button>
+                                        <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+                                          {completedCardsInCol.length}
+                                        </span>
+                                      </button>
 
-                                    {isDoneExpanded && (
-                                      <div className="mt-2 space-y-2">
-                                        {completedCardsInCol.map(c => renderCardItem(c, { nextCol }))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                      {isDoneExpanded && (
+                                        <div className="mt-2 space-y-2">
+                                          {completedCardsInCol.map(c => renderCardItem(c, { nextCol }))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
-                                {isDoneColumn && completedCardsInCol.length === 0 && (
-                                  <div className="py-5 text-center text-[11px] text-slate-400">
-                                    完了カードはありません
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                                  {isDoneColumn && completedCardsInCol.length === 0 && (
+                                    <div className="py-5 text-center text-[11px] text-slate-400">
+                                      {onlyMyTodo ? '自分の完了カードはありません' : '完了カードはありません'}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
               </div>
             )}
           </>

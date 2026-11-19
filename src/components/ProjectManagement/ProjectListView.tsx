@@ -63,6 +63,11 @@ export const ProjectListView: React.FC<ProjectListViewProps> = ({
     return map;
   }, [board.columns]);
 
+  const taskColumns = useMemo(
+    () => board.columns.filter(c => c.kind !== 'memo'),
+    [board.columns]
+  );
+
   const handleToggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -206,18 +211,33 @@ export const ProjectListView: React.FC<ProjectListViewProps> = ({
           </div>
         </td>
 
-        <td className="py-2.5 px-2 w-40 align-middle" onClick={e => e.stopPropagation()}>
-          <select
-            value={card.columnId}
-            onChange={e => onMoveColumn(card, e.target.value)}
-            className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md bg-white text-slate-700 cursor-pointer"
-          >
-            {board.columns.map(col => (
-              <option key={col.id} value={col.id}>
-                {col.title}
-              </option>
-            ))}
-          </select>
+        <td
+          className="py-2.5 px-2 w-40 align-middle"
+          onClick={e => {
+            if (card.cardType !== 'memo') e.stopPropagation();
+          }}
+        >
+          {card.cardType === 'memo' ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200/80 rounded-md max-w-full"
+              title="資料カテゴリ（ステータス固定）"
+            >
+              <StickyNote className="w-3 h-3 text-amber-500 shrink-0" />
+              <span className="truncate">{columnMap.get(card.columnId)?.title || '資料'}</span>
+            </span>
+          ) : (
+            <select
+              value={card.columnId}
+              onChange={e => onMoveColumn(card, e.target.value)}
+              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md bg-white text-slate-700 cursor-pointer"
+            >
+              {taskColumns.map(col => (
+                <option key={col.id} value={col.id}>
+                  {col.title}
+                </option>
+              ))}
+            </select>
+          )}
         </td>
 
         <td className="py-2.5 px-2 w-24 align-middle text-xs">
@@ -261,7 +281,11 @@ export const ProjectListView: React.FC<ProjectListViewProps> = ({
         </td>
 
         <td className="py-2.5 pl-2 pr-4 w-36 align-middle">
-          {(card.assigneeIds || []).length > 0 ? (
+          {card.cardType === 'memo' ? (
+            <span className="inline-flex items-center text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded whitespace-nowrap">
+              {board.boardType === 'personal' ? '個人メモ' : 'メンバー全員共有'}
+            </span>
+          ) : (card.assigneeIds || []).length > 0 ? (
             <div className="flex items-center -space-x-1.5">
               {card.assigneeIds.slice(0, 4).map(uid => {
                 const u = allUsers.find(x => String(x.id) === String(uid));
@@ -313,7 +337,7 @@ export const ProjectListView: React.FC<ProjectListViewProps> = ({
             value={quickTitle}
             onChange={e => setQuickTitle(e.target.value)}
             disabled={isCreating}
-            placeholder="＋ 新規タスク / メモ・URLを入力してEnter..."
+            placeholder="＋ 新規Todoを入力してEnter..."
             className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-400"
           />
           <button

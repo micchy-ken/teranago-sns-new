@@ -485,8 +485,10 @@ export interface BoardTopic {
   office?: string;    // 公開範囲表示名（拠点: 全社、本社、名古屋支店など）
   divisionId?: string;// 公開範囲マスターID（部署: div-1など、全部署時は未設定または'all'）
   division?: string;  // 公開範囲表示名（部署: 全部署、営業、設計など）
-  scope?: string;     // 公開範囲のスコープ
-  isStrictScope?: boolean; // 公開範囲のみ表示フラグ（指定拠点・部署以外のユーザーには限定非表示）
+  scope?: string;     // 公開範囲のスコープ（'全社' | 'members' 等）
+  isStrictScope?: boolean; // 公開範囲のみ表示フラグ（指定拠点・部署・メンバー以外のユーザーには限定非表示）
+  targetUserIds?: string[]; // 対象メンバーIDスナップショット（マイグループ・指定メンバー公開時）
+  targetGroupName?: string; // 公開範囲表示用グループ名ラベル（例: 営業プロジェクトチーム）
   tags: string[];     // タグ配列
   attachments?: AttachmentFile[];
   hasPeriod?: boolean;  // 公開期間設定（デフォルト: false）

@@ -114,7 +114,16 @@ import { TopicCreateModal } from './TopicCreateModal';
 import { ApplicationModal } from './ApplicationModal';
 import { MyPageSectionCard } from './MyPageSectionCard';
 import { MyPageDisplaySettingsModal, DEFAULT_SECTION_COUNTS, DEFAULT_ENV_SETTINGS } from './MyPageDisplaySettingsModal';
-import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
+import {
+  isTopicCurrentlyPinned,
+  formatPinnedUntilBadge,
+  getPollDeadlineMs,
+  isUserTopicAuthor,
+  canUserViewTopic,
+  isTopicTargetedToUser,
+  hasTopicTargetMembers,
+  getTopicScopeBadgeLabel,
+} from '../utils/boardHelpers';
 import { ApprovalFlowRule, ItemMaster, ApplicationStatus, MyPageSectionCounts, MyPageEnvSettings } from '../types';
 import { SchedulePoll } from '../types/schedulePoll';
 import { RecurrenceActionScope } from './RecurrenceActionModal';
@@ -1073,49 +1082,30 @@ export function MyPage({
     }).length;
   }, [allActivePolls, user?.id]);
 
-  // 2. 対象の掲示板トピック（全社・自拠点・自部署宛て、または自分が投稿）
+  // 2. 対象の掲示板トピック（全社・自拠点・自部署・マイグループ/指定メンバー宛て、または自分が投稿）
   const myTopics = useMemo(() => {
     if (!topics || !topics.length) return [];
     return topics
       .filter((t) => {
-      // 自分が投稿・作成したトピックは常にマイページに表示
-      const isAuthor =
-        (t.author?.id && user?.id && String(t.author.id) === String(user.id)) ||
-        (t.author?.name && user?.name && t.author.name === user.name) ||
-        ((t as any).authorId && user?.id && String((t as any).authorId) === String(user.id));
-      if (isAuthor) return true;
+        // 自分が投稿・作成したトピックは常にマイページに表示
+        if (isUserTopicAuthor(t, user)) return true;
 
-      const userOffice = user?.office || '';
-      const userDivision = user?.division || '';
-      const userDept = user?.department || '';
+        // 限定公開 (isStrictScope) の閲覧権限チェック
+        if (!canUserViewTopic(t, user, offices, divisions)) return false;
 
-      const matchOffice =
-        !t.office ||
-        t.office === '全社' ||
-        t.office === userOffice ||
-        (userOffice && t.office.includes(userOffice)) ||
-        (userDept && t.office && userDept.includes(t.office));
-
-      const matchDivision =
-        !t.division ||
-        t.division === '全部署' ||
-        t.division === userDivision ||
-        (userDivision && t.division.includes(userDivision)) ||
-        (userDept && t.division && userDept.includes(t.division)) ||
-        (t.division && userDept && t.division.includes(userDept));
-
-      return matchOffice && matchDivision;
-    })
-    .sort((a, b) => {
-      // 1. 有効なピン留め（期限内）があるものを最上位に表示
-      const aPinned = isTopicCurrentlyPinned(a);
-      const bPinned = isTopicCurrentlyPinned(b);
-      if (aPinned && !bPinned) return -1;
-      if (!aPinned && bPinned) return 1;
-      // 2. 作成日時降順
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  }, [topics, user?.id, user?.name, user?.office, user?.division, user?.department]);
+        // マイグループ・指定メンバー / 拠点・部署の対象判定
+        return isTopicTargetedToUser(t, user, offices, divisions);
+      })
+      .sort((a, b) => {
+        // 1. 有効なピン留め（期限内）があるものを最上位に表示
+        const aPinned = isTopicCurrentlyPinned(a);
+        const bPinned = isTopicCurrentlyPinned(b);
+        if (aPinned && !bPinned) return -1;
+        if (!aPinned && bPinned) return 1;
+        // 2. 作成日時降順
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [topics, user, offices, divisions]);
 
   const unreadTopics = useMemo(() => {
     if (!isReadSynced) return [];
@@ -1765,9 +1755,20 @@ export function MyPage({
                                 </span>
                               )}
 
-                              <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
-                                {topic.office || '全社'} / {topic.division || '全部署'}
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${
+                                hasTopicTargetMembers(topic)
+                                  ? 'bg-violet-100 text-violet-800'
+                                  : 'bg-indigo-100 text-indigo-800'
+                              }`}>
+                                {hasTopicTargetMembers(topic) && <Users className="w-2.5 h-2.5 shrink-0" />}
+                                <span>{getTopicScopeBadgeLabel(topic, offices, divisions)}</span>
                               </span>
+                              {topic.isStrictScope && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 rounded">
+                                  <Lock className="w-2.5 h-2.5 shrink-0" />
+                                  <span>限定</span>
+                                </span>
+                              )}
 
                               <span className="text-[10px] text-slate-400">
                                 {new Date(topic.createdAt).toLocaleDateString('ja-JP')}
@@ -3334,6 +3335,7 @@ export function MyPage({
           setIsCreateTopicModalOpen(false);
         }}
         currentUser={user}
+        users={allUsers}
         offices={offices}
         divisions={divisions}
         existingTags={existingTags}

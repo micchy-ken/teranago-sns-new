@@ -4,12 +4,14 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster, AttachmentFile, BoardPo
 import { uploadMultipleFiles } from '../utils/fileUpload';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { resolveOffice, resolveDivision, getUserOfficeName, getUserDivisionName } from '../utils/masterResolver';
+import { TopicScopeSelector, TopicScopeMode } from './TopicScopeSelector';
 
 interface TopicCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (topicData: Omit<BoardTopic, 'id' | 'createdAt' | 'views' | 'commentsCount'>) => void;
   currentUser: User;
+  users?: User[];
   offices?: OfficeMaster[];
   divisions?: DivisionMaster[];
   existingTags: string[];
@@ -29,6 +31,7 @@ export function TopicCreateModal({
   onClose,
   onSubmit,
   currentUser,
+  users = [],
   offices = [],
   divisions = [],
   existingTags = [],
@@ -36,8 +39,11 @@ export function TopicCreateModal({
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const pasteHandler = useUrlPasteHandler(content, setContent);
+  const [scopeMode, setScopeMode] = useState<TopicScopeMode>('org');
   const [selectedOffice, setSelectedOffice] = useState(() => getUserOfficeName(currentUser, offices) || '全社');
   const [selectedDivision, setSelectedDivision] = useState(() => getUserDivisionName(currentUser, divisions) || '全部署');
+  const [targetUserIds, setTargetUserIds] = useState<string[]>(() => (currentUser?.id ? [String(currentUser.id)] : []));
+  const [targetGroupName, setTargetGroupName] = useState('');
   const [isStrictScope, setIsStrictScope] = useState(false);
   
   // タグ関連
@@ -78,8 +84,11 @@ export function TopicCreateModal({
     if (isOpen) {
       setTitle('');
       setContent('');
+      setScopeMode('org');
       setSelectedOffice(getUserOfficeName(currentUser, offices) || '全社');
       setSelectedDivision(getUserDivisionName(currentUser, divisions) || '全部署');
+      setTargetUserIds(currentUser?.id ? [String(currentUser.id)] : []);
+      setTargetGroupName('');
       setIsStrictScope(false);
       setTags([]);
       setTagInput('');
@@ -287,18 +296,35 @@ export function TopicCreateModal({
       }
     }
 
-    const matchedOffice = selectedOffice !== '全社' ? resolveOffice(selectedOffice, offices) : undefined;
-    const matchedDivision = selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
+    const isMembersScope = scopeMode === 'members';
+    const finalTargetUserIds = isMembersScope
+      ? Array.from(
+          new Set(
+            [...targetUserIds.map(String), ...(currentUser?.id ? [String(currentUser.id)] : [])].filter(Boolean)
+          )
+        )
+      : [];
+
+    if (isMembersScope && finalTargetUserIds.length === 0) {
+      setError('公開対象メンバーを1名以上選択してください。');
+      return;
+    }
+
+    const matchedOffice = !isMembersScope && selectedOffice !== '全社' ? resolveOffice(selectedOffice, offices) : undefined;
+    const matchedDivision = !isMembersScope && selectedDivision !== '全部署' ? resolveDivision(selectedDivision, divisions) : undefined;
 
     onSubmit({
       title: (title || '').trim(),
       content: (content || '').trim(),
       author: currentUser,
-      officeId: selectedOffice === '全社' ? 'all' : matchedOffice?.id,
-      office: selectedOffice === '全社' ? '全社' : (matchedOffice?.name || selectedOffice),
-      divisionId: selectedDivision === '全部署' ? 'all' : matchedDivision?.id,
-      division: selectedDivision === '全部署' ? '全部署' : (matchedDivision?.name || selectedDivision),
+      officeId: isMembersScope || selectedOffice === '全社' ? 'all' : matchedOffice?.id,
+      office: isMembersScope || selectedOffice === '全社' ? '全社' : (matchedOffice?.name || selectedOffice),
+      divisionId: isMembersScope || selectedDivision === '全部署' ? 'all' : matchedDivision?.id,
+      division: isMembersScope || selectedDivision === '全部署' ? '全部署' : (matchedDivision?.name || selectedDivision),
+      scope: isMembersScope ? 'members' : '全社',
       isStrictScope,
+      targetUserIds: finalTargetUserIds,
+      targetGroupName: isMembersScope ? targetGroupName.trim() : '',
       tags,
       attachments,
       hasPeriod,
@@ -351,59 +377,26 @@ export function TopicCreateModal({
             </div>
           )}
 
-          {/* 公開範囲（拠点・部署） */}
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-slate-500" />
-                  公開範囲（拠点）
-                </label>
-                <select
-                  value={selectedOffice}
-                  onChange={e => setSelectedOffice(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="全社">全社（すべての拠点）</option>
-                  {officeNames.map(o => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-slate-500" />
-                  公開範囲（部署）
-                </label>
-                <select
-                  value={selectedDivision}
-                  onChange={e => setSelectedDivision(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="全部署">全部署（全チーム）</option>
-                  {divisionNames.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-200/60 flex items-center">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 hover:text-indigo-900 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={isStrictScope}
-                  onChange={e => setIsStrictScope(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-                />
-                <span className="flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5 text-indigo-600" />
-                  公開範囲のみ表示（指定拠点・部署以外のユーザーには限定非表示）
-                </span>
-              </label>
-            </div>
-          </div>
+          {/* 公開範囲（拠点・部署 / マイグループ・指定メンバー） */}
+          <TopicScopeSelector
+            scopeMode={scopeMode}
+            onScopeModeChange={setScopeMode}
+            selectedOffice={selectedOffice}
+            onOfficeChange={setSelectedOffice}
+            selectedDivision={selectedDivision}
+            onDivisionChange={setSelectedDivision}
+            officeNames={officeNames}
+            divisionNames={divisionNames}
+            targetUserIds={targetUserIds}
+            onTargetUserIdsChange={setTargetUserIds}
+            targetGroupName={targetGroupName}
+            onTargetGroupNameChange={setTargetGroupName}
+            isStrictScope={isStrictScope}
+            onStrictScopeChange={setIsStrictScope}
+            currentUser={currentUser}
+            authorId={currentUser?.id}
+            users={users}
+          />
 
           {/* タイトル */}
           <div>

@@ -3,21 +3,23 @@ import { BoardTopic, User, OfficeMaster, DivisionMaster } from '../types';
 import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { markTopicAsRead } from '../utils/notifications';
 import { deleteAttachmentFiles } from '../utils/fileUpload';
-import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star, BarChart2 } from 'lucide-react';
+import { MessageSquare, Eye, Plus, Search, Pin, Paperclip, Calendar as CalendarIcon, Building2, Users, Flame, Tag, Trash2, Share2, Check, Star, BarChart2, Lock } from 'lucide-react';
 import { TopicCreateModal } from './TopicCreateModal';
 import { TopicDetailModal } from './TopicDetailModal';
 import { ConfirmModal } from './ConfirmModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { upsertBookmarkForUser } from '../utils/bookmarks';
-import { isTopicCurrentlyPinned, formatPinnedUntilBadge } from '../utils/boardHelpers';
+import {
+  isTopicCurrentlyPinned,
+  formatPinnedUntilBadge,
+  canUserViewTopic,
+  hasTopicTargetMembers,
+  getTopicScopeBadgeLabel,
+} from '../utils/boardHelpers';
 import { triggerOpenUserModal } from '../utils/userModal';
 import {
-  doesUserMatchOffice,
-  doesUserMatchDivision,
   isSameOffice,
   isSameDivision,
-  resolveOfficeName,
-  resolveDivisionName,
   getUserOfficeName,
   getUserDivisionName,
 } from '../utils/masterResolver';
@@ -207,23 +209,9 @@ export function Board({
   const filteredAndSortedTopics = useMemo(() => {
     return topics
       .filter(t => {
-        // 限定公開 (isStrictScope) 制御: 指定拠点・部署以外のユーザーには完全非表示
-        if (t.isStrictScope && currentUser) {
-          const isAuthor =
-            (t.author?.id && String(t.author.id) === String(currentUser.id)) ||
-            (t.author?.name && t.author.name === currentUser.name) ||
-            ((t as any).authorId && String((t as any).authorId) === String(currentUser.id));
-          const isAdmin = currentUser.role === 'admin' || currentUser.isAdmin;
-
-          if (!isAuthor && !isAdmin) {
-            if ((t.officeId || t.office) && t.office !== '全社' && t.officeId !== 'all') {
-              if (!doesUserMatchOffice(currentUser, t.officeId || t.office, offices)) return false;
-            }
-
-            if ((t.divisionId || t.division) && t.division !== '全部署' && t.divisionId !== 'all') {
-              if (!doesUserMatchDivision(currentUser, t.divisionId || t.division, divisions)) return false;
-            }
-          }
+        // 限定公開 (isStrictScope) 制御: 指定拠点・部署・メンバー以外のユーザーには完全非表示
+        if (!canUserViewTopic(t, currentUser, offices, divisions)) {
+          return false;
         }
 
         // タグフィルタ
@@ -260,7 +248,8 @@ export function Board({
           const matchContent = t.content.toLowerCase().includes(query);
           const matchAuthor = t.author.name.toLowerCase().includes(query);
           const matchTags = t.tags?.some(tag => tag.toLowerCase().includes(query));
-          if (!matchTitle && !matchContent && !matchAuthor && !matchTags) return false;
+          const matchGroupName = (t.targetGroupName || '').toLowerCase().includes(query);
+          if (!matchTitle && !matchContent && !matchAuthor && !matchTags && !matchGroupName) return false;
         }
 
         return true;
@@ -526,9 +515,26 @@ export function Board({
                             })()
                           )}
 
-                          <span className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md shrink-0">
-                            {resolveOfficeName(topic.officeId || topic.office, offices) || '全社'} / {resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署'}
-                          </span>
+                          {hasTopicTargetMembers(topic) ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 bg-indigo-50 text-indigo-800 border border-indigo-200 rounded-md shrink-0">
+                              <Users className="w-3 h-3 text-indigo-600 shrink-0" />
+                              <span>{getTopicScopeBadgeLabel(topic, offices, divisions)}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] sm:text-[11px] font-semibold px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md shrink-0">
+                              {getTopicScopeBadgeLabel(topic, offices, divisions)}
+                            </span>
+                          )}
+
+                          {topic.isStrictScope && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md shrink-0"
+                              title={hasTopicTargetMembers(topic) ? '指定メンバー限定公開' : '指定拠点・部署限定公開'}
+                            >
+                              <Lock className="w-2.5 h-2.5 shrink-0" />
+                              <span>限定</span>
+                            </span>
+                          )}
 
                           {topic.hasPeriod && topic.startDate && topic.endDate && (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md flex items-center gap-1 shrink-0">
@@ -711,6 +717,7 @@ export function Board({
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleCreateSubmit}
         currentUser={currentUser}
+        users={users}
         offices={offices}
         divisions={divisions}
         existingTags={existingTagsList}

@@ -4,6 +4,7 @@ import { API_BASE_URL } from '../config/api';
 import { isEventVisibleToUser } from './eventVisibility';
 import { getSupervisorAtLevel } from './workflowHelpers';
 import { doesUserMatchOffice, doesUserMatchDivision } from './masterResolver';
+import { isTopicTargetedToUser } from './boardHelpers';
 
 export interface ProjectSummaryCommentPreview {
   id: string;
@@ -588,19 +589,7 @@ export function isTopicUnread(t: BoardTopic, user: User, readTopicIds: string[] 
 
   if (readTopicIds.includes(t.id)) return false;
 
-  const matchOffice =
-    !t.office ||
-    t.office === '全社' ||
-    t.officeId === 'all' ||
-    doesUserMatchOffice(user, t.officeId || t.office);
-
-  const matchDivision =
-    !t.division ||
-    t.division === '全部署' ||
-    t.divisionId === 'all' ||
-    doesUserMatchDivision(user, t.divisionId || t.division);
-
-  if (!matchOffice || !matchDivision) return false;
+  if (!isTopicTargetedToUser(t, user)) return false;
 
   return true;
 }
@@ -1090,19 +1079,7 @@ export function getAllNotifications({
     if (t.author && (t.author.id === user.id || t.author.name === user.name)) {
       return;
     }
-    const matchOffice =
-      !t.office ||
-      t.office === '全社' ||
-      t.officeId === 'all' ||
-      doesUserMatchOffice(user, t.officeId || t.office);
-
-    const matchDivision =
-      !t.division ||
-      t.division === '全部署' ||
-      t.divisionId === 'all' ||
-      doesUserMatchDivision(user, t.divisionId || t.division);
-
-    if (!matchOffice || !matchDivision) return;
+    if (!isTopicTargetedToUser(t, user)) return;
 
     const unread = isTopicUnread(t, user, readTopicIds);
     const item: NotificationItem = {

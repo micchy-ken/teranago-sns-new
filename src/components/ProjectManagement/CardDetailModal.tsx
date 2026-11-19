@@ -101,18 +101,18 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
     return preferred?.id || 'col-todo';
   }, [card?.columnId, initialColumnId, initialCardType, board.columns]);
 
-  const [cardType, setCardType] = useState<ProjectCardType>(
-    card?.cardType || initialCardType || 'task'
-  );
+  const cardType: ProjectCardType = card?.cardType || initialCardType || 'task';
   const [title, setTitle] = useState(card?.title || '');
   const [description, setDescription] = useState(card?.description || '');
   const [columnId, setColumnId] = useState(defaultColumnId);
   const [priority, setPriority] = useState<ProjectCardPriority>(card?.priority || 'none');
   const [dueDate, setDueDate] = useState(card?.dueDate || '');
   const [startDate] = useState(card?.startDate || '');
-  const [assigneeIds, setAssigneeIds] = useState<string[]>(() =>
-    card?.assigneeIds ? card.assigneeIds.map(String) : []
-  );
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(() => {
+    const resolvedType = card?.cardType || initialCardType || 'task';
+    if (resolvedType === 'memo') return [];
+    return card?.assigneeIds ? card.assigneeIds.map(String) : [];
+  });
   const [tags, setTags] = useState<string[]>(() => (card?.tags ? [...card.tags] : []));
   const [tagInput, setTagInput] = useState('');
 
@@ -180,12 +180,9 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
 
   const availableColumns = useMemo(() => {
     const list = cardType === 'memo' ? memoColumns : taskColumns;
-    if (list.length === 0) return board.columns;
-    if (columnId && !list.some(c => c.id === columnId)) {
-      const currentCol = board.columns.find(c => c.id === columnId);
-      return currentCol ? [currentCol, ...list] : list;
-    }
-    return list;
+    if (list.length > 0) return list;
+    const currentCol = board.columns.find(c => c.id === columnId);
+    return currentCol ? [currentCol] : [];
   }, [cardType, memoColumns, taskColumns, board.columns, columnId]);
 
   if (!isOpen) return null;
@@ -390,10 +387,10 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
         cardType,
         title: trimmedTitle,
         description,
-        priority,
-        dueDate: dueDate || undefined,
-        startDate: startDate || undefined,
-        assigneeIds,
+        priority: cardType === 'memo' ? 'none' : priority,
+        dueDate: cardType === 'memo' ? undefined : dueDate || undefined,
+        startDate: cardType === 'memo' ? undefined : startDate || undefined,
+        assigneeIds: cardType === 'memo' ? [] : assigneeIds,
         tags,
         links,
         attachments,
@@ -450,42 +447,20 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
           className="w-full max-w-3xl bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[92vh]"
           onClick={e => e.stopPropagation()}
         >
-          {/* Header Bar */}
+          {/* Header Bar（資料／Todo種別は固定表示・相互切替不可） */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 bg-slate-50/70">
-            <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 rounded-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setCardType('task');
-                  const currentCol = board.columns.find(c => c.id === columnId);
-                  if (currentCol?.kind === 'memo' && taskColumns.length > 0) {
-                    setColumnId(taskColumns[0].id);
-                  }
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                  cardType === 'task' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Todo</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCardType('memo');
-                  setIsCompleted(false);
-                  const currentCol = board.columns.find(c => c.id === columnId);
-                  if (currentCol?.kind !== 'memo' && memoColumns.length > 0) {
-                    setColumnId(memoColumns[0].id);
-                  }
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                  cardType === 'memo' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <StickyNote className="w-3.5 h-3.5 text-amber-600" />
-                <span>メモ・資料</span>
-              </button>
+            <div className="flex items-center gap-2">
+              {cardType === 'memo' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200/80 text-xs font-bold text-amber-800 whitespace-nowrap">
+                  <StickyNote className="w-3.5 h-3.5 text-amber-600" />
+                  <span>メモ・資料</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200/80 text-xs font-bold text-indigo-800 whitespace-nowrap">
+                  <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Todo</span>
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -616,8 +591,15 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
               )}
             </div>
 
-            {/* Assignees */}
-            {board.boardType === 'team' && (
+            {/* Assignees（資料カテゴリには担当者を設けずメンバー全員共有） */}
+            {board.boardType === 'team' && cardType === 'memo' && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50/70 border border-amber-200/80 text-xs text-amber-900">
+                <Users className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>資料カテゴリに担当者はなく、ボードメンバー全員で共有されます。</span>
+              </div>
+            )}
+
+            {board.boardType === 'team' && cardType === 'task' && (
               <div className="pt-1">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">

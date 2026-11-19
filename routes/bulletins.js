@@ -1,3 +1,7 @@
+/**
+ * 掲示板 (Bulletins / Board) API ルーター
+ * 最終更新日時: 2026年11月19日 (掲示板公開範囲のマイグループ・指定メンバー対応: targetUserIds / targetGroupName カラム自動追加・取得・保存・更新対応)
+ */
 import { Router } from 'express';
 import sql from 'mssql';
 import multer from 'multer';
@@ -105,6 +109,8 @@ async function ensureBulletinTables(pool) {
           division NVARCHAR(100) NULL,
           scope NVARCHAR(50) NULL DEFAULT N'全社',
           isStrictScope BIT NULL DEFAULT 0,
+          targetUserIds NVARCHAR(MAX) NULL,
+          targetGroupName NVARCHAR(200) NULL,
           tags NVARCHAR(500) NULL,
           isPinned BIT NULL DEFAULT 0,
           pinnedUntil VARCHAR(40) NULL,
@@ -153,6 +159,8 @@ async function ensureBulletinTables(pool) {
       IF COL_LENGTH('dbo.Bulletins', 'pinnedUntil') IS NULL ALTER TABLE dbo.Bulletins ADD pinnedUntil VARCHAR(40) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'poll') IS NULL ALTER TABLE dbo.Bulletins ADD poll NVARCHAR(MAX) NULL;
       IF COL_LENGTH('dbo.Bulletins', 'isStrictScope') IS NULL ALTER TABLE dbo.Bulletins ADD isStrictScope BIT NULL DEFAULT 0;
+      IF COL_LENGTH('dbo.Bulletins', 'targetUserIds') IS NULL ALTER TABLE dbo.Bulletins ADD targetUserIds NVARCHAR(MAX) NULL;
+      IF COL_LENGTH('dbo.Bulletins', 'targetGroupName') IS NULL ALTER TABLE dbo.Bulletins ADD targetGroupName NVARCHAR(200) NULL;
 
       IF COL_LENGTH('dbo.BoardComments', 'bulletinId') IS NULL ALTER TABLE dbo.BoardComments ADD bulletinId VARCHAR(50) NULL;
       IF COL_LENGTH('dbo.BoardComments', 'topicId') IS NULL ALTER TABLE dbo.BoardComments ADD topicId VARCHAR(50) NULL;
@@ -225,6 +233,24 @@ async function ensureBulletinTablesOnce(pool) {
   } catch (e) {
     console.warn('[routes/bulletins] ensureBulletinTables warning:', e.message);
   }
+}
+
+// 公開対象メンバーID配列 (targetUserIds) の安全パース共通ヘルパー
+function parseTargetUserIds(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return Array.from(new Set(raw.map(v => String(v || '').trim()).filter(Boolean)));
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    const parsed = safeParseJSON(trimmed, null);
+    if (Array.isArray(parsed)) {
+      return Array.from(new Set(parsed.map(v => String(v || '').trim()).filter(Boolean)));
+    }
+    return Array.from(new Set(trimmed.split(',').map(v => v.trim()).filter(Boolean)));
+  }
+  return [];
 }
 
 // ピン留め・アンケート整形共通ヘルパー
@@ -364,6 +390,8 @@ router.get([
         division: row.division || '全部署',
         scope: row.scope || '全社',
         isStrictScope: !!row.isStrictScope,
+        targetUserIds: parseTargetUserIds(row.targetUserIds),
+        targetGroupName: row.targetGroupName || '',
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
         isPinned: isCurrentlyPinned,
         pinnedUntil: row.pinnedUntil || null,
@@ -523,6 +551,8 @@ router.get(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) 
         division: row.division || '全部署',
         scope: row.scope || '全社',
         isStrictScope: !!row.isStrictScope,
+        targetUserIds: parseTargetUserIds(row.targetUserIds),
+        targetGroupName: row.targetGroupName || '',
         tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
         isPinned: isCurrentlyPinned,
         pinnedUntil: row.pinnedUntil || null,
@@ -655,6 +685,8 @@ router.get([
       division: row.division || '全部署',
       scope: row.scope || '全社',
       isStrictScope: !!row.isStrictScope,
+      targetUserIds: parseTargetUserIds(row.targetUserIds),
+      targetGroupName: row.targetGroupName || '',
       tags: row.tags ? (typeof row.tags === 'string' ? row.tags.split(',').map(t => t.trim()).filter(Boolean) : row.tags) : [],
       isPinned: isCurrentlyPinned,
       pinnedUntil: row.pinnedUntil || null,
@@ -678,7 +710,7 @@ router.get([
 // ==========================================
 router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res) => {
   try {
-    const { title, content, category, authorId, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
+    const { title, content, category, authorId, isPinned, office, division, scope, isStrictScope, targetUserIds, targetGroupName, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll } = req.body;
     const pool = await getPool();
     const id = req.body.id || `b-${Date.now()}`;
 
@@ -689,6 +721,9 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
     const finalPinned = isPinned ? 1 : 0;
     const finalPinnedUntil = isPinned ? (pinnedUntil || null) : null;
     const pollStr = poll ? (typeof poll === 'object' ? JSON.stringify(poll) : String(poll)) : null;
+    const normalizedTargetUserIds = parseTargetUserIds(targetUserIds);
+    const targetUserIdsStr = normalizedTargetUserIds.length > 0 ? JSON.stringify(normalizedTargetUserIds) : null;
+    const targetGroupNameStr = targetGroupName && String(targetGroupName).trim() ? String(targetGroupName).trim() : null;
 
     await pool.request()
       .input('id', sql.VarChar, String(id))
@@ -700,8 +735,10 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('pinnedUntil', sql.VarChar, finalPinnedUntil)
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
-      .input('scope', sql.NVarChar, scope || '全社')
+      .input('scope', sql.NVarChar, scope || (normalizedTargetUserIds.length > 0 ? 'members' : '全社'))
       .input('isStrictScope', sql.Bit, isStrictScope ? 1 : 0)
+      .input('targetUserIds', sql.NVarChar, targetUserIdsStr)
+      .input('targetGroupName', sql.NVarChar, targetGroupNameStr)
       .input('tags', sql.NVarChar, Array.isArray(tags) ? tags.join(',') : (tags || ''))
       .input('hasPeriod', sql.Bit, hasPeriod ? 1 : 0)
       .input('startDate', sql.VarChar, startDate || null)
@@ -709,8 +746,8 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
       .input('attachments', sql.NVarChar, attachments ? JSON.stringify(attachments) : null)
       .input('poll', sql.NVarChar, pollStr)
       .query(`
-        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, poll, createdAt, views, likes)
-        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @isStrictScope, @tags, @attachments, @hasPeriod, @startDate, @endDate, @poll, GETDATE(), 0, 0)
+        INSERT INTO dbo.Bulletins (id, title, content, category, authorId, isPinned, pinnedUntil, office, division, scope, isStrictScope, targetUserIds, targetGroupName, tags, attachments, hasPeriod, startDate, endDate, poll, createdAt, views, likes)
+        VALUES (@id, @title, @content, @category, @authorId, @isPinned, @pinnedUntil, @office, @division, @scope, @isStrictScope, @targetUserIds, @targetGroupName, @tags, @attachments, @hasPeriod, @startDate, @endDate, @poll, GETDATE(), 0, 0)
       `);
     res.status(201).json({ id, message: '掲示板トピック作成完了' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -722,7 +759,7 @@ router.post(['/bulletins', '/bulletins/', '/board', '/board/'], async (req, res)
 router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
   try {
     const id = req.params.id;
-    const { title, content, category, isPinned, office, division, scope, isStrictScope, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll, skipChildSync } = req.body;
+    const { title, content, category, isPinned, office, division, scope, isStrictScope, targetUserIds, targetGroupName, tags, attachments, hasPeriod, startDate, endDate, pinnedUntil, poll, skipChildSync } = req.body;
     const pool = await getPool();
 
     if (pool) {
@@ -762,6 +799,15 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
       }
     }
     const pollStr = finalPoll !== undefined ? (finalPoll ? JSON.stringify(finalPoll) : null) : undefined;
+    const hasTargetUserIdsUpdate = targetUserIds !== undefined;
+    const normalizedTargetUserIds = hasTargetUserIdsUpdate ? parseTargetUserIds(targetUserIds) : [];
+    const targetUserIdsStr = hasTargetUserIdsUpdate
+      ? (normalizedTargetUserIds.length > 0 ? JSON.stringify(normalizedTargetUserIds) : null)
+      : undefined;
+    const hasTargetGroupNameUpdate = targetGroupName !== undefined;
+    const targetGroupNameStr = hasTargetGroupNameUpdate
+      ? (targetGroupName && String(targetGroupName).trim() ? String(targetGroupName).trim() : null)
+      : undefined;
 
     const request = pool.request()
       .input('id', sql.VarChar, String(id))
@@ -772,7 +818,7 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
       .input('pinnedUntil', sql.VarChar, finalPinnedUntil)
       .input('office', sql.NVarChar, office || '全社')
       .input('division', sql.NVarChar, division || '全部署')
-      .input('scope', sql.NVarChar, scope || '全社')
+      .input('scope', sql.NVarChar, scope || (normalizedTargetUserIds.length > 0 ? 'members' : '全社'))
       .input('isStrictScope', sql.Bit, isStrictScope ? 1 : 0)
       .input('tags', sql.NVarChar, Array.isArray(tags) ? tags.join(',') : (tags || ''))
       .input('hasPeriod', sql.Bit, hasPeriod ? 1 : 0)
@@ -782,6 +828,12 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
 
     if (pollStr !== undefined) {
       request.input('poll', sql.NVarChar, pollStr);
+    }
+    if (hasTargetUserIdsUpdate) {
+      request.input('targetUserIds', sql.NVarChar, targetUserIdsStr);
+    }
+    if (hasTargetGroupNameUpdate) {
+      request.input('targetGroupName', sql.NVarChar, targetGroupNameStr);
     }
 
     await request.query(`
@@ -801,6 +853,8 @@ router.put(['/bulletins/:id', '/board/:id'], async (req, res) => {
         hasPeriod = @hasPeriod,
         startDate = @startDate,
         endDate = @endDate
+        ${hasTargetUserIdsUpdate ? ', targetUserIds = @targetUserIds' : ''}
+        ${hasTargetGroupNameUpdate ? ', targetGroupName = @targetGroupName' : ''}
         ${pollStr !== undefined ? ', poll = @poll' : ''}
       WHERE id = @id
     `);

@@ -1,4 +1,10 @@
-import { BoardTopic, BoardPoll } from '../types';
+import { BoardTopic, BoardPoll, User, OfficeMaster, DivisionMaster } from '../types';
+import {
+  doesUserMatchOffice,
+  doesUserMatchDivision,
+  resolveOfficeName,
+  resolveDivisionName,
+} from './masterResolver';
 
 /**
  * JST基準で回答期限日（その日の23:59:59.999 JST）のミリ秒タイムスタンプを取得
@@ -69,3 +75,121 @@ export function formatPinnedUntilBadge(pinnedUntil?: string | null, poll?: Board
   return `あと${diffDays}日`;
 }
 
+/**
+ * トピックが「マイグループ・指定メンバー」公開範囲かどうかを判定
+ */
+export function hasTopicTargetMembers(topic?: Partial<BoardTopic> | null): boolean {
+  return Boolean(topic && Array.isArray(topic.targetUserIds) && topic.targetUserIds.length > 0);
+}
+
+/**
+ * 指定ユーザーがトピックの作成者かどうかを判定
+ */
+export function isUserTopicAuthor(topic?: Partial<BoardTopic> | null, user?: User | null): boolean {
+  if (!topic || !user) return false;
+  const uid = String(user.id || '');
+  const authorId = (topic as any).authorId ? String((topic as any).authorId) : '';
+  return Boolean(
+    (topic.author?.id && uid && String(topic.author.id) === uid) ||
+    (authorId && uid && authorId === uid) ||
+    (topic.author?.loginId && user.loginId && topic.author.loginId === user.loginId) ||
+    (topic.author?.name && user.name && topic.author.name === user.name)
+  );
+}
+
+/**
+ * 指定ユーザーがトピックの指定メンバー(targetUserIds)に含まれているかを判定
+ */
+export function isUserInTopicTargetMembers(topic?: Partial<BoardTopic> | null, user?: User | null): boolean {
+  if (!topic || !user || !Array.isArray(topic.targetUserIds) || topic.targetUserIds.length === 0) {
+    return false;
+  }
+  const uid = String(user.id || '');
+  const loginId = user.loginId ? String(user.loginId) : '';
+  return topic.targetUserIds.some((id) => {
+    const s = String(id);
+    return (uid && s === uid) || (loginId && s === loginId);
+  });
+}
+
+/**
+ * 限定公開(isStrictScope)を考慮し、指定ユーザーがこのトピックを閲覧可能かどうかを判定
+ * - isStrictScope が OFF の場合は全員閲覧可能
+ * - isStrictScope が ON の場合は、作成者・管理者・指定範囲内のユーザーのみ閲覧可能
+ */
+export function canUserViewTopic(
+  topic?: Partial<BoardTopic> | null,
+  user?: User | null,
+  offices?: OfficeMaster[],
+  divisions?: DivisionMaster[]
+): boolean {
+  if (!topic) return false;
+  if (!topic.isStrictScope) return true;
+  if (!user) return false;
+
+  if (isUserTopicAuthor(topic, user)) return true;
+  if (user.role === 'admin' || user.isAdmin) return true;
+
+  if (hasTopicTargetMembers(topic)) {
+    return isUserInTopicTargetMembers(topic, user);
+  }
+
+  if ((topic.officeId || topic.office) && topic.office !== '全社' && topic.officeId !== 'all') {
+    if (!doesUserMatchOffice(user, topic.officeId || topic.office, offices)) return false;
+  }
+  if ((topic.divisionId || topic.division) && topic.division !== '全部署' && topic.divisionId !== 'all') {
+    if (!doesUserMatchDivision(user, topic.divisionId || topic.division, divisions)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * マイページ・未読通知の対象判定（このトピックが対象ユーザー宛てかどうか）
+ * - マイグループ・指定メンバー指定時は対象メンバーのみ true
+ * - 拠点・部署指定時は該当拠点・部署のユーザーのみ true
+ */
+export function isTopicTargetedToUser(
+  topic?: Partial<BoardTopic> | null,
+  user?: User | null,
+  offices?: OfficeMaster[],
+  divisions?: DivisionMaster[]
+): boolean {
+  if (!topic || !user) return false;
+
+  if (hasTopicTargetMembers(topic)) {
+    return isUserInTopicTargetMembers(topic, user);
+  }
+
+  const matchOffice =
+    !topic.office ||
+    topic.office === '全社' ||
+    topic.officeId === 'all' ||
+    doesUserMatchOffice(user, topic.officeId || topic.office, offices);
+
+  const matchDivision =
+    !topic.division ||
+    topic.division === '全部署' ||
+    topic.divisionId === 'all' ||
+    doesUserMatchDivision(user, topic.divisionId || topic.division, divisions);
+
+  return matchOffice && matchDivision;
+}
+
+/**
+ * 掲示板カード・一覧用の公開範囲ラベル文字列を生成
+ */
+export function getTopicScopeBadgeLabel(
+  topic: Partial<BoardTopic>,
+  offices?: OfficeMaster[],
+  divisions?: DivisionMaster[]
+): string {
+  if (hasTopicTargetMembers(topic)) {
+    const count = topic.targetUserIds?.length || 0;
+    const label = (topic.targetGroupName || '').trim();
+    return label ? `${label} (${count}名)` : `指定メンバー (${count}名)`;
+  }
+  const officeLabel = resolveOfficeName(topic.officeId || topic.office, offices) || '全社';
+  const divisionLabel = resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署';
+  return `${officeLabel} / ${divisionLabel}`;
+}

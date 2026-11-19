@@ -12,8 +12,15 @@ import { triggerOpenUserModal } from '../utils/userModal';
 import { buildAppUrl, copyTextToClipboard } from '../utils/urlParams';
 import { upsertBookmarkForUser } from '../utils/bookmarks';
 import { API_BASE_URL } from '../config/api';
-import { isTopicCurrentlyPinned, formatPinnedUntilBadge, getPollDeadlineMs } from '../utils/boardHelpers';
+import {
+  isTopicCurrentlyPinned,
+  formatPinnedUntilBadge,
+  getPollDeadlineMs,
+  hasTopicTargetMembers,
+  getTopicScopeBadgeLabel,
+} from '../utils/boardHelpers';
 import { resolveOffice, resolveOfficeName, resolveDivision, resolveDivisionName } from '../utils/masterResolver';
+import { TopicScopeSelector, TopicScopeMode } from './TopicScopeSelector';
 
 export const getRestoredPollOptions = (poll: BoardPoll | undefined | null): Array<{ id: string; text: string; requireComment: boolean }> => {
   if (!poll) {
@@ -107,7 +114,11 @@ export function TopicDetailModal({
   const editPasteHandler = useUrlPasteHandler(editContent, setEditContent);
   const [editOffice, setEditOffice] = useState('');
   const [editDivision, setEditDivision] = useState('');
+  const [editScopeMode, setEditScopeMode] = useState<TopicScopeMode>('org');
+  const [editTargetUserIds, setEditTargetUserIds] = useState<string[]>([]);
+  const [editTargetGroupName, setEditTargetGroupName] = useState('');
   const [editIsStrictScope, setEditIsStrictScope] = useState(false);
+  const [showTargetMembersList, setShowTargetMembersList] = useState(false);
   const [editIsPinned, setEditIsPinned] = useState(false);
   const [editPinnedPeriod, setEditPinnedPeriod] = useState<'1week' | '1month' | 'forever'>('1week');
   const [editHasPeriod, setEditHasPeriod] = useState(false);
@@ -286,7 +297,16 @@ export function TopicDetailModal({
           setEditContent(topic.content || '');
           setEditOffice(resolveOfficeName(topic.officeId || topic.office, offices) || '全社');
           setEditDivision(resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署');
+          const hasMembers = hasTopicTargetMembers(topic);
+          setEditScopeMode(hasMembers ? 'members' : 'org');
+          setEditTargetUserIds(
+            hasMembers
+              ? Array.from(new Set([...(topic.targetUserIds || []).map(String), ...(topic.author?.id ? [String(topic.author.id)] : [])].filter(Boolean)))
+              : (topic.author?.id ? [String(topic.author.id)] : (currentUser?.id ? [String(currentUser.id)] : []))
+          );
+          setEditTargetGroupName(topic.targetGroupName || '');
           setEditIsStrictScope(!!topic.isStrictScope);
+          setShowTargetMembersList(false);
           setEditIsPinned(!!topic.isPinned);
           if (topic.isPinned) {
             if (topic.pinnedDuration) {
@@ -429,6 +449,9 @@ export function TopicDetailModal({
           onUpdateTopic(
             {
               ...topic,
+              isStrictScope: detailData.isStrictScope !== undefined ? !!detailData.isStrictScope : topic.isStrictScope,
+              targetUserIds: Array.isArray(detailData.targetUserIds) ? detailData.targetUserIds.map(String) : topic.targetUserIds,
+              targetGroupName: detailData.targetGroupName !== undefined ? (detailData.targetGroupName || '') : topic.targetGroupName,
               comments: fetchedComments,
               commentsCount: fetchedComments.length,
               viewers: mergedViewers,
@@ -664,18 +687,27 @@ export function TopicDetailModal({
       }
     }
 
-    const matchedOffice = editOffice !== '全社' ? resolveOffice(editOffice, offices) : undefined;
-    const matchedDivision = editDivision !== '全部署' ? resolveDivision(editDivision, divisions) : undefined;
+    const isMembersScope = editScopeMode === 'members';
+    const ownerId = topic.author?.id ? String(topic.author.id) : (currentUser?.id ? String(currentUser.id) : '');
+    const finalTargetUserIds = isMembersScope
+      ? Array.from(new Set([...editTargetUserIds.map(String), ...(ownerId ? [ownerId] : [])].filter(Boolean)))
+      : [];
+
+    const matchedOffice = !isMembersScope && editOffice !== '全社' ? resolveOffice(editOffice, offices) : undefined;
+    const matchedDivision = !isMembersScope && editDivision !== '全部署' ? resolveDivision(editDivision, divisions) : undefined;
 
     const updatedTopic: BoardTopic = {
       ...topic,
       title: (editTitle || '').trim(),
       content: (editContent || '').trim(),
-      officeId: editOffice === '全社' ? 'all' : matchedOffice?.id,
-      office: editOffice === '全社' ? '全社' : (matchedOffice?.name || editOffice),
-      divisionId: editDivision === '全部署' ? 'all' : matchedDivision?.id,
-      division: editDivision === '全部署' ? '全部署' : (matchedDivision?.name || editDivision),
+      officeId: isMembersScope || editOffice === '全社' ? 'all' : matchedOffice?.id,
+      office: isMembersScope || editOffice === '全社' ? '全社' : (matchedOffice?.name || editOffice),
+      divisionId: isMembersScope || editDivision === '全部署' ? 'all' : matchedDivision?.id,
+      division: isMembersScope || editDivision === '全部署' ? '全部署' : (matchedDivision?.name || editDivision),
+      scope: isMembersScope ? 'members' : '全社',
       isStrictScope: editIsStrictScope,
+      targetUserIds: finalTargetUserIds,
+      targetGroupName: isMembersScope ? editTargetGroupName.trim() : '',
       isPinned: finalIsPinned,
       pinnedUntil: finalPinnedUntil,
       pinnedDuration: editIsPinned ? editPinnedPeriod : undefined,
@@ -951,8 +983,17 @@ export function TopicDetailModal({
                 onClick={() => {
                   setEditTitle(topic.title);
                   setEditContent(topic.content);
-                  setEditOffice(topic.office || '全社');
-                  setEditDivision(topic.division || '全部署');
+                  setEditOffice(resolveOfficeName(topic.officeId || topic.office, offices) || '全社');
+                  setEditDivision(resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署');
+                  const hasMembers = hasTopicTargetMembers(topic);
+                  setEditScopeMode(hasMembers ? 'members' : 'org');
+                  setEditTargetUserIds(
+                    hasMembers
+                      ? Array.from(new Set([...(topic.targetUserIds || []).map(String), ...(topic.author?.id ? [String(topic.author.id)] : [])].filter(Boolean)))
+                      : (topic.author?.id ? [String(topic.author.id)] : (currentUser?.id ? [String(currentUser.id)] : []))
+                  );
+                  setEditTargetGroupName(topic.targetGroupName || '');
+                  setEditIsStrictScope(!!topic.isStrictScope);
                   setEditIsPinned(!!topic.isPinned);
                   setEditHasPeriod(!!topic.hasPeriod);
                   setEditStartDate(topic.startDate || '');
@@ -1093,56 +1134,25 @@ export function TopicDetailModal({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                    公開拠点
-                  </label>
-                  <select
-                    value={editOffice}
-                    onChange={e => setEditOffice(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="全社">全社</option>
-                    {officeNames.map(o => (
-                      <option key={o} value={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5 text-slate-500" />
-                    公開部署
-                  </label>
-                  <select
-                    value={editDivision}
-                    onChange={e => setEditDivision(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="全部署">全部署</option>
-                    {divisionNames.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700 hover:text-indigo-900 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={editIsStrictScope}
-                    onChange={e => setEditIsStrictScope(e.target.checked)}
-                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-                  />
-                  <span className="flex items-center gap-1">
-                    <Lock className="w-3.5 h-3.5 text-indigo-600" />
-                    公開範囲のみ表示（指定拠点・部署以外のユーザーには限定非表示）
-                  </span>
-                </label>
-              </div>
+              <TopicScopeSelector
+                scopeMode={editScopeMode}
+                onScopeModeChange={setEditScopeMode}
+                selectedOffice={editOffice}
+                onOfficeChange={setEditOffice}
+                selectedDivision={editDivision}
+                onDivisionChange={setEditDivision}
+                officeNames={officeNames}
+                divisionNames={divisionNames}
+                targetUserIds={editTargetUserIds}
+                onTargetUserIdsChange={setEditTargetUserIds}
+                targetGroupName={editTargetGroupName}
+                onTargetGroupNameChange={setEditTargetGroupName}
+                isStrictScope={editIsStrictScope}
+                onStrictScopeChange={setEditIsStrictScope}
+                currentUser={currentUser}
+                authorId={topic.author?.id || currentUser?.id}
+                users={users}
+              />
 
               <div className="relative">
                 <label className="block text-xs font-bold text-slate-700 mb-1">内容 <span className="text-red-500">*</span></label>
@@ -1553,39 +1563,89 @@ export function TopicDetailModal({
             /* STANDARD VIEW MODE */
             <>
               {/* Metadata Badges */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                  拠点: {resolveOfficeName(topic.officeId || topic.office, offices) || '全社'}
-                </span>
-                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
-                  <Users className="w-3.5 h-3.5 text-slate-500" />
-                  部署: {resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署'}
-                </span>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasTopicTargetMembers(topic) ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowTargetMembersList(prev => !prev)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                      title="クリックして対象メンバーを表示"
+                    >
+                      <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>対象: {getTopicScopeBadgeLabel(topic, offices, divisions)}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
+                        <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                        拠点: {resolveOfficeName(topic.officeId || topic.office, offices) || '全社'}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
+                        <Users className="w-3.5 h-3.5 text-slate-500" />
+                        部署: {resolveDivisionName(topic.divisionId || topic.division, divisions) || '全部署'}
+                      </span>
+                    </>
+                  )}
 
-                {topic.isStrictScope && (
-                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg" title="指定拠点・部署以外のユーザーには限定非表示">
-                    <Lock className="w-3.5 h-3.5 text-rose-600" />
-                    公開範囲限定
-                  </span>
+                  {topic.isStrictScope && (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg"
+                      title={hasTopicTargetMembers(topic) ? '指定メンバー以外のユーザーには限定非表示' : '指定拠点・部署以外のユーザーには限定非表示'}
+                    >
+                      <Lock className="w-3.5 h-3.5 text-rose-600" />
+                      公開範囲限定
+                    </span>
+                  )}
+
+                  {topic.hasPeriod && topic.startDate && topic.endDate && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg">
+                      <CalendarIcon className="w-3.5 h-3.5 text-amber-600" />
+                      公開期間: {topic.startDate} ～ {topic.endDate}
+                    </span>
+                  )}
+
+                  {topic.tags && topic.tags.map(tag => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-0.5 text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100"
+                    >
+                      <Tag className="w-3 h-3 text-indigo-500" />
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+
+                {hasTopicTargetMembers(topic) && showTargetMembersList && (
+                  <div className="p-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-indigo-700 mr-1">対象メンバー:</span>
+                    {(topic.targetUserIds || []).map(uid => {
+                      const matched =
+                        (users || []).find(u => String(u.id) === String(uid) || String(u.loginId) === String(uid)) ||
+                        (currentUser && String(currentUser.id) === String(uid) ? currentUser : null);
+                      const displayName = matched?.name || (String(topic.author?.id) === String(uid) ? topic.author?.name : uid);
+                      return (
+                        <span
+                          key={uid}
+                          onClick={() => matched && triggerOpenUserModal(matched)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-indigo-200/80 text-[11px] font-semibold text-slate-700 ${
+                            matched ? 'cursor-pointer hover:border-indigo-400 hover:text-indigo-700' : ''
+                          }`}
+                        >
+                          {matched && (
+                            <img
+                              src={getAvatarUrl(matched.avatarUrl)}
+                              alt={matched.name}
+                              onError={handleAvatarError}
+                              className="w-4 h-4 rounded-full object-cover shrink-0"
+                            />
+                          )}
+                          <span>{displayName}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
                 )}
-
-                {topic.hasPeriod && topic.startDate && topic.endDate && (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg">
-                    <CalendarIcon className="w-3.5 h-3.5 text-amber-600" />
-                    公開期間: {topic.startDate} ～ {topic.endDate}
-                  </span>
-                )}
-
-                {topic.tags && topic.tags.map(tag => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-0.5 text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100"
-                  >
-                    <Tag className="w-3 h-3 text-indigo-500" />
-                    #{tag}
-                  </span>
-                ))}
               </div>
 
               {activeTab === 'content' ? (

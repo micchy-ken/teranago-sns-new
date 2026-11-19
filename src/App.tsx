@@ -72,6 +72,7 @@ import { filterStepsForApplicant, resolveApproverForStep, getSupervisorAtLevel }
 import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
 import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
+import { hasTopicTargetMembers, canUserViewTopic, getTopicScopeBadgeLabel } from './utils/boardHelpers';
 import { RecurrenceActionScope } from './components/RecurrenceActionModal';
 import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/urlParams';
 import { initColorTheme, initFontSize, applyFontSize, applyColorTheme, applyNotificationWindowSize } from './utils/theme';
@@ -1590,6 +1591,22 @@ export default function App() {
             (typeof detailsObj.body === 'string' && detailsObj.body) ||
             (typeof t.content === 'string' ? t.content : '');
 
+          let parsedTargetUserIds: string[] = [];
+          if (Array.isArray(t.targetUserIds)) {
+            parsedTargetUserIds = t.targetUserIds.map(String).filter(Boolean);
+          } else if (typeof t.targetUserIds === 'string' && t.targetUserIds.trim()) {
+            try {
+              const p = JSON.parse(t.targetUserIds);
+              if (Array.isArray(p)) {
+                parsedTargetUserIds = p.map(String).filter(Boolean);
+              }
+            } catch (_) {
+              parsedTargetUserIds = t.targetUserIds.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+          } else if (Array.isArray(detailsObj.targetUserIds)) {
+            parsedTargetUserIds = detailsObj.targetUserIds.map(String).filter(Boolean);
+          }
+
           return {
             id: String(t.id),
             category: t.category || 'general',
@@ -1598,9 +1615,14 @@ export default function App() {
             createdAt: t.createdAt,
             views: t.views || 0,
             likes: t.likes || 0,
+            officeId: t.officeId || undefined,
             office: t.office || '全社',
+            divisionId: t.divisionId || undefined,
             division: t.division || '全部署',
             scope: t.scope || '全社',
+            isStrictScope: t.isStrictScope === true || t.isStrictScope === 1,
+            targetUserIds: parsedTargetUserIds,
+            targetGroupName: t.targetGroupName || detailsObj.targetGroupName || '',
             tags: Array.isArray(t.tags) ? t.tags : (typeof t.tags === 'string' ? t.tags.split(',').map((s: string) => s.trim()).filter(Boolean) : []),
             isPinned: t.isPinned === true || t.isPinned === 1,
             pinnedUntil: t.pinnedUntil || detailsObj.pinnedUntil || null,
@@ -1668,7 +1690,22 @@ export default function App() {
           for (let i = 0; i < mergedList.length; i++) {
             const m = mergedList[i];
             const p = prevTopics[i];
-            if (!p || p.id !== m.id || p.title !== m.title || p.content !== m.content || p.isPinned !== m.isPinned || p.views !== m.views || p.likes !== m.likes || p.commentsCount !== m.commentsCount) {
+            if (
+              !p ||
+              p.id !== m.id ||
+              p.title !== m.title ||
+              p.content !== m.content ||
+              p.office !== m.office ||
+              p.division !== m.division ||
+              p.scope !== m.scope ||
+              !!p.isStrictScope !== !!m.isStrictScope ||
+              (p.targetGroupName || '') !== (m.targetGroupName || '') ||
+              (p.targetUserIds || []).join(',') !== (m.targetUserIds || []).join(',') ||
+              p.isPinned !== m.isPinned ||
+              p.views !== m.views ||
+              p.likes !== m.likes ||
+              p.commentsCount !== m.commentsCount
+            ) {
               isChanged = true;
               break;
             }
@@ -2326,18 +2363,56 @@ export default function App() {
       markTopicAsRead(userState.id, tempId);
     }
 
-    // 全ユーザーに掲示板のプッシュ通知を配信
-    triggerPushNotification({
-      targetUserId: 'all',
-      excludeUserId: topicData.author.id,
-      title: `📢 掲示板新着: ${topicData.title}`,
-      body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
-      url: `/?tab=board&topicId=${tempId}`,
-      tag: `topic-${tempId}`
-    });
+    const isMemberScoped = hasTopicTargetMembers(topicData);
+    const scopeLabelForEmail = getTopicScopeBadgeLabel(topicData, offices, divisions);
+
+    // 掲示板プッシュ通知・メール通知の配信先決定
+    let targetBoardUsers: User[] = [];
+    if (isMemberScoped) {
+      const targetIdSet = new Set((topicData.targetUserIds || []).map(String));
+      targetBoardUsers = usersList.filter(
+        u => String(u.id) !== String(topicData.author.id) && targetIdSet.has(String(u.id))
+      );
+      const pushRecipientIds = Array.from(targetIdSet).filter(id => id !== String(topicData.author.id));
+      if (pushRecipientIds.length > 0) {
+        triggerPushNotification({
+          targetUserIds: pushRecipientIds,
+          excludeUserId: topicData.author.id,
+          title: `📢 掲示板新着: ${topicData.title}`,
+          body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
+          url: `/?tab=board&topicId=${tempId}`,
+          tag: `topic-${tempId}`
+        });
+      }
+    } else if (topicData.isStrictScope) {
+      targetBoardUsers = usersList.filter(
+        u => String(u.id) !== String(topicData.author.id) && canUserViewTopic(topicData, u, offices, divisions)
+      );
+      const pushRecipientIds = targetBoardUsers.map(u => String(u.id));
+      if (pushRecipientIds.length > 0) {
+        triggerPushNotification({
+          targetUserIds: pushRecipientIds,
+          excludeUserId: topicData.author.id,
+          title: `📢 掲示板新着: ${topicData.title}`,
+          body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
+          url: `/?tab=board&topicId=${tempId}`,
+          tag: `topic-${tempId}`
+        });
+      }
+    } else {
+      targetBoardUsers = usersList.filter(u => String(u.id) !== String(topicData.author.id));
+      // 全ユーザーに掲示板のプッシュ通知を配信
+      triggerPushNotification({
+        targetUserId: 'all',
+        excludeUserId: topicData.author.id,
+        title: `📢 掲示板新着: ${topicData.title}`,
+        body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
+        url: `/?tab=board&topicId=${tempId}`,
+        tag: `topic-${tempId}`
+      });
+    }
 
     // 掲示板メール通知をユーザー設定に応じて配信
-    const targetBoardUsers = usersList.filter(u => u.id !== topicData.author.id);
     if (targetBoardUsers.length > 0) {
       dispatchNotificationEmail(targetBoardUsers, {
         category: 'bulletin',
@@ -2347,7 +2422,7 @@ export default function App() {
         details: [
           { label: 'カテゴリ', value: topicData.category || '掲示' },
           { label: 'タイトル', value: topicData.title },
-          { label: '投稿拠点', value: topicData.office || '全社' },
+          { label: '公開範囲', value: scopeLabelForEmail },
           { label: '投稿者', value: topicData.author.name },
         ],
         mainContent: topicData.content,
@@ -2367,7 +2442,10 @@ export default function App() {
           author: topicData.author,
           office: topicData.office || '全社',
           division: topicData.division || '全部署',
-          scope: topicData.scope || '全社',
+          scope: topicData.scope || (isMemberScoped ? 'members' : '全社'),
+          isStrictScope: !!topicData.isStrictScope,
+          targetUserIds: topicData.targetUserIds || [],
+          targetGroupName: topicData.targetGroupName || '',
           tags: topicData.tags || [],
           isPinned: topicData.isPinned ? 1 : 0,
           pinnedUntil: topicData.pinnedUntil || null,
@@ -2455,6 +2533,10 @@ export default function App() {
         currentInState.category === updatedTopic.category &&
         currentInState.office === updatedTopic.office &&
         currentInState.division === updatedTopic.division &&
+        currentInState.scope === updatedTopic.scope &&
+        !!currentInState.isStrictScope === !!updatedTopic.isStrictScope &&
+        (currentInState.targetGroupName || '') === (updatedTopic.targetGroupName || '') &&
+        (currentInState.targetUserIds || []).join(',') === (updatedTopic.targetUserIds || []).join(',') &&
         currentInState.isPinned === updatedTopic.isPinned &&
         currentInState.pinnedUntil === updatedTopic.pinnedUntil &&
         currentInState.hasPeriod === updatedTopic.hasPeriod &&
@@ -2487,8 +2569,10 @@ export default function App() {
           author: updatedTopic.author,
           office: updatedTopic.office || '全社',
           division: updatedTopic.division || '全部署',
-          scope: updatedTopic.scope || '全社',
+          scope: updatedTopic.scope || (hasTopicTargetMembers(updatedTopic) ? 'members' : '全社'),
           isStrictScope: !!updatedTopic.isStrictScope,
+          targetUserIds: updatedTopic.targetUserIds || [],
+          targetGroupName: updatedTopic.targetGroupName || '',
           tags: updatedTopic.tags || [],
           isPinned: updatedTopic.isPinned ? 1 : 0,
           pinnedUntil: updatedTopic.pinnedUntil || null,

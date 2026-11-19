@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.19.6',
+  version: '2026.11.19.9',
   date: '2026-11-19',
-  releaseNumber: 6,
+  releaseNumber: 9,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.19 #6 (JST)',
-  description: 'マイタスクサマリーのSQL軽量絞り込み・インデックス追加・読み込み時同期書込廃止・レスポンス軽量化・重複API取得の解消'
+  display: 'v2026.11.19 #9 (JST)',
+  description: 'プロジェクトの資料・Todo種別を固定化（リスト表示の資料ステータス固定、詳細モーダル上部タブの切替廃止、資料⇔Todo間の移動禁止）'
 } as const;

@@ -5534,6 +5534,9 @@ async function startServer() {
           office: topic.office || '全社',
           division: topic.division || '全部署',
           scope: topic.scope || '全社',
+          isStrictScope: !!topic.isStrictScope,
+          targetUserIds: Array.isArray(topic.targetUserIds) ? topic.targetUserIds.map(String) : [],
+          targetGroupName: topic.targetGroupName || '',
           tags: Array.isArray(topic.tags) ? topic.tags : (topic.tags ? [topic.tags] : []),
           isPinned: isCurrentlyPinned,
           pinnedUntil: topic.pinnedUntil || null,
@@ -5619,6 +5622,9 @@ async function startServer() {
         const isCurrentlyPinned = isPollAutoPinned || (!!topic.isPinned && (!topic.pinnedUntil || new Date(topic.pinnedUntil).getTime() > nowMs));
         return {
           ...topic,
+          isStrictScope: !!topic.isStrictScope,
+          targetUserIds: Array.isArray(topic.targetUserIds) ? topic.targetUserIds.map(String) : [],
+          targetGroupName: topic.targetGroupName || '',
           isPinned: isCurrentlyPinned,
           pinnedUntil: topic.pinnedUntil || null,
           pinnedDuration: topic.pinnedDuration || null,
@@ -5680,6 +5686,9 @@ async function startServer() {
 
       res.json({
         ...topic,
+        isStrictScope: !!topic.isStrictScope,
+        targetUserIds: Array.isArray(topic.targetUserIds) ? topic.targetUserIds.map(String) : [],
+        targetGroupName: topic.targetGroupName || '',
         isPinned: isCurrentlyPinned,
         views: topicViewers.length || topic.views || 0,
         comments: topicComments,
@@ -5696,6 +5705,9 @@ async function startServer() {
     try {
       const bulletinsList = loadBulletins();
       const nowIso = new Date().toISOString();
+      const normalizedTargetUserIds = Array.isArray(req.body.targetUserIds)
+        ? Array.from(new Set(req.body.targetUserIds.map((v: any) => String(v || '').trim()).filter(Boolean)))
+        : [];
       const newTopic = {
         id: req.body.id || `topic-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         title: req.body.title || '（無題）',
@@ -5704,7 +5716,10 @@ async function startServer() {
         tags: Array.isArray(req.body.tags) ? req.body.tags : (req.body.tags ? [req.body.tags] : []),
         office: req.body.office || '全社',
         division: req.body.division || '全部署',
-        scope: req.body.scope || '全社',
+        scope: req.body.scope || (normalizedTargetUserIds.length > 0 ? 'members' : '全社'),
+        isStrictScope: !!req.body.isStrictScope,
+        targetUserIds: normalizedTargetUserIds,
+        targetGroupName: req.body.targetGroupName ? String(req.body.targetGroupName).trim() : '',
         author: req.body.author || { id: 'unknown', name: '匿名' },
         attachments: req.body.attachments || [],
         hasPeriod: !!req.body.hasPeriod,
@@ -5722,14 +5737,16 @@ async function startServer() {
       bulletinsList.unshift(newTopic);
       saveBulletins(bulletinsList);
 
-      // 自動通知作成
+      // 自動通知作成（マイグループ・指定メンバー指定時は対象メンバーのみ通知）
       try {
         const authorName = newTopic.author?.name || 'メンバー';
         const allUsers = loadUsers();
+        const targetIdSet = normalizedTargetUserIds.length > 0 ? new Set(normalizedTargetUserIds) : null;
         allUsers.forEach((u: any) => {
-          if (String(u.id) !== String(newTopic.author?.id)) {
+          const uid = String(u.id);
+          if (uid !== String(newTopic.author?.id) && (!targetIdSet || targetIdSet.has(uid))) {
             createNotification({
-              user_id: String(u.id),
+              user_id: uid,
               type: 'bulletin',
               title: newTopic.poll ? `【アンケート】${authorName}さんがアンケート付きトピックを投稿しました` : `【掲示板】${authorName}さんが新しいトピックを投稿しました`,
               contents: `${newTopic.title}`,
@@ -5745,13 +5762,19 @@ async function startServer() {
 
       // Web Push 通知
       try {
-        await sendPushNotificationToUser({
+        const pushParams: any = {
           excludeUserId: newTopic.author?.id,
           title: newTopic.poll ? `【アンケート】${newTopic.author?.name || '社員'}さんからアンケートのお願い` : `【掲示板】${newTopic.author?.name || '社員'}さんの新規投稿`,
           body: `${newTopic.title}`,
           url: `/?tab=board&topicId=${newTopic.id}`,
           data: { topicId: newTopic.id, tab: 'board' }
-        });
+        };
+        if (normalizedTargetUserIds.length > 0) {
+          pushParams.targetUserIds = normalizedTargetUserIds.filter(id => id !== String(newTopic.author?.id));
+        }
+        if (!pushParams.targetUserIds || pushParams.targetUserIds.length > 0) {
+          await sendPushNotificationToUser(pushParams);
+        }
       } catch (pushErr) {}
 
       res.status(201).json(newTopic);
@@ -5785,9 +5808,18 @@ async function startServer() {
         }
       }
 
+      const nextTargetUserIds = req.body.targetUserIds !== undefined
+        ? (Array.isArray(req.body.targetUserIds)
+          ? Array.from(new Set(req.body.targetUserIds.map((v: any) => String(v || '').trim()).filter(Boolean)))
+          : [])
+        : (Array.isArray(bulletinsList[idx].targetUserIds) ? bulletinsList[idx].targetUserIds : []);
+
       bulletinsList[idx] = {
         ...bulletinsList[idx],
         ...req.body,
+        isStrictScope: req.body.isStrictScope !== undefined ? !!req.body.isStrictScope : !!bulletinsList[idx].isStrictScope,
+        targetUserIds: nextTargetUserIds,
+        targetGroupName: req.body.targetGroupName !== undefined ? String(req.body.targetGroupName || '').trim() : (bulletinsList[idx].targetGroupName || ''),
         isPinned: !!req.body.isPinned,
         pinnedUntil: req.body.isPinned ? (req.body.pinnedUntil || null) : null,
         pinnedDuration: req.body.isPinned ? (req.body.pinnedDuration || null) : null,
