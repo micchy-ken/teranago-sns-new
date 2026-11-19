@@ -78,6 +78,7 @@ import { parseAppQueryParams, updateBrowserUrl, AppQueryParams } from './utils/u
 import { initColorTheme, initFontSize, applyFontSize, applyColorTheme, applyNotificationWindowSize } from './utils/theme';
 import { logActivity } from './utils/logger';
 import { schedulePreviewPrefetch } from './utils/previewPrefetch';
+import { isToggleableMenuKey, isOptionalMenuVisible } from './utils/menuVisibility';
 
 // Initialize saved color theme & font size scale
 initColorTheme();
@@ -114,7 +115,11 @@ const mapUserFromApi = (apiUser: any): User => {
     emailNotifications: {
       ...(cachedPrefs?.emailNotifications || {}),
       ...(preferences?.emailNotifications || {}),
-    }
+    },
+    menuVisibility: {
+      ...(cachedPrefs?.menuVisibility || {}),
+      ...(preferences?.menuVisibility || {}),
+    },
   };
 
   const officeId = apiUser.officeId || mergedPreferences?.officeId || undefined;
@@ -1435,6 +1440,16 @@ export default function App() {
   ) => {
     const u = targetUser || userState;
     if (!u?.id) return;
+    if (!isOptionalMenuVisible(u, 'projects')) {
+      setProjectSummary({
+        myPendingCount: 0,
+        overdueCount: 0,
+        dueSoonCount: 0,
+        tasks: [],
+      });
+      setIsProjectSummaryLoading(false);
+      return;
+    }
     const uid = String(u.id);
     const now = Date.now();
     const isSameUser = lastProjectSummaryFetchRef.current.userId === uid;
@@ -1492,6 +1507,30 @@ export default function App() {
     projectSummaryInFlightRef.current = runFetch;
     return runFetch;
   };
+
+  // 表示中のタブが個人設定・管理者設定で非表示に切り替えられた場合はマイページへ自動復帰
+  useEffect(() => {
+    if (isToggleableMenuKey(activeTab) && !isOptionalMenuVisible(userState, activeTab)) {
+      setActiveTab('mypage');
+    }
+  }, [activeTab, userState?.preferences?.menuVisibility]);
+
+  // プロジェクトメニューをOFF→ONへ再表示した際にマイタスクサマリーを再取得
+  const prevProjectsVisibleRef = useRef<boolean>(isOptionalMenuVisible(userState, 'projects'));
+  useEffect(() => {
+    const isNowVisible = isOptionalMenuVisible(userState, 'projects');
+    if (isNowVisible && !prevProjectsVisibleRef.current && isAuthenticated && userState?.id) {
+      refetchProjectTasks(userState, { force: true });
+    } else if (!isNowVisible && prevProjectsVisibleRef.current) {
+      setProjectSummary({
+        myPendingCount: 0,
+        overdueCount: 0,
+        dueSoonCount: 0,
+        tasks: [],
+      });
+    }
+    prevProjectsVisibleRef.current = isNowVisible;
+  }, [isAuthenticated, userState?.id, userState?.preferences?.menuVisibility?.projects]);
 
   const refetchTopics = async (currentUsers = usersList, options?: { summary?: boolean }) => {
     try {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Hash, Home, Bookmark, User, Calendar as CalendarIcon, FileText, MessageSquare, Phone, ClipboardList, Monitor, Shield, HardDrive, Users, ShieldAlert, Wrench, ChevronDown, ChevronRight, FileCheck2, FolderArchive, BookOpen, ExternalLink, CalendarDays, HardHat, Undo2, Camera, Boxes, FolderKanban } from 'lucide-react';
 import { Post, BoardTopic, User as UserType } from '../types';
+import { isToggleableMenuKey, isOptionalMenuVisible } from '../utils/menuVisibility';
 
 export type AppTab = 'timeline' | 'calendar' | 'inspection_scheduler' | 'inspection_report' | 'site_management' | 'assets' | 'projects' | 'workflow' | 'board' | 'chat' | 'memo' | 'documents' | 'daily_report' | 'files' | 'members' | 'mypage' | 'admin' | 'safety_confirmation' | 'photo_reports';
 
@@ -101,8 +102,11 @@ export const Sidebar = React.memo(function Sidebar({
     (currentUser?.division && currentUser.division.includes('保守'));
   const reportLabel = isMaintenanceUser ? '保守日報' : '週報';
 
-  // ページ・メニュー表示権限判定（点検予定管理・共有ファイル・安否確認発動は許可者のみ表示）
+  // ページ・メニュー表示権限判定（個人/管理者設定のメニュー表示ON/OFFを管理者本人にも反映）
   const isTabAllowed = (tabId: AppTab) => {
+    if (isToggleableMenuKey(tabId) && !isOptionalMenuVisible(currentUser, tabId)) {
+      return false;
+    }
     const isSystemAdmin = currentUser?.isAdmin === true || currentUser?.role === 'admin' || (currentUser as any)?.id === 'u1';
     if (isSystemAdmin) return true;
     if (tabId === 'inspection_scheduler') {

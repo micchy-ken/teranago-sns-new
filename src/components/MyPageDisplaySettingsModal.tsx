@@ -39,6 +39,7 @@ interface MyPageDisplaySettingsModalProps {
   currentCounts: Required<MyPageSectionCounts>;
   currentEnvSettings?: MyPageEnvSettings;
   targetSectionId?: string | null;
+  hiddenSectionIds?: string[];
   onSave: (newCounts: Required<MyPageSectionCounts>, newEnvSettings: MyPageEnvSettings) => Promise<void> | void;
 }
 
@@ -48,6 +49,7 @@ export const MyPageDisplaySettingsModal: React.FC<MyPageDisplaySettingsModalProp
   currentCounts,
   currentEnvSettings,
   targetSectionId,
+  hiddenSectionIds = [],
   onSave,
 }) => {
   const [counts, setCounts] = useState<Required<MyPageSectionCounts>>(currentCounts);
@@ -260,7 +262,9 @@ export const MyPageDisplaySettingsModal: React.FC<MyPageDisplaySettingsModalProp
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {sectionsConfig.map((sec) => {
+              {sectionsConfig
+                .filter((sec) => !hiddenSectionIds.includes(sec.id))
+                .map((sec) => {
                 const Icon = sec.icon;
                 const isTarget = targetSectionId === sec.id;
                 const currentValue = counts[sec.id];
@@ -322,6 +326,14 @@ export const MyPageDisplaySettingsModal: React.FC<MyPageDisplaySettingsModalProp
                 );
               })}
             </div>
+            {hiddenSectionIds.length > 0 && (
+              <p className="text-[11px] text-slate-500 bg-slate-100/80 border border-slate-200/80 rounded-lg px-3 py-2">
+                ※ メニュー表示設定でOFFにしている項目（{sectionsConfig
+                  .filter((sec) => hiddenSectionIds.includes(sec.id))
+                  .map((sec) => sec.title)
+                  .join('・')}）は非表示になっています。再表示するには「個人設定」→「メニュー表示設定」からONに切り替えてください。
+              </p>
+            )}
           </div>
 
           {/* ② 環境設定・表示カスタマイズ（拡張枠） */}

@@ -99,6 +99,21 @@ export interface AssetViewSettings {
   columnWidths?: Record<string, Record<string, number>>;
 }
 
+export type ToggleableMenuKey =
+  | 'projects'
+  | 'daily_report'
+  | 'inspection_report'
+  | 'site_management'
+  | 'assets';
+
+export interface MenuVisibilitySettings {
+  projects?: boolean;          // プロジェクト（デフォルト: true / ON、マイページ連動）
+  daily_report?: boolean;      // 週報・保守日報（デフォルト: true / ON、マイページ連動）
+  inspection_report?: boolean; // 点検報告書（デフォルト: true / ON）
+  site_management?: boolean;   // 現場管理（デフォルト: true / ON）
+  assets?: boolean;            // 資産管理（デフォルト: true / ON）
+}
+
 export interface UserPreferences {
   mypageSectionOrder?: string[];
   mypageSectionCounts?: MyPageSectionCounts; // マイページ各セクションの表示件数
@@ -107,6 +122,7 @@ export interface UserPreferences {
   isUtilityOpen?: boolean; // ユーティリティメニューの開閉状態（記憶用）
   emailNotifications?: EmailNotificationSettings;
   allowedTabs?: string[];
+  menuVisibility?: MenuVisibilitySettings; // 個別メニュー表示ON/OFF設定（デフォルト: すべてON）
   showInspectionScheduler?: boolean; // 点検予定管理メニューの表示（デフォルト: false / OFF）
   showSharedFiles?: boolean;         // 共有ファイルメニューの表示（デフォルト: false / OFF）
   showSafetyConfirmation?: boolean;  // 安否確認発動メニューの表示（デフォルト: false / OFF）

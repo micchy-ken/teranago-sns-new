@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { MaintenanceOfficeConfigAdmin } from './admin/MaintenanceOfficeConfigAdmin';
 import { DrivingLogOfficeConfigAdmin } from './admin/DrivingLogOfficeConfigAdmin';
 import { SingleMemberSelect } from './admin/SingleMemberSelect';
+import { BulkMenuVisibilityAdmin } from './admin/BulkMenuVisibilityAdmin';
 import { 
   Shield, 
   Building2, 
@@ -62,7 +63,8 @@ import {
   ListChecks
 } from 'lucide-react';
 import { InspectionCheckItemMasterModal } from './inspection/InspectionCheckItemMasterModal';
-import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation } from '../types';
+import { User, OfficeMaster, DivisionMaster, PositionMaster, OfficeType, ApprovalFlowRule, ApprovalStepConfig, ApplicationType, ApproverType, ItemMaster, WorkflowApplication, ApplicationStatus, UserInvitation, MenuVisibilitySettings, ToggleableMenuKey } from '../types';
+import { TOGGLEABLE_MENUS, DEFAULT_MENU_VISIBILITY, getMenuVisibilitySettings, getToggleableMenuLabel } from '../utils/menuVisibility';
 import { sortUsers, sortUsersByDivision } from '../utils/userSort';
 import {
   resolveOffice,
@@ -108,7 +110,7 @@ interface AdminPanelProps {
   onUpdatePosition?: (position: PositionMaster) => void;
   onDeletePosition?: (id: string) => void;
   onAddUser: (user: Omit<User, 'id'>) => void;
-  onUpdateUser: (user: User) => void;
+  onUpdateUser: (user: User) => void | Promise<void>;
   onDeleteUser: (id: string) => void;
   onToggleUserAdmin: (userId: string) => void;
   onSwitchUser?: (user: User) => void;
@@ -171,8 +173,8 @@ export function AdminPanel({
   const [workflowSearchQuery, setWorkflowSearchQuery] = useState('');
   const [workflowStatusFilter, setWorkflowStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected' | 'draft'>('all');
 
-  // ユーザー並び順（部署別）管理用状態
-  const [userViewMode, setUserViewMode] = useState<'list' | 'reorder'>('list');
+  // ユーザー並び順（部署別）・主要メニュー一括管理用状態
+  const [userViewMode, setUserViewMode] = useState<'list' | 'reorder' | 'bulk_menu'>('list');
   const [reorderDivision, setReorderDivision] = useState<string>('all');
   const [reorderOffice, setReorderOffice] = useState<string>('all');
   const [reorderList, setReorderList] = useState<User[]>([]);
@@ -481,6 +483,7 @@ export function AdminPanel({
     showInspectionScheduler: false, // デフォルト: OFF
     showSharedFiles: false,         // デフォルト: OFF
     showSafetyConfirmation: false,  // デフォルト: OFF
+    menuVisibility: { ...DEFAULT_MENU_VISIBILITY } as Required<MenuVisibilitySettings>, // デフォルト: すべてON
   });
   const [userFormError, setUserFormError] = useState<string | null>(null);
 
@@ -633,6 +636,7 @@ export function AdminPanel({
       showInspectionScheduler: false,
       showSharedFiles: false,
       showSafetyConfirmation: false,
+      menuVisibility: { ...DEFAULT_MENU_VISIBILITY },
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -667,6 +671,7 @@ export function AdminPanel({
       showInspectionScheduler: user.preferences?.showInspectionScheduler === true,
       showSharedFiles: user.preferences?.showSharedFiles === true,
       showSafetyConfirmation: user.preferences?.showSafetyConfirmation === true,
+      menuVisibility: getMenuVisibilitySettings(user),
     });
     setUserFormError(null);
     setIsUserModalOpen(true);
@@ -743,6 +748,7 @@ export function AdminPanel({
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
           hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
+          menuVisibility: { ...userFormData.menuVisibility },
         } as any,
       });
     } else {
@@ -783,6 +789,7 @@ export function AdminPanel({
           hideInspectionScheduler: !userFormData.showInspectionScheduler,
           hideSharedFiles: !userFormData.showSharedFiles,
           hideSafetyConfirmation: !userFormData.showSafetyConfirmation,
+          menuVisibility: { ...userFormData.menuVisibility },
         } as any,
       });
     }
@@ -2243,7 +2250,7 @@ export function AdminPanel({
               <button
                 type="button"
                 onClick={() => setUserViewMode('reorder')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                   userViewMode === 'reorder'
                     ? 'bg-indigo-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -2251,6 +2258,18 @@ export function AdminPanel({
               >
                 <ArrowUpDown className="w-3.5 h-3.5" />
                 部署別・メンバー並び替え
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserViewMode('bulk_menu')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  userViewMode === 'bulk_menu'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                主要メニュー一括ON/OFF
               </button>
             </div>
 
@@ -2272,6 +2291,17 @@ export function AdminPanel({
             )}
           </div>
 
+          {/* 主要メニュー一括ON/OFFモード */}
+          {userViewMode === 'bulk_menu' ? (
+            <BulkMenuVisibilityAdmin
+              allUsers={allUsers}
+              offices={offices}
+              divisions={divisions}
+              positions={positions}
+              onUpdateUser={onUpdateUser}
+            />
+          ) : (
+          <>
           {/* Action bar: Search, Office & Division filters, Add user button */}
           {userViewMode === 'list' && userTabSubMode === 'members' ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2985,6 +3015,8 @@ export function AdminPanel({
                 </button>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
@@ -5104,6 +5136,79 @@ END;`}
                       className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500 cursor-pointer shrink-0"
                     />
                   </label>
+                </div>
+              </div>
+
+              {/* 主要メニューの表示 ON / OFF（デフォルトON・マイページ連動） */}
+              <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="block text-xs font-bold text-slate-700">
+                    主要メニューの表示 ON / OFF
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 font-medium">※デフォルトはON（表示）</span>
+                    {TOGGLEABLE_MENUS.some((m) => !userFormData.menuVisibility[m.key]) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUserFormData({
+                            ...userFormData,
+                            menuVisibility: { ...DEFAULT_MENU_VISIBILITY },
+                          })
+                        }
+                        className="px-2 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded transition-colors cursor-pointer whitespace-nowrap"
+                      >
+                        すべてON
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 divide-y divide-slate-200/80">
+                  {TOGGLEABLE_MENUS.map((def) => {
+                    const displayLabel = getToggleableMenuLabel(def, {
+                      division: userFormData.division,
+                      department: [userFormData.office, userFormData.division, userFormData.position].filter(Boolean).join(' '),
+                    });
+                    const checked = userFormData.menuVisibility[def.key as ToggleableMenuKey] !== false;
+                    return (
+                      <label
+                        key={def.key}
+                        className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0 cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-slate-800 whitespace-nowrap">
+                              「{displayLabel}」を表示
+                            </span>
+                            {def.mypageSectionId && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded whitespace-nowrap">
+                                マイページ連動
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500 block mt-0.5">
+                            {def.mypageSectionId
+                              ? `OFFにするとサイドバーとマイページの「${def.mypageCardLabel}」カードが非表示になります`
+                              : `OFFにすると、このメンバーのサイドバーから「${displayLabel}」が非表示になります`}
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setUserFormData({
+                              ...userFormData,
+                              menuVisibility: {
+                                ...userFormData.menuVisibility,
+                                [def.key]: e.target.checked,
+                              },
+                            })
+                          }
+                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer shrink-0"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 

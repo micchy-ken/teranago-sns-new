@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport, EmailNotificationSettings, ApplicationType } from '../types';
+import { User, CalendarEvent, BoardTopic, Memo, WorkflowApplication, ChatRoom, OfficeMaster, DivisionMaster, PositionMaster, DailyReport, EmailNotificationSettings, ApplicationType, ToggleableMenuKey } from '../types';
 import { AppTab } from './Sidebar';
 import { getAvatarUrl, handleAvatarError, SILHOUETTE_SVG, optimizeAvatarFile } from '../utils/avatar';
 import { API_BASE_URL } from '../config/api';
@@ -105,8 +105,21 @@ import {
   FolderKanban,
   Circle,
   ClipboardList,
+  LayoutGrid,
+  FileCheck2,
+  HardHat,
+  Boxes,
 } from 'lucide-react';
 import { AppFontSize, FONT_SIZE_OPTIONS, getSavedFontSize, applyFontSize, ColorTheme, THEME_OPTIONS, getSavedTheme, applyColorTheme } from '../utils/theme';
+import {
+  TOGGLEABLE_MENUS,
+  DEFAULT_MENU_VISIBILITY,
+  getMenuVisibilitySettings,
+  isOptionalMenuVisible,
+  isMyPageSectionVisibleByMenu,
+  getHiddenMyPageSectionIdsByMenu,
+  getToggleableMenuLabel,
+} from '../utils/menuVisibility';
 import { TopicDetailModal } from './TopicDetailModal';
 import { EventModal } from './EventModal';
 import { GlobalEventDetailModal } from './GlobalEventDetailModal';
@@ -305,7 +318,15 @@ export function MyPage({
   };
 
   const moveSection = (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const step = direction === 'up' ? -1 : 1;
+    let targetIndex = index + step;
+    while (
+      targetIndex >= 0 &&
+      targetIndex < sectionOrder.length &&
+      !isMyPageSectionVisibleByMenu(user, sectionOrder[targetIndex])
+    ) {
+      targetIndex += step;
+    }
     if (targetIndex < 0 || targetIndex >= sectionOrder.length) return;
     const newOrder = [...sectionOrder];
     const [movedItem] = newOrder.splice(index, 1);
@@ -647,6 +668,7 @@ export function MyPage({
 
   // 安否確認 個人メール暗号化設定用状態
   const [isAppearanceSettingsOpen, setIsAppearanceSettingsOpen] = useState(false);
+  const [isMenuVisibilitySettingsOpen, setIsMenuVisibilitySettingsOpen] = useState(false);
   const [isEmergencyEmailOpen, setIsEmergencyEmailOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isICalOpen, setIsICalOpen] = useState(false);
@@ -841,7 +863,11 @@ export function MyPage({
       emailNotifications: {
         ...(u.preferences?.emailNotifications || {}),
         ...(cachedPrefs?.emailNotifications || {}),
-      }
+      },
+      menuVisibility: {
+        ...(cachedPrefs?.menuVisibility || {}),
+        ...(u.preferences?.menuVisibility || {}),
+      },
     };
 
     return {
@@ -1229,8 +1255,15 @@ export function MyPage({
     ? Boolean(externalProjectSummaryLoading)
     : localLoadingProjectSummary;
 
+  const isProjectsMenuVisible = isOptionalMenuVisible(user, 'projects');
+
   const fetchMyProjectSummaryFallback = React.useCallback(async () => {
-    if (hasExternalProjectSummary || !user?.id) return;
+    if (hasExternalProjectSummary || !user?.id || !isProjectsMenuVisible) {
+      if (!isProjectsMenuVisible) {
+        setLocalProjectSummary({ myPendingCount: 0, overdueCount: 0, dueSoonCount: 0, tasks: [] });
+      }
+      return;
+    }
     setLocalLoadingProjectSummary(true);
     try {
       const params = new URLSearchParams({
@@ -1256,17 +1289,17 @@ export function MyPage({
     } finally {
       setLocalLoadingProjectSummary(false);
     }
-  }, [hasExternalProjectSummary, user?.id, user?.name, user?.officeId, user?.office, user?.divisionId, user?.division, user?.isAdmin, user?.role]);
+  }, [hasExternalProjectSummary, isProjectsMenuVisible, user?.id, user?.name, user?.officeId, user?.office, user?.divisionId, user?.division, user?.isAdmin, user?.role]);
 
   useEffect(() => {
-    if (hasExternalProjectSummary) return;
+    if (hasExternalProjectSummary || !isProjectsMenuVisible) return;
     fetchMyProjectSummaryFallback();
     const handleProjectsUpdated = () => {
       fetchMyProjectSummaryFallback();
     };
     window.addEventListener('projects_updated', handleProjectsUpdated);
     return () => window.removeEventListener('projects_updated', handleProjectsUpdated);
-  }, [hasExternalProjectSummary, fetchMyProjectSummaryFallback]);
+  }, [hasExternalProjectSummary, isProjectsMenuVisible, fetchMyProjectSummaryFallback]);
 
   const handleToggleProjectTaskComplete = async (task: MyProjectSummaryTask, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3215,7 +3248,9 @@ export function MyPage({
       {/* メインセクション（D&Dで順序変更可能） */}
       <div className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {sectionOrder.map((sectionId, index) => renderSectionCard(sectionId, index))}
+          {sectionOrder.map((sectionId, index) =>
+            isMyPageSectionVisibleByMenu(user, sectionId) ? renderSectionCard(sectionId, index) : null
+          )}
         </div>
 
         {/* 最下部の並び順リセット＆表示設定 */}
@@ -3832,6 +3867,161 @@ export function MyPage({
                   )}
                 </div>
               </div>
+
+              {/* メニュー表示設定（ON / OFF・マイページカード連動・アコーディオン開閉） */}
+              {(() => {
+                const currentMenuVis = getMenuVisibilitySettings(settingsForm);
+                const enabledCount = TOGGLEABLE_MENUS.filter((m) => currentMenuVis[m.key]).length;
+                const hiddenCount = TOGGLEABLE_MENUS.length - enabledCount;
+                const renderMenuIcon = (key: ToggleableMenuKey) => {
+                  switch (key) {
+                    case 'projects':
+                      return <FolderKanban className="w-4 h-4 text-indigo-600 shrink-0" />;
+                    case 'daily_report':
+                      return <ClipboardList className="w-4 h-4 text-teal-600 shrink-0" />;
+                    case 'inspection_report':
+                      return <FileCheck2 className="w-4 h-4 text-emerald-600 shrink-0" />;
+                    case 'site_management':
+                      return <HardHat className="w-4 h-4 text-amber-600 shrink-0" />;
+                    case 'assets':
+                      return <Boxes className="w-4 h-4 text-sky-600 shrink-0" />;
+                  }
+                };
+                const handleToggleMenuVisibility = (key: ToggleableMenuKey) => {
+                  const nextVis = {
+                    ...currentMenuVis,
+                    [key]: !currentMenuVis[key],
+                  };
+                  setSettingsForm({
+                    ...settingsForm,
+                    preferences: {
+                      ...(settingsForm.preferences || {}),
+                      menuVisibility: nextVis,
+                    },
+                  });
+                };
+                const handleResetAllMenusOn = () => {
+                  setSettingsForm({
+                    ...settingsForm,
+                    preferences: {
+                      ...(settingsForm.preferences || {}),
+                      menuVisibility: { ...DEFAULT_MENU_VISIBILITY },
+                    },
+                  });
+                };
+
+                return (
+                  <div className="pt-4 border-t border-slate-100">
+                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-white transition-all">
+                      <button
+                        type="button"
+                        onClick={() => setIsMenuVisibilitySettingsOpen((prev) => !prev)}
+                        className="w-full p-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 border border-emerald-200 flex items-center justify-center shrink-0">
+                            <LayoutGrid className="w-4 h-4 text-emerald-700" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-xs font-bold text-slate-800">
+                                メニュー表示設定（ON / OFF）
+                              </h3>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                                  hiddenCount > 0
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                }`}
+                              >
+                                {hiddenCount > 0 ? `${enabledCount}/${TOGGLEABLE_MENUS.length} 表示中` : 'すべて表示'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                              プロジェクト・週報・点検報告書・現場管理・資産管理の表示切替（マイページ連動）
+                            </p>
+                          </div>
+                        </div>
+                        <div className="p-1 text-slate-400 shrink-0">
+                          {isMenuVisibilitySettingsOpen ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </div>
+                      </button>
+
+                      {isMenuVisibilitySettingsOpen && (
+                        <div className="p-4 border-t border-slate-200/80 space-y-3 bg-white">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <p className="text-[11px] text-slate-500">
+                              OFFにした項目は左サイドバーから非表示になり、マイページに対応するカードがある項目も連動して非表示になります。
+                            </p>
+                            {hiddenCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleResetAllMenusOn}
+                                className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>すべてONに戻す</span>
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-slate-50/40">
+                            {TOGGLEABLE_MENUS.map((def) => {
+                              const isOn = currentMenuVis[def.key];
+                              const displayLabel = getToggleableMenuLabel(def, settingsForm);
+                              return (
+                                <div
+                                  key={def.key}
+                                  className="px-3.5 py-3 flex items-center justify-between gap-3 bg-white hover:bg-slate-50/70 transition-colors"
+                                >
+                                  <div className="flex items-start gap-2.5 min-w-0">
+                                    <div className="mt-0.5">{renderMenuIcon(def.key)}</div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-xs font-bold text-slate-800 whitespace-nowrap">
+                                          {displayLabel}
+                                        </span>
+                                        {def.mypageSectionId && (
+                                          <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded whitespace-nowrap">
+                                            マイページ連動
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                                        {def.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={isOn}
+                                    aria-label={`${displayLabel}の表示切替`}
+                                    onClick={() => handleToggleMenuVisibility(def.key)}
+                                    className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 focus:outline-none ${
+                                      isOn ? 'bg-indigo-600' : 'bg-slate-300'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`block w-4 h-4 rounded-full bg-white shadow-xs transform transition-transform absolute top-1 ${
+                                        isOn ? 'left-6' : 'left-1'
+                                      }`}
+                                    />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* 🔔 通知センター (メール送信通知設定・トグル開閉) */}
               <div className="pt-4 border-t border-slate-100">
@@ -4700,6 +4890,7 @@ export function MyPage({
         currentCounts={sectionCounts}
         currentEnvSettings={envSettings}
         targetSectionId={targetSettingsSectionId}
+        hiddenSectionIds={getHiddenMyPageSectionIdsByMenu(user)}
         onSave={handleSaveDisplaySettings}
       />
 
