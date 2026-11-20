@@ -15,7 +15,7 @@ const escapedContent = serverContent
 const header = `/**
  * =====================================================================
  * 寺子屋 SNS サーバーサイド・バックエンド (Express & MS SQL Server)
- * 最終更新日時 (最終アップデート): 2026年11月19日 (承認フロー改修フェーズ1：対象拠点×申請種別自動切替・拠点ロール承認者・routes/masters.js dbo.ApprovalFlows targetOfficeIdsJson/priority 自動マイグレーション対応版)
+ * 最終更新日時 (最終アップデート): 2026年11月19日 (本番Organization teranago-sns/po 移行＆セキュリティ監査対応：厳格CORS https://teranago-sns.github.io 許可・SMTP/POP3直書き認証情報完全撤去・CSP frame-ancestors厳格化・招待時scryptハッシュ化対応版)
  * 
  * 【重要：開発サーバーの再起動ループ対策について】
  * nodemon や tsx watch などのウォッチツールを使用してサーバーを起動している場合、
@@ -43,6 +43,11 @@ export interface ServerCodeHistoryItem {
 }
 
 export const SERVER_CODE_HISTORY: ServerCodeHistoryItem[] = [
+  {
+    version: 'v2026.11.19.4',
+    date: '2026-11-19',
+    summary: '本番Organization (teranago-sns/po) 移行＆セキュリティ監査対応：routes/authSession.js 厳格CORSに https://teranago-sns.github.io を追加、routes/email.js・passwords.js・invitations.js のSMTP/POP3認証情報直書き＆パスワードレスポンス露出を完全除去、ワイルドカードCORS/CSP(*)撤去、招待完了時scryptハッシュ化対応版',
+  },
   {
     version: 'v2026.11.19.3',
     date: '2026-11-19',

@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(({ command }) => {
   return {
-    base: command === 'build' ? '/teranago-sns-new/' : '/',
+    base: command === 'build' ? '/po/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       dedupe: ['react', 'react-dom'],

@@ -95,7 +95,7 @@ async function startServer() {
     ) {
       res.setHeader(
         'Content-Security-Policy',
-        "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
+        "frame-ancestors 'self' https://teranago-sns.github.io https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
       );
     } else if (isAiStudioPreviewEnv && !req.path.startsWith('/api')) {
       // AI Studio 開発プレビュー環境では各種プレビュー用親フレーム (*.usercontent.goog / aistudio.google.com 等) からのiframe表示を妨げないよう非APIレスポンスには制限ヘッダーを付与しない
@@ -917,6 +917,8 @@ async function startServer() {
     };
     app.get(`/${fileName}`, handleStaticAsset);
     app.get(`/public/${fileName}`, handleStaticAsset);
+    app.get(`/po/${fileName}`, handleStaticAsset);
+    app.get(`/po/public/${fileName}`, handleStaticAsset);
     app.get(`/teranago-sns-new/${fileName}`, handleStaticAsset);
     app.get(`/teranago-sns-new/public/${fileName}`, handleStaticAsset);
   });
@@ -3206,7 +3208,7 @@ async function startServer() {
         return res.status(400).json({ error: '有効な招待先メールアドレスを1件以上指定してください。' });
       }
 
-      const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
       const now = new Date();
       const expiresAt = new Date(now.getTime() + (Number(expiresInDays) || 7) * 24 * 60 * 60 * 1000).toISOString();
       const existingInvitations = loadInvitations();
@@ -3372,7 +3374,7 @@ async function startServer() {
       const target = list.find((i: any) => i.id === req.params.id);
       if (!target) return res.status(404).json({ error: '招待が見つかりません' });
 
-      const appBaseUrl = req.body?.baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const appBaseUrl = req.body?.baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const token = crypto.randomBytes(24).toString('hex');
@@ -3598,7 +3600,7 @@ async function startServer() {
       user.preferences.mustChangePassword = true;
       saveUsers(users);
 
-      const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+      const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
       const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
       const subject = `【TERANAGO SNS】パスワード設定のお願い`;
@@ -3687,7 +3689,7 @@ async function startServer() {
           user.mustChangePassword = true;
           user.preferences.mustChangePassword = true;
 
-          const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+          const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
           const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
           const subject = `【TERANAGO SNS】パスワード設定のお願い`;
@@ -3876,7 +3878,7 @@ async function startServer() {
       }
 
       // 基準URL（フロントエンドURLまたはリクエストオリジン）
-      let baseUrl = appBaseUrl || 'https://micchy-ken.github.io/teranago-sns-new';
+      let baseUrl = appBaseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po';
       if (baseUrl.endsWith('/')) {
         baseUrl = baseUrl.slice(0, -1);
       }
@@ -4187,7 +4189,7 @@ async function startServer() {
 
           const appBaseUrl = (req.body && req.body.appBaseUrl && typeof req.body.appBaseUrl === 'string' && req.body.appBaseUrl.startsWith('http'))
             ? req.body.appBaseUrl.replace(/\/+$/, '')
-            : 'https://micchy-ken.github.io/teranago-sns-new';
+            : (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
           const directAnswerLink = `${appBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
           const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
           const subject = `【緊急安否確認】${isDrill ? '【訓練】' : ''}${title}`;
@@ -4283,7 +4285,7 @@ async function startServer() {
 
       const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
         ? appBaseUrl.replace(/\/$/, '')
-        : 'https://micchy-ken.github.io/teranago-sns-new';
+        : (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
 
       const directAnswerLink = `${resolvedBaseUrl}/?tab=safety_confirmation&safetyEventId=${event.id}`;
       const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
@@ -4781,7 +4783,8 @@ async function startServer() {
 
     if (settings.notifyCompanyEmail || settings.notifyPersonalEmail) {
       for (const u of targetUsers) {
-        const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newEventId}&safetyUserId=${u.id}`;
+        const autoBaseUrl = (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
+        const directLink = `${autoBaseUrl}/?tab=safety_confirmation&safetyEventId=${newEventId}&safetyUserId=${u.id}`;
         const emailAddresses: string[] = [];
         if (settings.notifyCompanyEmail && u.email && u.email.includes('@')) {
           emailAddresses.push(u.email.trim());
@@ -8698,7 +8701,7 @@ async function startServer() {
     console.error('[Unhandled API Error Guard]:', err);
     if (!res.headersSent) {
       const origin = req.headers.origin;
-      if (origin) {
+      if (origin && isAllowedOrigin(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
       }

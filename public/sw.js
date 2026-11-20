@@ -137,7 +137,9 @@ function resolveSwUrl(rawUrl) {
     }
 
     // GitHub Pagesなどの特定リポジトリ名対応
-    if (self.location.pathname.includes('/teranago-sns-new') && !scopePath.includes('/teranago-sns-new/')) {
+    if ((self.location.pathname === '/po' || self.location.pathname.startsWith('/po/')) && !scopePath.startsWith('/po/')) {
+      scopePath = '/po/';
+    } else if (self.location.pathname.includes('/teranago-sns-new') && !scopePath.includes('/teranago-sns-new/')) {
       scopePath = '/teranago-sns-new/';
     }
     

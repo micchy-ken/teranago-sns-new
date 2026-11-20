@@ -1,12 +1,12 @@
 {
-  "name": "teranago-sns-new",
+  "name": "po",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://micchy-ken.github.io/teranago-sns-new/",
+  "homepage": "https://teranago-sns.github.io/po/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/micchy-ken/teranago-sns-new.git"
+    "url": "https://github.com/teranago-sns/po.git"
   },
   "scripts": {
     "dev": "tsx server.ts",

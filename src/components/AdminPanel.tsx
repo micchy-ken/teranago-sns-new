@@ -469,7 +469,7 @@ export function AdminPanel({
     name: '',
     kanaName: '',
     loginId: '',
-    password: 'test',
+    password: '',
     officeId: '',
     office: '',
     divisionId: '',

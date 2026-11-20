@@ -460,7 +460,7 @@ router.post(['/safety-events', '/safety-events/', '/safety/events', '/safety/eve
       if ((compMailFlag || persMailFlag) && targetUsers.length > 0) {
         const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
           ? appBaseUrl.replace(/\/+$/, '')
-          : 'https://micchy-ken.github.io/teranago-sns-new';
+          : (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
 
         const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
         const mailSubject = `【緊急安否確認】${drillFlag ? '【訓練】' : ''}${title}`;
@@ -581,7 +581,7 @@ router.post([
       return res.status(404).json({ error: '該当するユーザーが見つかりませんでした。' });
     }
 
-    let baseUrl = appBaseUrl || 'https://micchy-ken.github.io/teranago-sns-new';
+    let baseUrl = appBaseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po';
     if (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.slice(0, -1);
     }
@@ -919,7 +919,7 @@ router.post([
 
     const resolvedBaseUrl = (appBaseUrl && typeof appBaseUrl === 'string' && appBaseUrl.startsWith('http'))
       ? appBaseUrl.replace(/\/+$/, '')
-      : 'https://micchy-ken.github.io/teranago-sns-new';
+      : (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
 
     const nowJst = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
@@ -1494,7 +1494,8 @@ async function executeEarthquakeAutoTrigger(quake, isSimulated = false, force = 
     const mailSubject = `【緊急安否確認(気象庁連動)】${title}`;
 
     for (const u of targetUsers) {
-      const directLink = `https://micchy-ken.github.io/teranago-sns-new/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
+      const autoBaseUrl = (process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po').replace(/\/+$/, '');
+      const directLink = `${autoBaseUrl}/?tab=safety_confirmation&safetyEventId=${newId}&safetyUserId=${u.id}`;
       const emailAddresses = [];
       if (memoryAutoSettings.notifyCompanyEmail && u.email && u.email.includes('@')) {
         emailAddresses.push(u.email.trim());

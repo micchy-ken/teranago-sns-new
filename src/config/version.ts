@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.19.14',
+  version: '2026.11.19.15',
   date: '2026-11-19',
-  releaseNumber: 14,
+  releaseNumber: 15,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.19 #14 (JST)',
-  description: '承認フロー第2フェーズ（OR承認・方式B）：各ステップに上長・拠点ロール・個人指定のOR候補を任意追加、全候補への同時通知＆先着1名完了、申請者本人除外・同一承認者OR包含時自動スキップ（案1）に対応'
+  display: 'v2026.11.19 #15 (JST)',
+  description: '本番Organization (teranago-sns/po) 移行＆セキュリティ監査対応：SMTP/POP3直書き認証情報・APIパスワード漏洩の完全除去、厳格CORS(https://teranago-sns.github.io)＆CSP対応、招待完了時scryptハッシュ化、ビルドパス/po/化'
 } as const;

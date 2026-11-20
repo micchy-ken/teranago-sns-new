@@ -263,7 +263,10 @@ router.get([
     }
     res.setHeader('Content-Disposition', 'inline');
     res.removeHeader('X-Frame-Options');
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' https://teranago-sns.github.io https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
+    );
 
     res.sendFile(filePath);
   } catch (err) {
@@ -991,7 +994,10 @@ router.get(['/download/:fileId', '/documents/download/:fileId'], async (req, res
       }
       res.setHeader('Content-Disposition', 'inline');
       res.removeHeader('X-Frame-Options');
-      res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://micchy-ken.github.io https://sns.teranago.synology.me http://localhost:3000 http://localhost:5173 *");
+      res.setHeader(
+        'Content-Security-Policy',
+        "frame-ancestors 'self' https://teranago-sns.github.io https://micchy-ken.github.io https://sns.teranago.synology.me http://sns.teranago.synology.me http://localhost:3000 http://localhost:3001 http://localhost:5173"
+      );
       return res.sendFile(filePath);
     }
 

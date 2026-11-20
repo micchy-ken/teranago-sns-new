@@ -1,7 +1,7 @@
 /**
  * routes/invitations.js
  * 寺岡オートドアSNS ユーザー招待管理モジュール (Express Router & MS SQL Server & JSON Dual Persistence)
- * 最終更新: 2026年10月1日 (SQL Server動的カラムINSERT安全化・プロフィール二重保存・招待完了強化版)
+ * 最終更新: 2026年11月19日 (SMTPハードコード除去・招待完了時scryptハッシュ化＆パスワード非返却・新本番URL https://teranago-sns.github.io/po/ 対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -39,13 +39,21 @@ function saveUsers(users) {
   }
 }
 
+function hashPassword(password) {
+  if (!password) return '';
+  if (typeof password === 'string' && password.startsWith('scrypt:16384:')) return password;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
+  return `scrypt:16384:${salt}:${derivedKey.toString('hex')}`;
+}
+
 // =============================================================
-// メール送信ヘルパー (Nodemailer - 実環境 SMTP 設定完全準拠)
+// メール送信ヘルパー (Nodemailer - 環境変数 .env から読み込み)
 // =============================================================
 function getSmtpTransporter() {
-  const smtpHost = process.env.SMTP_HOST || '111.89.134.68';
+  const smtpHost = process.env.SMTP_HOST || '';
   const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-  const smtpUser = process.env.SMTP_USER || 'nagoya-soumu2';
+  const smtpUser = process.env.SMTP_USER || '';
   const smtpPass = process.env.SMTP_PASS || '';
   const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
 
@@ -59,8 +67,12 @@ function getSmtpTransporter() {
 }
 
 async function sendMail({ to, subject, text, html }) {
-  const fromAddress = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || 'nagoya-soumu2@teraoka-ads.co.jp';
+  const fromAddress = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || 'noreply@example.com';
   const fromName = process.env.SMTP_FROM_NAME || 'Aipo送信用（このメールには返信できません）';
+  if (!process.env.SMTP_HOST) {
+    console.warn(`[Mail:Invitations] SMTP_HOST is not configured. Skipping send to ${to}.`);
+    return { simulated: true, error: 'SMTP_HOST not configured' };
+  }
   const transporter = getSmtpTransporter();
 
   try {
@@ -195,7 +207,7 @@ router.post(invitePaths, async (req, res) => {
       return res.status(400).json({ error: '有効な招待先メールアドレスを1件以上指定してください。' });
     }
 
-    const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+    const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (Number(expiresInDays) || 7) * 24 * 60 * 60 * 1000).toISOString();
     const existingInvitations = loadInvitations();
@@ -489,7 +501,7 @@ router.post(resendPaths, async (req, res) => {
       return res.status(404).json({ error: '招待が見つかりません' });
     }
 
-    const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+    const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const token = crypto.randomBytes(24).toString('hex');
@@ -710,10 +722,12 @@ router.post(completePaths, async (req, res) => {
       phone: (mobilePhone || '').trim() || ''
     };
 
+    const hashedPassword = hashPassword(password);
+
     const userObj = {
       id: newUserId,
       loginId: finalLoginId,
-      password: password,
+      password: hashedPassword,
       name: name.trim(),
       kanaName: (kanaName || '').trim(),
       department: deptString,
@@ -739,7 +753,7 @@ router.post(completePaths, async (req, res) => {
         const candidateCols = [
           { col: 'id', val: newUserId, type: sql.VarChar },
           { col: 'loginId', val: finalLoginId, type: sql.VarChar },
-          { col: 'password', val: password, type: sql.VarChar },
+          { col: 'password', val: hashedPassword, type: sql.VarChar },
           { col: 'name', val: userObj.name, type: sql.NVarChar },
           { col: 'kanaName', val: userObj.kanaName, type: sql.NVarChar },
           { col: 'department', val: userObj.department, type: sql.NVarChar },
@@ -830,10 +844,14 @@ router.post(completePaths, async (req, res) => {
       saveInvitations(currentInvList);
     }
 
+    const safeUser = { ...userObj };
+    delete safeUser.password;
+    safeUser.passwordMasked = '••••••••';
+
     res.json({
       success: true,
       message: 'アカウント登録が完了しました。',
-      user: userObj
+      user: safeUser
     });
   } catch (err) {
     console.error('[Invitations] Invite complete error:', err);

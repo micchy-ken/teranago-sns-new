@@ -110,7 +110,6 @@ function saveCustomStamps(categories) {
  */
 router.get(['/', '/stamps', '/all'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const categories = loadCustomStamps();
     res.json({ success: true, categories });
   } catch (err) {
@@ -126,7 +125,6 @@ router.get(['/', '/stamps', '/all'], (req, res) => {
  */
 router.post(['/', '/stamps', '/save'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const { categories } = req.body;
     if (categories && Array.isArray(categories)) {
       saveCustomStamps(categories);
@@ -145,7 +143,6 @@ router.post(['/', '/stamps', '/save'], (req, res) => {
  */
 router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const { stampId, base64Image } = req.body;
     let imageUrl = '';
 
@@ -194,7 +191,6 @@ router.post(['/upload', '/stamps/upload'], upload.single('image'), (req, res) =>
  */
 router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const { stampMap, categories } = req.body;
 
     if (stampMap && typeof stampMap === 'object') {
@@ -242,7 +238,6 @@ router.post(['/batch-update', '/stamps/batch-update'], (req, res) => {
  */
 router.post(['/reset', '/stamps/reset'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     if (fs.existsSync(customStampsPath)) {
       fs.unlinkSync(customStampsPath);
     }
@@ -262,7 +257,6 @@ router.get(['/image/:filename', '/file/:filename'], (req, res) => {
   try {
     const filename = path.basename(req.params.filename);
     const filePath = path.join(uploadsDir, filename);
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, max-age=86400');
     if (fs.existsSync(filePath)) {
       return res.sendFile(filePath);

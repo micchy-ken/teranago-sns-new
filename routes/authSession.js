@@ -2,7 +2,7 @@
  * ============================================================================
  * 認証セッション管理・API認可（IDOR対策）・ログイン試行制限・厳格CORS/パス検証モジュール
  * ファイルパス: routes/authSession.js
- * 最終更新: 2026年11月17日 (Step3完: CORS完全一致リスト化・ファイルAPI認証必須化・パストラバーサル防止)
+ * 最終更新: 2026年11月19日 (新GitHub Organization: https://teranago-sns.github.io CORS許可対応版)
  * 役割:
  *  1. 暗号論的セッショントークンの発行・SHA-256ハッシュ検証・失効管理
  *     （メモリ＋ data/sessions.json の二重永続化・有効期限24時間スライディング更新）
@@ -40,7 +40,8 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15分ロック
 // 厳格な完全一致 CORS オリジン許可リスト (優先4対策)
 // ============================================================================
 const STATIC_ALLOWED_ORIGINS = [
-  'https://micchy-ken.github.io',
+  'https://teranago-sns.github.io', // 本番フロントエンド (Organization: teranago-sns / Repo: po)
+  'https://micchy-ken.github.io',   // 旧フロントエンド（移行期間互換用・移行完了後に削除可）
   'https://sns.teranago.synology.me',
   'http://sns.teranago.synology.me',
   'http://localhost:3000',

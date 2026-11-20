@@ -20,7 +20,7 @@ export interface EmailDispatchItem {
 export function getFullShareUrl(pathParamsOrUrl?: string): string {
   const base = typeof window !== 'undefined'
     ? (window.location.origin + window.location.pathname)
-    : 'https://micchy-ken.github.io/teranago-sns-new/';
+    : 'https://teranago-sns.github.io/po/';
   const cleanBase = base.endsWith('/') ? base : `${base}/`;
 
   if (!pathParamsOrUrl) {

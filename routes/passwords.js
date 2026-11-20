@@ -1,7 +1,7 @@
 /**
  * routes/passwords.js
  * 寺岡オートドアSNS パスワード管理・リセット・強制変更・一括設定依頼モジュール (Express Router & MS SQL Server)
- * 最終更新: 2026年11月16日 (パスワード設定依頼メールの有効期限デフォルト7日間・expiresInDays可変対応版)
+ * 最終更新: 2026年11月19日 (SMTP認証情報ハードコード除去・新本番URL https://teranago-sns.github.io/po/ 対応版)
  */
 import { Router } from 'express';
 import path from 'path';
@@ -70,12 +70,12 @@ function saveUsers(users) {
 }
 
 // =============================================================
-// メール送信ヘルパー (Nodemailer - 実環境 SMTP 設定完全準拠)
+// メール送信ヘルパー (Nodemailer - 環境変数 .env から読み込み)
 // =============================================================
 function getSmtpTransporter() {
-  const smtpHost = process.env.SMTP_HOST || '111.89.134.68';
+  const smtpHost = process.env.SMTP_HOST || '';
   const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
-  const smtpUser = process.env.SMTP_USER || 'nagoya-soumu2';
+  const smtpUser = process.env.SMTP_USER || '';
   const smtpPass = process.env.SMTP_PASS || '';
   const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
 
@@ -89,8 +89,12 @@ function getSmtpTransporter() {
 }
 
 async function sendMail({ to, subject, text, html }) {
-  const fromAddress = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || 'nagoya-soumu2@teraoka-ads.co.jp';
+  const fromAddress = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || 'noreply@example.com';
   const fromName = process.env.SMTP_FROM_NAME || 'Aipo送信用（このメールには返信できません）';
+  if (!process.env.SMTP_HOST) {
+    console.warn(`[Mail:Passwords] SMTP_HOST is not configured. Skipping send to ${to}.`);
+    return { simulated: true, error: 'SMTP_HOST not configured' };
+  }
   const transporter = getSmtpTransporter();
 
   try {
@@ -212,7 +216,7 @@ router.post(requestResetPaths, async (req, res) => {
     curPref.mustChangePassword = true;
     saveUserPrefs(userId, curPref);
 
-    const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+    const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
     const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
     const subject = `【TERANAGO SNS】パスワード設定のお願い`;
@@ -323,7 +327,7 @@ router.post(requestResetBulkPaths, async (req, res) => {
         curPref.mustChangePassword = true;
         saveUserPrefs(uId, curPref);
 
-        const appBaseUrl = baseUrl || 'https://micchy-ken.github.io/teranago-sns-new/';
+        const appBaseUrl = baseUrl || process.env.APP_BASE_URL || 'https://teranago-sns.github.io/po/';
         const resetUrl = `${appBaseUrl}${appBaseUrl.includes('?') ? '&' : '?'}mode=reset-password&token=${token}`;
 
         const subject = `【TERANAGO SNS】パスワード設定のお願い`;

@@ -12,22 +12,22 @@ const router = Router();
 const bulletinsPath = path.join(dataDir, 'bulletins.json');
 
 // ==========================================
-// SMTP 送信設定
+// SMTP 送信設定（環境変数 .env から読み込み・ハードコード厳禁）
 // ==========================================
 const smtpConfig = {
-  host: process.env.SMTP_HOST || '111.89.134.68',
+  host: process.env.SMTP_HOST || '',
   port: parseInt(process.env.SMTP_PORT || '587', 10),
   secure: process.env.SMTP_SECURE === 'true',
   auth: {
-    user: process.env.SMTP_USER || 'nagoya-soumu2',
-    pass: process.env.SMTP_PASS || 'EJ2brys7'
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || ''
   },
   tls: {
     rejectUnauthorized: false
   }
 };
 
-const smtpFromEmail = process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp';
+const smtpFromEmail = process.env.SMTP_FROM_EMAIL || 'noreply@example.com';
 const smtpFromName = process.env.SMTP_FROM_NAME || '寺岡SNS';
 const smtpFromFormatted = `"${smtpFromName}" <${smtpFromEmail}>`;
 
@@ -35,8 +35,14 @@ export async function sendEmailNotification(options) {
   if (!options.to || (Array.isArray(options.to) && options.to.length === 0)) {
     throw new Error('送信先メールアドレスが指定されていません。');
   }
+  if (!smtpConfig.host) {
+    throw new Error('SMTP_HOST が環境変数 (.env) に設定されていません。');
+  }
 
-  const transporter = nodemailer.createTransport(smtpConfig);
+  const transporter = nodemailer.createTransport({
+    ...smtpConfig,
+    auth: smtpConfig.auth.user ? smtpConfig.auth : undefined
+  });
   const mailOptions = {
     from: smtpFromFormatted,
     to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
@@ -133,19 +139,34 @@ router.post(['/notifications/test-email', '/notifications/test-email/'], async (
 });
 
 // =========================================================
-// POP3 メール受信・掲示板自動投稿エンジン
+// POP3 メール受信・掲示板自動投稿エンジン（環境変数 .env から読み込み）
 // =========================================================
 const pop3Config = {
-  host: process.env.POP3_HOST || '111.89.134.68',
+  host: process.env.POP3_HOST || process.env.SMTP_HOST || '',
   port: Number(process.env.POP3_PORT || 110),
-  secure: false,
-  user: process.env.POP3_USER || 'nagoya-soumu2',
-  pass: process.env.POP3_PASS || 'EJ2brys7',
-  fromAddress: process.env.SMTP_FROM_EMAIL || 'nagoya-soumu2@teraoka-ads.co.jp',
+  secure: process.env.POP3_SECURE === 'true',
+  user: process.env.POP3_USER || process.env.SMTP_USER || '',
+  pass: process.env.POP3_PASS || process.env.SMTP_PASS || '',
+  fromAddress: process.env.SMTP_FROM_EMAIL || 'noreply@example.com',
   deleteAfterImport: process.env.POP3_DELETE_AFTER_IMPORT !== 'false',
   checkIntervalSec: Number(process.env.POP3_CHECK_INTERVAL_SEC || 60),
   defaultTag: process.env.POP3_DEFAULT_TAG || '社内メール'
 };
+
+// APIレスポンス返却時にパスワード(pass)を絶対に露出しないサニタイズヘルパー
+function getSafePop3Config() {
+  return {
+    host: pop3Config.host,
+    port: pop3Config.port,
+    secure: pop3Config.secure,
+    user: pop3Config.user,
+    hasPassword: Boolean(pop3Config.pass),
+    fromAddress: pop3Config.fromAddress,
+    deleteAfterImport: pop3Config.deleteAfterImport,
+    checkIntervalSec: pop3Config.checkIntervalSec,
+    defaultTag: pop3Config.defaultTag
+  };
+}
 
 const pop3State = {
   isPolling: false,
@@ -625,6 +646,14 @@ export async function pollPop3InboundEmails() {
     return { checked: true, found: 0, imported: 0, deleted: 0, message: 'ポーリング実行中です。' };
   }
 
+  if (!pop3Config.host || !pop3Config.user || !pop3Config.pass) {
+    pop3State.lastCheckedAt = new Date().toISOString();
+    pop3State.lastCheckStatus = 'idle';
+    const skipMsg = 'POP3受信設定 (POP3_HOST / POP3_USER / POP3_PASS) が未設定のため、メール巡回を待機しています。';
+    pop3State.lastCheckMessage = skipMsg;
+    return { checked: false, found: 0, imported: 0, deleted: 0, message: skipMsg };
+  }
+
   pop3State.isPolling = true;
   lastPollStartedAt = Date.now();
   pop3State.lastCheckStatus = 'checking';
@@ -702,7 +731,7 @@ router.get(['/email/inbound/status', '/email/inbound/status/'], async (req, res)
 
   const whitelistUsers = allUsers.filter(u => !!(u.email?.trim() || u.mobile_email?.trim() || u.mobileEmail?.trim()));
   res.json({
-    config: pop3Config,
+    config: getSafePop3Config(),
     whitelist: {
       totalMembers: allUsers.length,
       whitelistedMembersCount: whitelistUsers.length,
@@ -742,7 +771,7 @@ router.post(['/email/inbound/simulate', '/email/inbound/simulate/'], async (req,
       `To: <${pop3Config.fromAddress}>`,
       `Subject: ${subject}`,
       `Date: ${new Date().toUTCString()}`,
-      `Message-ID: <simulated-${Date.now()}@teraoka-ads.co.jp>`,
+      `Message-ID: <simulated-${Date.now()}@example.com>`,
       `Content-Type: text/plain; charset=utf-8`,
       ``,
       body
@@ -762,7 +791,7 @@ router.post(['/email/inbound/simulate', '/email/inbound/simulate/'], async (req,
 // 後方互換性エイリアス
 router.get(['/pop3/status', '/email/pop3/status'], (req, res) => {
   res.json({
-    config: pop3Config,
+    config: getSafePop3Config(),
     state: pop3State
   });
 });

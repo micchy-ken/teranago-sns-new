@@ -364,13 +364,16 @@ export function parseAppQueryParams(searchString?: string): AppQueryParams {
 }
 
 /**
- * Resolves current base path of the application (e.g. '/teranago-sns-new/' or '/')
+ * Resolves current base path of the application (e.g. '/po/' or '/')
  */
 export function getAppBasePath(): string {
   if (typeof window !== 'undefined') {
     const pathname = window.location.pathname;
     
     // Explicit match for repository name (with or without trailing slash)
+    if (pathname === '/po' || pathname.startsWith('/po/')) {
+      return '/po/';
+    }
     if (pathname.includes('/teranago-sns-new')) {
       return '/teranago-sns-new/';
     }
@@ -447,7 +450,7 @@ export function resolveNotificationUrl(url?: string): string {
 
 /**
  * Builds full application URL with query parameters attached.
- * Ensures basePath (e.g. '/teranago-sns-new/' or '/') is preserved correctly.
+ * Ensures basePath (e.g. '/po/' or '/') is preserved correctly.
  */
 export function buildAppUrl(params?: AppQueryParams, baseUrl?: string): string {
   let origin = baseUrl;

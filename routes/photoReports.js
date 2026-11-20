@@ -325,7 +325,6 @@ router.get(
     try {
       const filename = path.basename(req.params.filename);
       const filePath = path.join(UPLOAD_DIR, filename);
-      res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
       res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
       if (fs.existsSync(filePath)) {

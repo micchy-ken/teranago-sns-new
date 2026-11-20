@@ -48,7 +48,6 @@ function saveLogs(logs) {
  */
 router.get(['/', '/logs', '/all'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     let logs = loadLogs();
 
     const { action, userId, search, limit } = req.query;
@@ -84,7 +83,6 @@ router.get(['/', '/logs', '/all'], (req, res) => {
  */
 router.post(['/', '/logs', '/record'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const { userId, userName, department, action, details, deviceType } = req.body || {};
 
     if (!action) {
@@ -124,7 +122,6 @@ router.post(['/', '/logs', '/record'], (req, res) => {
  */
 router.delete(['/clear', '/logs/clear'], (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     saveLogs([]);
     res.json({ success: true, message: 'ログを消去しました' });
   } catch (err) {
