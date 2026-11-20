@@ -3,9 +3,29 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
+function resolveBuildBase(): string {
+  const explicitBase = (process.env.VITE_BASE_PATH || '').trim();
+  if (explicitBase) {
+    if (explicitBase === './' || explicitBase === '/') return explicitBase;
+    const normalized = explicitBase.startsWith('/') ? explicitBase : `/${explicitBase}`;
+    return normalized.endsWith('/') ? normalized : `${normalized}/`;
+  }
+
+  const ghRepo = (process.env.GITHUB_REPOSITORY || '').trim();
+  if (ghRepo && ghRepo.includes('/')) {
+    const repoName = ghRepo.split('/')[1];
+    if (repoName) {
+      return repoName.endsWith('.github.io') ? '/' : `/${repoName}/`;
+    }
+  }
+
+  // ローカルビルド等のフォールバックは相対パスにし、どの公開パス下でも動作させる
+  return './';
+}
+
 export default defineConfig(({ command }) => {
   return {
-    base: command === 'build' ? '/po/' : '/',
+    base: command === 'build' ? resolveBuildBase() : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       dedupe: ['react', 'react-dom'],
