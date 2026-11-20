@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.20.1',
+  version: '2026.11.20.2',
   date: '2026-11-20',
-  releaseNumber: 1,
+  releaseNumber: 2,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.20 #1 (JST)',
-  description: 'GitHub Pages 並行稼働（teranago-sns/po & micchy-ken/teranago-sns-new）自動ベースパス判定対応（vite.config.ts / deploy.yml）'
+  display: 'v2026.11.20 #2 (JST)',
+  description: '並行稼働時のWeb Push通知タップ先を受信端末の購読サイトURLへ自動補正（public/sw.js）'
 } as const;

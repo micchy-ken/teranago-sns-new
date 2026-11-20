@@ -1,6 +1,6 @@
 // Service Worker for Terakoya SNS / Groupware
-// Version: 2026.10.19.1
-const CACHE_NAME = 'teranago-sns-v20261019-1';
+// Version: 2026.11.20.2
+const CACHE_NAME = 'teranago-sns-v20261120-2';
 const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261019-1';
 const ASSETS_TO_CACHE = [
   './',
@@ -120,15 +120,31 @@ self.addEventListener('fetch', (event) => {
 // Web Push Notification Events
 // ==========================================
 
-// URL解決ヘルパー (GitHub Pages等のサブディレクトリスコープに対応)
+// 並行稼働中のSNSフロントエンドURLかどうかを判定（別サイトからの通知でも受信端末の購読サイトで開くため）
+const KNOWN_SNS_HOSTS = new Set([
+  'teranago-sns.github.io',
+  'micchy-ken.github.io',
+  'localhost',
+  '127.0.0.1'
+]);
+
+function isSnsAppUrl(parsedUrl) {
+  const host = (parsedUrl.hostname || '').toLowerCase();
+  const selfHost = (self.location.hostname || '').toLowerCase();
+  return (
+    host === selfHost ||
+    KNOWN_SNS_HOSTS.has(host) ||
+    host.endsWith('.run.app')
+  );
+}
+
+// URL解決ヘルパー (GitHub Pages等のサブディレクトリスコープ＆並行稼働サイト自動補正に対応)
 function resolveSwUrl(rawUrl) {
   const defaultScope = self.registration.scope || './';
   if (!rawUrl || rawUrl === '/' || rawUrl === './') {
     return defaultScope;
   }
-  if (/^https?:\/\//i.test(rawUrl)) {
-    return rawUrl;
-  }
+
   try {
     const scopeUrl = new URL(self.registration.scope);
     let scopePath = scopeUrl.pathname;
@@ -142,7 +158,34 @@ function resolveSwUrl(rawUrl) {
     } else if (self.location.pathname.includes('/teranago-sns-new') && !scopePath.includes('/teranago-sns-new/')) {
       scopePath = '/teranago-sns-new/';
     }
-    
+
+    const baseForResolve = new URL(scopePath, self.location.origin).href;
+
+    // 絶対URLの場合：SNSフロントエンド同士（旧サイト ⇔ 新本番）のリンクは受信側自身のサイトURLへ自動差し替え
+    if (/^https?:\/\//i.test(rawUrl)) {
+      const parsed = new URL(rawUrl);
+      if (!isSnsAppUrl(parsed)) {
+        // 外部URLやNAS画像URLなどはそのまま保持
+        return rawUrl;
+      }
+
+      let relPath = parsed.pathname || '';
+      if (relPath === '/po' || relPath.startsWith('/po/')) {
+        relPath = relPath.replace(/^\/po\/?/, '');
+      } else if (relPath === '/teranago-sns-new' || relPath.startsWith('/teranago-sns-new/')) {
+        relPath = relPath.replace(/^\/teranago-sns-new\/?/, '');
+      } else if (scopePath !== '/' && relPath.startsWith(scopePath)) {
+        relPath = relPath.slice(scopePath.length);
+      } else {
+        relPath = relPath.replace(/^\/+/, '');
+      }
+
+      const target = new URL(relPath, baseForResolve);
+      target.search = parsed.search;
+      target.hash = parsed.hash;
+      return target.href;
+    }
+
     let subPath = rawUrl;
     if (subPath.startsWith('/')) {
       if (scopePath !== '/' && subPath.startsWith(scopePath)) {
@@ -153,7 +196,6 @@ function resolveSwUrl(rawUrl) {
       subPath = subPath.replace(/^\.\/+/, '');
     }
 
-    const baseForResolve = new URL(scopePath, self.location.origin).href;
     return new URL(subPath, baseForResolve).href;
   } catch (e) {
     return defaultScope;
