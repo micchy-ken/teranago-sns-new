@@ -1,7 +1,7 @@
 // Service Worker for Terakoya SNS / Groupware
-// Version: 2026.11.20.2
-const CACHE_NAME = 'teranago-sns-v20261120-2';
-const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261019-1';
+// Version: 2026.11.23.1
+const CACHE_NAME = 'teranago-sns-v20261123-1';
+const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261123-1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -59,8 +59,30 @@ self.addEventListener('fetch', (event) => {
 
   const reqUrl = event.request.url;
 
-  // 1. チャット画像・写真・スタンプ・アバター等のメディアリクエスト
-  // -> Cache-First 戦略: キャッシュにあれば0秒で即座に返却、無ければネットワークから取得してキャッシュ保存
+  // 1. 認証トークン付き、またはクロスオリジンのNAS配信ファイル（/uploads/, /api/, /bulletinsfiles/, /external-files/）は
+  // Service Workerのopaqueキャッシュで401/404エラー応答が永続汚染されるのを防ぐため、ブラウザ標準キャッシュへ委譲する
+  const isCrossOrigin = (() => {
+    try {
+      return new URL(reqUrl).origin !== self.location.origin;
+    } catch {
+      return false;
+    }
+  })();
+
+  if (
+    /[?&]token=/i.test(reqUrl) ||
+    (isCrossOrigin && (
+      reqUrl.includes('/uploads/') ||
+      reqUrl.includes('/bulletinsfiles/') ||
+      reqUrl.includes('/external-files/') ||
+      reqUrl.includes('/api/')
+    ))
+  ) {
+    return;
+  }
+
+  // 2. 同一オリジンの静的画像（デフォルトスタンプ、PWAアイコン等）
+  // -> Cache-First 戦略: 正常レスポンス (HTTP 200) のみキャッシュ保存
   if (isMediaRequest(reqUrl)) {
     event.respondWith(
       caches.open(IMAGE_CACHE_NAME).then(async (imageCache) => {
@@ -71,13 +93,12 @@ self.addEventListener('fetch', (event) => {
 
         try {
           const networkResponse = await fetch(event.request);
-          // 正常レスポンスまたはクロスオリジンopaqueレスポンスをキャッシュに保存
-          if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+          // 正常レスポンス (status === 200 かつ opaque でない) のみキャッシュ保存し、エラー応答の汚染を防止
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'opaque') {
             imageCache.put(event.request, networkResponse.clone()).catch(() => {});
           }
           return networkResponse;
         } catch (fetchErr) {
-          // オフラインかつキャッシュ無しの場合
           if (cachedResponse) return cachedResponse;
           throw fetchErr;
         }

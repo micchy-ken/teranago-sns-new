@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.20.2',
-  date: '2026-11-20',
-  releaseNumber: 2,
+  version: '2026.11.23.1',
+  date: '2026-11-23',
+  releaseNumber: 1,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.20 #2 (JST)',
-  description: '並行稼働時のWeb Push通知タップ先を受信端末の購読サイトURLへ自動補正（public/sw.js）'
+  display: 'v2026.11.23 #1 (JST)',
+  description: '本番・旧環境両対応のユーザーアイコン表示修正（/api/uploads正規化・自動フォールバック・最新トークン差し替え・SWエラーキャッシュ防止）'
 } as const;

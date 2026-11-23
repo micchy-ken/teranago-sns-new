@@ -23,7 +23,7 @@ export function getStampUrl(url?: string | null): string {
   const [basePath, query] = sanitizedUrl.split('?');
   const queryString = query ? `?${query}` : '';
 
-  // ① アップロード画像（/uploads/）の場合：ユーザーアイコンと同じ方式で Synology NAS ホストへ紐付け
+  // ① アップロード画像（/uploads/）の場合：ユーザーアイコンと同様に /api/uploads/ 経由で Synology NAS へ紐付け
   const uploadIndex = basePath.indexOf('/uploads/');
   const uploadIndexNoSlash = basePath.indexOf('uploads/');
 
@@ -37,8 +37,8 @@ export function getStampUrl(url?: string | null): string {
       relativePath = `/uploads/${basePath.replace(/^\/+/, '')}`;
     }
 
-    const baseUrl = API_BASE_URL.replace(/\/api$/, '');
-    return appendAuthTokenToUrl(`${baseUrl}${relativePath}${queryString}`);
+    const apiBase = API_BASE_URL.replace(/\/+$/, '');
+    return appendAuthTokenToUrl(`${apiBase}${relativePath}${queryString}`);
   }
 
   // ② デフォルト公式スタンプ（/stamps/xxx.svg 等）の場合：

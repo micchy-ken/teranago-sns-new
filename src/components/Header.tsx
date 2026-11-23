@@ -2424,6 +2424,7 @@ export function Header({
                 <img
                   src={getAvatarUrl(currentUser.avatarUrl)}
                   alt={currentUser.name}
+                  onError={handleAvatarError}
                   className={`w-9 h-9 rounded-full bg-indigo-100 border object-cover group-hover:ring-2 transition-all shrink-0 ${
                     impersonatorAdmin 
                       ? 'border-amber-400 ring-2 ring-amber-400/30' 

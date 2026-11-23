@@ -2110,7 +2110,7 @@ export function AdminPanel({
                       : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
-                  <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} className="w-5 h-5 rounded-full object-cover" />
+                  <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} onError={handleAvatarError} className="w-5 h-5 rounded-full object-cover" />
                   <span>{user.name}</span>
                   {user.isAdmin && <span className="bg-indigo-500/80 text-white px-1.5 py-0.2 rounded text-[10px]">管理者</span>}
                 </button>
@@ -6540,7 +6540,7 @@ END;`}
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
                               {app.applicant?.avatarUrl ? (
-                                <img src={getAvatarUrl(app.applicant.avatarUrl)} className="w-5 h-5 rounded-full object-cover" />
+                                <img src={getAvatarUrl(app.applicant.avatarUrl)} alt={app.applicant?.name || ''} onError={handleAvatarError} className="w-5 h-5 rounded-full object-cover" />
                               ) : (
                                 <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
                                   {app.applicant?.name?.slice(0, 1) || '未'}

@@ -49,9 +49,19 @@ export function appendAuthTokenToUrl(url?: string | null): string {
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
   const token = getAuthToken();
   if (!token) return url;
-  if (/[?&]token=/.test(url)) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
+
+  const hashIdx = url.indexOf('#');
+  const baseWithQuery = hashIdx !== -1 ? url.slice(0, hashIdx) : url;
+  const hashPart = hashIdx !== -1 ? url.slice(hashIdx) : '';
+
+  // 既存の古い/期限切れ ?token=... が含まれていれば、常に最新の有効なセッショントークンへ差し替える
+  if (/([?&])token=[^&]*/.test(baseWithQuery)) {
+    const refreshed = baseWithQuery.replace(/([?&])token=[^&]*/, `$1token=${encodeURIComponent(token)}`);
+    return `${refreshed}${hashPart}`;
+  }
+
+  const sep = baseWithQuery.includes('?') ? '&' : '?';
+  return `${baseWithQuery}${sep}token=${encodeURIComponent(token)}${hashPart}`;
 }
 
 const originalFetch: typeof fetch | null =
