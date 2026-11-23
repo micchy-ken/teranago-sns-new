@@ -49,7 +49,7 @@ import {
   CheckSquare
 } from 'lucide-react';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
-import { uploadMultipleFiles, uploadFile, isPreviewable } from '../utils/fileUpload';
+import { uploadMultipleFiles, uploadFile, isPreviewable, resolveFileUrl } from '../utils/fileUpload';
 import { createImageVariants } from '../utils/imageResize';
 import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
@@ -296,7 +296,7 @@ const LazyChatMessageImage = React.memo(function LazyChatMessageImage({
       {/* 画面内に入るまで src を一切セットしない（スクロール前の不要通信を完全抑止） */}
       {isInView && src && (
         <img
-          src={src}
+          src={resolveFileUrl(src)}
           alt={alt}
           fetchPriority={priority === 'high' ? 'high' : 'low'}
           decoding="async"
@@ -620,7 +620,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                             </button>
                           )}
                           <a
-                            href={att.url || '#'}
+                            href={att.url ? resolveFileUrl(att.url) : '#'}
                             download={att.name}
                             onClick={(e) => {
                               if (!att.url) {
@@ -678,7 +678,7 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                             </button>
                           )}
                           <a
-                            href={att.url || '#'}
+                            href={att.url ? resolveFileUrl(att.url) : '#'}
                             download={att.name}
                             onClick={(e) => {
                               if (!att.url) {
@@ -3369,7 +3369,7 @@ export function Chat({
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold shadow-2xs"
                     >
                       {isImage && att.url ? (
-                        <img src={att.url} alt={att.name} className="w-4 h-4 rounded object-cover shrink-0 border border-slate-200" />
+                        <img src={resolveFileUrl(att.url)} alt={att.name} className="w-4 h-4 rounded object-cover shrink-0 border border-slate-200" />
                       ) : (
                         <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       )}
@@ -3783,7 +3783,7 @@ export function Chat({
         >
           <div className="relative max-w-5xl max-h-[92vh] flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
             <img
-              src={lightboxGallery.images[lightboxGallery.currentIndex] || undefined}
+              src={lightboxGallery.images[lightboxGallery.currentIndex] ? resolveFileUrl(lightboxGallery.images[lightboxGallery.currentIndex]) : undefined}
               alt="拡大写真"
               className="max-w-full max-h-[82vh] rounded-xl object-contain shadow-2xl transition-all duration-200"
             />

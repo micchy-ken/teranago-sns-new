@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { CalendarViewSettings, CalendarMemberGroup, User } from '../types';
+import { getAvatarUrl, handleAvatarError } from '../utils/avatar';
 import { 
   X, 
   Calendar, 
@@ -627,7 +628,7 @@ export function CalendarSettingsModal({
                                     title={`${m.name} (${m.office || ''} ${m.division || ''})`}
                                   >
                                     {m.avatarUrl ? (
-                                      <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+                                      <img src={getAvatarUrl(m.avatarUrl)} alt={m.name} onError={handleAvatarError} className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center bg-indigo-100 text-indigo-700 text-[9px] font-bold">
                                         {(m.name || '').substring(0, 1)}
@@ -790,7 +791,7 @@ export function CalendarSettingsModal({
 
                                 <div className="w-7 h-7 rounded-full overflow-hidden bg-slate-200 shrink-0">
                                   {user.avatarUrl ? (
-                                    <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                                    <img src={getAvatarUrl(user.avatarUrl)} alt={user.name} onError={handleAvatarError} className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center bg-indigo-100 text-indigo-700 text-xs font-bold">
                                       {(user.name || '').substring(0, 1)}

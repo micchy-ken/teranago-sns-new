@@ -30,6 +30,7 @@ import { InspectionPhotoReport, PhotoReportItem } from '../types/photoReport';
 import { InspectionReportRecord } from '../types/inspectionReport';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { API_BASE_URL } from '../config/api';
+import { resolveFileUrl } from '../utils/fileUpload';
 import { InspectionPhotoReportModal } from './inspection/InspectionPhotoReportModal';
 import { triggerOpenUserModal } from '../utils/userModal';
 
@@ -690,7 +691,7 @@ export const PhotoReportsTab: React.FC<PhotoReportsTabProps> = ({
                           {item && item.imageUrl ? (
                             <>
                               <img
-                                src={item.imageUrl}
+                                src={resolveFileUrl(item.imageUrl)}
                                 alt={item.stageTitle || `写真${pIdx + 1}`}
                                 className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-300"
                                 loading="lazy"
