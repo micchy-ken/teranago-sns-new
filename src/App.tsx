@@ -7,6 +7,8 @@ import { Header } from './components/Header';
 import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
 import { LoginScreen } from './components/LoginScreen';
+import { isStagingDevEnvironment } from './config/appEnvironment';
+import { StagingDevBanner, StagingRedirectScreen } from './components/StagingAccessGuard';
 import { LazyTabFallback } from './components/common/LazyTabFallback';
 import { useMasterManagement } from './hooks/useMasterManagement';
 import { usePostManagement } from './hooks/usePostManagement';
@@ -4193,8 +4195,29 @@ export default function App() {
     );
   }
 
+  const isStagingEnv = isStagingDevEnvironment();
+  const hasResolvedUserRole = Boolean(
+    userState?.id && userState.name && userState.name !== 'ユーザー情報取得中...'
+  );
+  const canAccessStaging = Boolean(
+    userState?.isAdmin ||
+    userState?.role === 'admin' ||
+    impersonatorAdmin?.isAdmin ||
+    impersonatorAdmin?.role === 'admin'
+  );
+
+  if (isStagingEnv && hasResolvedUserRole && !canAccessStaging) {
+    return (
+      <StagingRedirectScreen
+        userName={userState.name}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <div className={`min-h-screen ${activeTab === 'chat' ? 'h-[100dvh] flex flex-col overflow-hidden sm:h-auto sm:overflow-visible sm:block' : ''} text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-clip transition-colors duration-300`} style={{ backgroundColor: 'var(--app-bg, #f5f7fa)' }}>
+      {isStagingEnv && <StagingDevBanner />}
       <InstallPwaPrompt />
       <Header 
         searchQuery={searchQuery} 

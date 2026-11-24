@@ -1,5 +1,6 @@
 import { User, EmailNotificationSettings } from '../types';
 import { API_BASE_URL } from '../config/api';
+import { normalizeToProductionUrl } from '../config/appEnvironment';
 
 export type NotificationCategoryKey = 'schedule' | 'bulletin' | 'memo' | 'workflow' | 'post' | 'inspection' | 'project';
 
@@ -15,37 +16,10 @@ export interface EmailDispatchItem {
 }
 
 /**
- * Gets the full share link URL with query parameters preserved
+ * メール通知内リンク用の完全URLを生成（開発・評価環境から操作した場合でも常に本番URLへ統一）
  */
 export function getFullShareUrl(pathParamsOrUrl?: string): string {
-  const base = typeof window !== 'undefined'
-    ? (window.location.origin + window.location.pathname)
-    : 'https://teranago-sns.github.io/po/';
-  const cleanBase = base.endsWith('/') ? base : `${base}/`;
-
-  if (!pathParamsOrUrl) {
-    return cleanBase;
-  }
-
-  // If already a full HTTP/HTTPS URL, preserve it completely
-  if (pathParamsOrUrl.startsWith('http://') || pathParamsOrUrl.startsWith('https://')) {
-    return pathParamsOrUrl;
-  }
-
-  // Clean leading ?, /?, or /
-  let query = pathParamsOrUrl;
-  if (query.startsWith('/?')) {
-    query = query.slice(2);
-  } else if (query.startsWith('?') || query.startsWith('/')) {
-    query = query.slice(1);
-  }
-
-  // If query contains parameters like tab=board&topicId=123
-  if (query.includes('=')) {
-    return `${cleanBase}?${query}`;
-  }
-
-  return `${cleanBase}${query}`;
+  return normalizeToProductionUrl(pathParamsOrUrl);
 }
 
 /**

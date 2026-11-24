@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { User, OfficeMaster, DivisionMaster, DisasterType } from '../types';
 import { API_BASE_URL } from '../config/api';
+import { PRODUCTION_APP_BASE_NO_SLASH, PRODUCTION_APP_URL } from '../config/appEnvironment';
 import { getAvatarUrl } from '../utils/avatar';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { markSafetyEventAsResponded } from '../utils/notifications';
@@ -709,7 +710,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
         `【対象】: ${targetScope === 'all' ? '全社員・全拠点' : targetScope === 'offices' ? selectedOffices.join(', ') : selectedDivisions.join(', ')}\n\n` +
         `【通知メッセージ本文】:\n${triggerMessage || '（メッセージなし）'}\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `【安否確認システムURL】:\n${window.location.origin}\n` +
+        `【安否確認システムURL】:\n${PRODUCTION_APP_URL}\n` +
         `送信日時: ${nowStr}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━`;
 
@@ -812,7 +813,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
       },
       isDrill: isTestMode,
       isTest: isTestMode,
-      appBaseUrl: window.location.origin + window.location.pathname.replace(/\/+$/, ''),
+      appBaseUrl: PRODUCTION_APP_BASE_NO_SLASH,
       createdBy: currentUser.id,
       createdById: currentUser.id,
       createdByName: currentUser.name,
@@ -1134,7 +1135,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
     setIsSendingRequest(true);
     setActionMessage(null);
     try {
-      const appBaseUrl = window.location.origin + window.location.pathname.replace(/\/$/, '');
+      const appBaseUrl = PRODUCTION_APP_BASE_NO_SLASH;
       const payload = {
         userIds: selectedTargetUserIds,
         appBaseUrl,
@@ -4135,7 +4136,7 @@ export const SafetyConfirmation: React.FC<SafetyConfirmationProps> = ({
                   配信されるメールには、専用のディープリンクURLが記載されます。受信者がURLをクリックすると、<strong>マイページの「安否確認・緊急連絡先（個人メール）」が自動的に展開された状態</strong>で開くため、社員が迷わずスムーズに登録できます。
                 </p>
                 <div className="p-2 bg-white rounded-lg border border-indigo-200 font-mono text-[10px] text-indigo-700 break-all select-all">
-                  {window.location.origin + window.location.pathname}?tab=mypage&openEmergencyContact=true
+                  {PRODUCTION_APP_URL}?tab=mypage&openEmergencyContact=true
                 </div>
               </div>
 

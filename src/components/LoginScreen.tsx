@@ -23,6 +23,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { getAvatarUrl, SILHOUETTE_SVG, sanitizeAvatarUrlForSave } from '../utils/avatar';
+import { isStagingDevEnvironment } from '../config/appEnvironment';
+import { StagingLoginNotice } from './StagingAccessGuard';
 
 const DEFAULT_OFFICES: OfficeMaster[] = [
   { id: 'off-1', name: '本社', type: 'headquarter', code: 'HONSHA' },
@@ -711,6 +713,8 @@ export function LoginScreen({
               社内SNS・グループウェアへログインしてください
             </p>
           </div>
+
+          {isStagingDevEnvironment() && <StagingLoginNotice />}
 
           {/* ログインフォームカード */}
           <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-2xl">

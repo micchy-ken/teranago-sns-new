@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.24.2',
+  version: '2026.11.24.3',
   date: '2026-11-24',
-  releaseNumber: 2,
+  releaseNumber: 3,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.24 #2 (JST)',
-  description: '添付ファイル・文書・外部ファイルプレビューのインメモリLRUキャッシュ（最大20件/200MB）・初回DL進捗表示・キャッシュ流用ダウンロードを一括実装'
+  display: 'v2026.11.24 #3 (JST)',
+  description: '本番メール通知URL統一＆開発評価環境（旧URL）の管理者限定・一般社員本番誘導ガード実装'
 } as const;
