@@ -8,6 +8,7 @@ import { Sidebar, AppTab } from './components/Sidebar';
 import { Timeline } from './components/Timeline';
 import { LoginScreen } from './components/LoginScreen';
 import { isStagingDevEnvironment } from './config/appEnvironment';
+import { cleanupStagingPushSubscription, syncProductionPushSubscriptionSilently } from './utils/pushNotifications';
 import { StagingDevBanner, StagingRedirectScreen } from './components/StagingAccessGuard';
 import { LazyTabFallback } from './components/common/LazyTabFallback';
 import { useMasterManagement } from './hooks/useMasterManagement';
@@ -613,9 +614,28 @@ export default function App() {
     }
   });
 
+  const syncedPushUserRef = useRef<string | null>(null);
+
+  // 旧環境アクセス時は未ログインでも即座に残存Push購読を自動解除
+  useEffect(() => {
+    if (isStagingDevEnvironment()) {
+      cleanupStagingPushSubscription();
+    }
+  }, []);
+
   useEffect(() => {
     if (userState?.id && isAuthenticated) {
       syncUserReadStatusesFromServer(userState.id);
+
+      // 本番環境ではログイン起動時に通知許可済み端末をサイレント再同期（旧環境では自動解除）
+      if (syncedPushUserRef.current !== userState.id) {
+        syncedPushUserRef.current = userState.id;
+        if (isStagingDevEnvironment()) {
+          cleanupStagingPushSubscription(userState.id);
+        } else {
+          syncProductionPushSubscriptionSilently(userState.id);
+        }
+      }
 
       // 自動ログイン時・PC起動時のセッション開始アクセスログ（ブラウザセッションまたは日付変わり目で自動記録）
       if (userState.name && userState.name !== 'ユーザー情報取得中...') {

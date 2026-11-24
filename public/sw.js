@@ -1,7 +1,7 @@
 // Service Worker for Terakoya SNS / Groupware
-// Version: 2026.11.23.1
-const CACHE_NAME = 'teranago-sns-v20261123-1';
-const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261123-1';
+// Version: 2026.11.25.1
+const CACHE_NAME = 'teranago-sns-v20261125-1';
+const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261125-1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -36,18 +36,43 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// 旧環境（管理者専用の開発・評価環境）判定
+function isStagingSwHost() {
+  const host = (self.location.hostname || '').toLowerCase();
+  const pathname = self.location.pathname || '';
+  return host === 'micchy-ken.github.io' || pathname === '/teranago-sns-new' || pathname.startsWith('/teranago-sns-new/');
+}
+
+// 旧環境に残っているPush購読をService Worker側から自動解除
+async function unsubscribeStagingPushInSw() {
+  if (!isStagingSwHost()) return;
+  try {
+    if (self.registration && self.registration.pushManager) {
+      const sub = await self.registration.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 // Activate event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME && cache !== IMAGE_CACHE_NAME) {
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    Promise.all([
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cache) => {
+            if (cache !== CACHE_NAME && cache !== IMAGE_CACHE_NAME) {
+              return caches.delete(cache);
+            }
+          })
+        );
+      }),
+      unsubscribeStagingPushInSw()
+    ]).then(() => self.clients.claim())
   );
 });
 
@@ -225,6 +250,12 @@ function resolveSwUrl(rawUrl) {
 
 // Push Event: バックグラウンドでの通知受信
 self.addEventListener('push', (event) => {
+  // 旧環境（開発・評価用）では通知重複防止のため一切表示せず購読を自動解除
+  if (isStagingSwHost()) {
+    event.waitUntil(unsubscribeStagingPushInSw());
+    return;
+  }
+
   const defaultScope = self.registration.scope || './';
   const defaultIcon = resolveSwUrl('icon.svg');
 

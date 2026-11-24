@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.24.4',
-  date: '2026-11-24',
-  releaseNumber: 4,
+  version: '2026.11.25.1',
+  date: '2026-11-25',
+  releaseNumber: 1,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.24 #4 (JST)',
-  description: '操作マニュアルを3タブ構成（はじめに・おすすめ／逆引きレシピ／機能別リファレンス）へ全面整理し、初回おすすめ設定＆おすすめ3大機能・横断全文検索を追加'
+  display: 'v2026.11.25 #1 (JST)',
+  description: '旧環境（開発評価用）のWeb Push通知完全停止・自動解除化、本番ログイン時の自動再同期＆解除直後の自動復活バグ修正'
 } as const;

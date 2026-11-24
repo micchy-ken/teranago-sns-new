@@ -3,7 +3,31 @@
  */
 
 import { API_BASE_URL } from '../config/api';
+import { isStagingDevEnvironment } from '../config/appEnvironment';
 import { resolveNotificationUrl } from './urlParams';
+
+const PUSH_EXPLICIT_UNSUBSCRIBED_KEY = 'teranago_push_explicit_unsubscribed';
+
+function isPushExplicitlyUnsubscribed(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(PUSH_EXPLICIT_UNSUBSCRIBED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setPushExplicitlyUnsubscribed(unsubscribed: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (unsubscribed) {
+      localStorage.setItem(PUSH_EXPLICIT_UNSUBSCRIBED_KEY, 'true');
+    } else {
+      localStorage.removeItem(PUSH_EXPLICIT_UNSUBSCRIBED_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 // Helper to convert base64 url-safe string to Uint8Array for VAPID key
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -55,6 +79,7 @@ export interface PushStatus {
   isIOS: boolean;
   inIframe: boolean;
   currentDevice?: DeviceInfo;
+  isStagingDisabled?: boolean;
 }
 
 export function getCurrentDeviceInfo(): DeviceInfo {
@@ -229,6 +254,93 @@ async function parseJsonResponse(res: Response): Promise<any> {
 }
 
 /**
+ * 旧環境（開発・評価環境 micchy-ken.github.io）に残っている Web Push 購読をブラウザ・サーバー双方から自動解除
+ */
+export async function cleanupStagingPushSubscription(userId?: string): Promise<void> {
+  if (!isStagingDevEnvironment() || !isPushNotificationSupported()) {
+    return;
+  }
+
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+    for (const reg of registrations) {
+      const sub = await reg.pushManager?.getSubscription().catch(() => null);
+      if (sub) {
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe().catch(() => {});
+        if (endpoint) {
+          fetch(`${API_BASE_URL}/push/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              endpoint,
+              userId: userId ? String(userId) : undefined,
+            }),
+          }).catch(() => {});
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Push] Staging cleanup error:', e);
+  }
+}
+
+/**
+ * 本番環境ログイン起動時のサイレント再同期（NAS側の一括リセット後も通知許可済み端末を自動復旧）
+ */
+export async function syncProductionPushSubscriptionSilently(userId: string): Promise<void> {
+  if (!userId || !isPushNotificationSupported()) return;
+
+  if (isStagingDevEnvironment()) {
+    await cleanupStagingPushSubscription(userId);
+    return;
+  }
+
+  if (Notification.permission !== 'granted' || isPushExplicitlyUnsubscribed()) {
+    return;
+  }
+
+  try {
+    const registration = await getOrRegisterSW();
+    if (!registration) return;
+
+    let subscription = await registration.pushManager.getSubscription().catch(() => null);
+    if (!subscription) {
+      const keyRes = await withTimeout(
+        fetch(`${API_BASE_URL}/push/vapid-public-key`),
+        4000,
+        'VAPIDキー取得タイムアウト'
+      );
+      if (keyRes.ok) {
+        const keyData = await parseJsonResponse(keyRes);
+        if (keyData?.publicKey) {
+          const convertedKey = urlBase64ToUint8Array(keyData.publicKey);
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedKey,
+          });
+        }
+      }
+    }
+
+    if (subscription) {
+      await fetch(`${API_BASE_URL}/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: String(userId),
+          subscription: subscription.toJSON(),
+          userAgent: navigator.userAgent,
+          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+        }),
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('[Push] Silent production sync skipped:', e);
+  }
+}
+
+/**
  * 端末のPush通知状態を取得
  */
 export async function getPushNotificationStatus(userId?: string): Promise<PushStatus> {
@@ -236,6 +348,22 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   const isStandalone = isPWAStandalone();
   const isIOS = isIOSDevice();
   const inIframe = isInIframe();
+
+  // 旧環境（開発・評価用）では重複防止のためWeb Pushを完全停止し、残存購読も自動解除
+  if (isStagingDevEnvironment()) {
+    await cleanupStagingPushSubscription(userId);
+    return {
+      isSupported,
+      permission: isSupported ? Notification.permission : 'default',
+      isSubscribed: false,
+      subscriptionCount: 0,
+      isStandalone,
+      isIOS,
+      inIframe,
+      currentDevice: getCurrentDeviceInfo(),
+      isStagingDisabled: true,
+    };
+  }
 
   if (!isSupported) {
     return {
@@ -249,6 +377,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
   }
 
   const permission = Notification.permission;
+  const explicitlyUnsubscribed = isPushExplicitlyUnsubscribed();
   let isSubscribed = false;
 
   try {
@@ -278,8 +407,8 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
     }
 
     // 自己修復 & 再同期:
-    // 通知権限がすでに「許可（granted）」されている場合
-    if (permission === 'granted' && userId) {
+    // 通知権限が「許可（granted）」かつユーザーが明示的に解除していない場合のみ実行
+    if (permission === 'granted' && userId && !explicitlyUnsubscribed) {
       try {
         const registration = await getOrRegisterSW();
         if (registration) {
@@ -312,19 +441,31 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
           // 2. 購読が存在する場合、サーバーに最新状態を同期（失効していたら再登録、既存なら最終アクティブ更新）
           if (subscription) {
             isSubscribed = true;
-            fetch(`${API_BASE_URL}/push/subscribe`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                userId: String(userId),
-                subscription: subscription.toJSON(),
-                userAgent: navigator.userAgent,
-              }),
-            }).then((r) => {
-              if (r.ok) {
+            try {
+              const syncRes = await withTimeout(
+                fetch(`${API_BASE_URL}/push/subscribe`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userId: String(userId),
+                    subscription: subscription.toJSON(),
+                    userAgent: navigator.userAgent,
+                    origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+                  }),
+                }),
+                4000,
+                '同期タイムアウト'
+              );
+              if (syncRes.ok) {
+                const syncData = await parseJsonResponse(syncRes).catch(() => null);
+                if (syncData && typeof syncData.count === 'number') {
+                  subscriptionCount = syncData.count;
+                }
                 console.log('[Push Auto-Heal] Successfully synced/kept-alive subscription on server.');
               }
-            }).catch(() => {});
+            } catch {
+              // ignore sync failure
+            }
           }
         }
       } catch (e) {
@@ -344,6 +485,7 @@ export async function getPushNotificationStatus(userId?: string): Promise<PushSt
     isIOS,
     inIframe,
     currentDevice,
+    isStagingDisabled: false,
   };
 }
 
@@ -358,6 +500,14 @@ export async function subscribeToPushNotifications(
   message?: string;
   error?: string;
 }> {
+  if (isStagingDevEnvironment()) {
+    await cleanupStagingPushSubscription(userId);
+    return {
+      success: false,
+      error: '開発・評価環境では通知重複防止のため Web Push 通知を停止しています。本番サイト（TERAPO）から有効にしてください。',
+    };
+  }
+
   const inIframe = isInIframe();
 
   if (!isPushNotificationSupported()) {
@@ -468,6 +618,7 @@ export async function subscribeToPushNotifications(
           userId: String(userId),
           subscription: subscription.toJSON(),
           userAgent: navigator.userAgent,
+          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
         }),
       }),
       5000,
@@ -482,6 +633,9 @@ export async function subscribeToPushNotifications(
     if (!subRes.ok) {
       throw new Error(subData?.error || `サーバーへの通知購読登録に失敗しました (HTTP ${subRes.status})。`);
     }
+
+    // 明示的解除フラグをクリアして自動維持を再開
+    setPushExplicitlyUnsubscribed(false);
 
     return {
       success: true,
@@ -504,19 +658,26 @@ export async function unsubscribeFromPushNotifications(userId?: string): Promise
   message?: string;
   error?: string;
 }> {
+  // 解除直後の自動修復(Auto-Heal)による再登録を防止するため先にオプトアウトフラグを保存
+  setPushExplicitlyUnsubscribed(true);
+
   if (!isPushNotificationSupported()) {
     return { success: true };
   }
 
   try {
-    const registration = await getOrRegisterSW();
-    const subscription = registration ? await registration.pushManager.getSubscription().catch(() => null) : null;
+    const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+    const endpointsToRemove = new Set<string>();
 
-    if (subscription) {
-      const endpoint = subscription.endpoint;
-      await subscription.unsubscribe();
+    for (const reg of registrations) {
+      const sub = await reg.pushManager?.getSubscription().catch(() => null);
+      if (sub) {
+        if (sub.endpoint) endpointsToRemove.add(sub.endpoint);
+        await sub.unsubscribe().catch(() => {});
+      }
+    }
 
-      // サーバー側からも解除
+    for (const endpoint of endpointsToRemove) {
       await fetch(`${API_BASE_URL}/push/unsubscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

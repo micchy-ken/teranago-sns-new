@@ -4545,7 +4545,11 @@ export function MyPage({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {pushStatus?.isSubscribed ? (
+                      {pushStatus?.isStagingDisabled ? (
+                        <span className="px-2.5 py-1 bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md">
+                          開発環境・停止中
+                        </span>
+                      ) : pushStatus?.isSubscribed ? (
                         <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold rounded-md flex items-center gap-1 font-mono">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                           受信有効
@@ -4602,6 +4606,17 @@ export function MyPage({
                         </div>
                       )}
 
+                      {pushStatus?.isStagingDisabled ? (
+                        <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-2 text-amber-900">
+                          <div className="flex items-center gap-2 font-bold text-xs">
+                            <BellOff className="w-4 h-4 text-amber-700 shrink-0" />
+                            <span>開発・評価環境では Web Push 通知を停止しています</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-amber-800">
+                            本番環境との通知重複を防ぐため、旧URL（開発・評価環境）ではプッシュ通知の登録・受信を行いません（残存していた旧購読は自動で解除されます）。プッシュ通知の設定・受信は本番サイト（<code>https://teranago-sns.github.io/po/</code>）からご利用ください。
+                          </p>
+                        </div>
+                      ) : (
                       <div className="p-4 bg-indigo-50/40 rounded-xl border border-indigo-100 space-y-3.5">
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1.5 flex-1">
@@ -4737,6 +4752,7 @@ export function MyPage({
                           </button>
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
                 </div>
