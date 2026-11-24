@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { AttachmentFile } from '../types';
 import { resolveFileUrl } from '../utils/fileUpload';
+import { downloadFileUsingCacheIfAvailable } from '../utils/filePreviewCache';
 import { schedulePreviewPrefetch } from '../utils/previewPrefetch';
 
 // 各種ビューアーを遅延読み込み（コード分割）してトップページの初期表示バンドルサイズを劇的に削減
@@ -71,12 +72,8 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
 
   const handleDownload = () => {
     if (!resolvedUrl) return;
-    const link = document.createElement('a');
-    link.href = resolvedUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // キャッシュ内にBlobがあればサーバーへ再通信せず即座に保存
+    downloadFileUsingCacheIfAvailable(resolvedUrl, fileName);
   };
 
   return (

@@ -4,10 +4,11 @@ import {
   FileText, 
   Download, 
   AlertCircle, 
-  Loader2,
   Copy,
   Check
 } from 'lucide-react';
+import { FileFetchProgress, fetchFileBlobWithCache } from '../../utils/filePreviewCache';
+import { PreviewLoadingState } from './PreviewLoadingState';
 
 interface DocxViewerProps {
   url: string;
@@ -18,31 +19,34 @@ interface DocxViewerProps {
 export function DocxViewer({ url, fileName, onDownload }: DocxViewerProps) {
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [progress, setProgress] = useState<FileFetchProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
+    setProgress(null);
     setError(null);
     setHtmlContent(null);
 
     const loadDocx = async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const buffer = await response.arrayBuffer();
+        const result = await fetchFileBlobWithCache(url, {
+          onProgress: (p) => {
+            if (isMounted) setProgress(p);
+          },
+        });
+        const buffer = await result.blob.arrayBuffer();
 
-        const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+        const resultHtml = await mammoth.convertToHtml({ arrayBuffer: buffer });
         if (!isMounted) return;
 
-        if (!result.value || result.value.trim().length === 0) {
+        if (!resultHtml.value || resultHtml.value.trim().length === 0) {
           // 本文が空の場合
           setHtmlContent('<p class="text-slate-400 italic">文書本文が空です。</p>');
         } else {
-          setHtmlContent(result.value);
+          setHtmlContent(resultHtml.value);
         }
         setLoading(false);
       } catch (err: any) {
@@ -72,11 +76,13 @@ export function DocxViewer({ url, fileName, onDownload }: DocxViewerProps) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-slate-500 min-h-[350px]">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-3" />
-        <p className="text-xs font-bold text-slate-700">Word文書を読み込み中...</p>
-        <p className="text-[11px] text-slate-400 mt-1">HTMLテキストに変換しています</p>
-      </div>
+      <PreviewLoadingState
+        title="Word文書を読み込み中..."
+        subtitle="HTMLテキストに変換しています"
+        progress={progress}
+        accentClass="text-blue-600"
+        barClass="bg-blue-600"
+      />
     );
   }
 

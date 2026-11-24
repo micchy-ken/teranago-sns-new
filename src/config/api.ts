@@ -38,6 +38,9 @@ export function setAuthToken(token: string | null | undefined): void {
 
 export function clearAuthToken(): void {
   setAuthToken(null);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('teranago_auth_cleared'));
+  }
 }
 
 /**

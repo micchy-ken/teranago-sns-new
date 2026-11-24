@@ -6,10 +6,15 @@ import {
   Copy, 
   Check, 
   Download, 
-  Loader2, 
   AlertCircle,
   WrapText
 } from 'lucide-react';
+import {
+  FileFetchProgress,
+  decodeBlobAsText,
+  fetchFileBlobWithCache,
+} from '../../utils/filePreviewCache';
+import { PreviewLoadingState } from './PreviewLoadingState';
 
 interface TextViewerProps {
   url: string;
@@ -20,6 +25,7 @@ interface TextViewerProps {
 export function TextViewer({ url, fileName, onDownload }: TextViewerProps) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [progress, setProgress] = useState<FileFetchProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [wrap, setWrap] = useState<boolean>(true);
@@ -31,30 +37,18 @@ export function TextViewer({ url, fileName, onDownload }: TextViewerProps) {
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
+    setProgress(null);
     setError(null);
     setContent(null);
 
     const loadText = async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const buffer = await response.arrayBuffer();
-
-        // 日本語環境対応: UTF-8 でデコードを試み、不正な文字シーケンスがあれば Shift-JIS (CP932) でデコード
-        let decodedText = '';
-        try {
-          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-          decodedText = utf8Decoder.decode(buffer);
-        } catch (_) {
-          try {
-            const sjisDecoder = new TextDecoder('shift-jis');
-            decodedText = sjisDecoder.decode(buffer);
-          } catch (__) {
-            decodedText = new TextDecoder().decode(buffer);
-          }
-        }
+        const result = await fetchFileBlobWithCache(url, {
+          onProgress: (p) => {
+            if (isMounted) setProgress(p);
+          },
+        });
+        const decodedText = await decodeBlobAsText(result.blob);
 
         if (!isMounted) return;
         setContent(decodedText);
@@ -102,10 +96,12 @@ export function TextViewer({ url, fileName, onDownload }: TextViewerProps) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-slate-500 min-h-[350px]">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
-        <p className="text-xs font-bold text-slate-700">テキストを読み込み中...</p>
-      </div>
+      <PreviewLoadingState
+        title="テキストを読み込み中..."
+        progress={progress}
+        accentClass="text-indigo-600"
+        barClass="bg-indigo-600"
+      />
     );
   }
 

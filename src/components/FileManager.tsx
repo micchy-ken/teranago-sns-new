@@ -24,6 +24,15 @@ import {
 import { API_BASE_URL, appendAuthTokenToUrl } from '../config/api';
 import { User, OfficeMaster, DivisionMaster } from '../types';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
+import {
+  FileFetchProgress,
+  decodeBlobAsText,
+  downloadBlobToDevice,
+  fetchFileBlobWithCache,
+  getCachedPreviewEntry,
+  setCachedPreviewBlob,
+} from '../utils/filePreviewCache';
+import { PreviewLoadingState } from './preview/PreviewLoadingState';
 
 interface ExternalFile {
   name: string;
@@ -74,7 +83,10 @@ export default function FileManager({
   // プレビュー関連
   const [previewFile, setPreviewFile] = useState<ExternalFile | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState<FileFetchProgress | null>(null);
+  const previewBlobUrlRef = useRef<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -220,28 +232,154 @@ export default function FileManager({
     return appendAuthTokenToUrl(fullUrl);
   };
 
-  // テキストファイルのコンテンツ読み込み (プレビュー用)
-  const fetchTextContent = async (file: ExternalFile) => {
-    setPreviewLoading(true);
-    setPreviewContent(null);
-    try {
-      const url = getFileUrl(file);
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        if (text.includes('<!DOCTYPE html>') || text.startsWith('Cannot GET')) {
-          throw new Error('APIからHTMLエラーページが返されました');
-        }
-        setPreviewContent(text);
-      } else {
-        throw new Error(`ステータスコード: ${res.status}`);
-      }
-    } catch (err: any) {
-      setPreviewContent(`プレビューの読み込みに失敗しました (${err.message || '接続エラー'})。`);
-    } finally {
-      setPreviewLoading(false);
-    }
+  const getPreviewCacheKey = (file: ExternalFile): string => {
+    return `ext:${file.source || 'nas'}:${file.path || file.name}:${file.mtime || ''}:${file.size || ''}`;
   };
+
+  // プレビューモーダル表示時のLRUキャッシュ解決＆進捗取得（ObjectURLライフサイクル分離）
+  useEffect(() => {
+    let isMounted = true;
+
+    const revokeActiveObjectUrl = () => {
+      if (previewBlobUrlRef.current && previewBlobUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+    };
+
+    revokeActiveObjectUrl();
+    setPreviewBlobUrl(null);
+    setPreviewContent(null);
+    setPreviewProgress(null);
+
+    if (!previewFile) {
+      setPreviewLoading(false);
+      return () => {
+        isMounted = false;
+        revokeActiveObjectUrl();
+      };
+    }
+
+    const isImg = PREVIEW_IMAGE_EXTS.includes(previewFile.extension);
+    const isPdf = previewFile.extension === 'pdf';
+    const isText = PREVIEW_TEXT_EXTS.includes(previewFile.extension);
+    if (!isImg && !isPdf && !isText) {
+      setPreviewLoading(false);
+      return () => {
+        isMounted = false;
+        revokeActiveObjectUrl();
+      };
+    }
+
+    const fileUrl = getFileUrl(previewFile);
+    if (!fileUrl) {
+      setPreviewLoading(false);
+      return () => {
+        isMounted = false;
+        revokeActiveObjectUrl();
+      };
+    }
+
+    if (fileUrl.startsWith('blob:') || fileUrl.startsWith('data:')) {
+      if (!isText) {
+        setPreviewBlobUrl(fileUrl);
+        setPreviewLoading(false);
+        return () => {
+          isMounted = false;
+          revokeActiveObjectUrl();
+        };
+      }
+    }
+
+    const cacheKey = getPreviewCacheKey(previewFile);
+
+    const mountBinaryBlob = (rawBlob: Blob) => {
+      const targetBlob =
+        isPdf && rawBlob.type !== 'application/pdf'
+          ? new Blob([rawBlob], { type: 'application/pdf' })
+          : rawBlob;
+      const objUrl = URL.createObjectURL(targetBlob);
+      previewBlobUrlRef.current = objUrl;
+      setPreviewBlobUrl(objUrl);
+      setPreviewLoading(false);
+    };
+
+    // 1. キャッシュヒット時は即座に表示
+    const cached = getCachedPreviewEntry(fileUrl, cacheKey);
+    if (cached) {
+      setPreviewProgress({
+        loaded: cached.size,
+        total: cached.size,
+        percent: 100,
+        fromCache: true,
+      });
+      if (isText) {
+        setPreviewLoading(true);
+        decodeBlobAsText(cached.blob)
+          .then((text) => {
+            if (!isMounted) return;
+            setPreviewContent(text);
+            setPreviewLoading(false);
+          })
+          .catch((err: any) => {
+            if (!isMounted) return;
+            setPreviewContent(`プレビューの読み込みに失敗しました (${err?.message || 'デコードエラー'})。`);
+            setPreviewLoading(false);
+          });
+      } else {
+        mountBinaryBlob(cached.blob);
+      }
+      return () => {
+        isMounted = false;
+        revokeActiveObjectUrl();
+      };
+    }
+
+    // 2. 未キャッシュ時は進捗付きで取得しキャッシュ保存
+    setPreviewLoading(true);
+    setPreviewProgress({ loaded: 0, total: null, percent: null, fromCache: false });
+
+    const loadPreview = async () => {
+      try {
+        const result = await fetchFileBlobWithCache(fileUrl, {
+          cacheKey,
+          expectedMimeType: isPdf ? 'application/pdf' : undefined,
+          rejectHtmlError: !isText,
+          onProgress: (p) => {
+            if (isMounted) setPreviewProgress(p);
+          },
+        });
+        if (!isMounted) return;
+
+        if (isText) {
+          const text = await decodeBlobAsText(result.blob);
+          if (!isMounted) return;
+          if (text.includes('<!DOCTYPE html>') || text.startsWith('Cannot GET')) {
+            throw new Error('APIからHTMLエラーページが返されました');
+          }
+          setPreviewContent(text);
+          setPreviewLoading(false);
+        } else {
+          mountBinaryBlob(result.blob);
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        if (isText) {
+          setPreviewContent(`プレビューの読み込みに失敗しました (${err?.message || '接続エラー'})。`);
+        } else {
+          setPreviewBlobUrl(fileUrl);
+        }
+        setPreviewLoading(false);
+      }
+    };
+
+    loadPreview();
+
+    return () => {
+      isMounted = false;
+      revokeActiveObjectUrl();
+    };
+  }, [previewFile]);
 
   // ファイルサイズ変換
   const formatBytes = (bytes: number) => {
@@ -470,13 +608,18 @@ export default function FileManager({
   // ファイルプレビューオープン
   const handleOpenPreview = (file: ExternalFile) => {
     setPreviewFile(file);
-    if (PREVIEW_TEXT_EXTS.includes(file.extension)) {
-      fetchTextContent(file);
-    }
   };
 
-  // 直接ダウンロード
+  // 直接ダウンロード（プレビューキャッシュがあれば再通信せず即時保存）
   const handleDownload = async (file: ExternalFile) => {
+    const previewUrl = getFileUrl(file, false);
+    const cacheKey = getPreviewCacheKey(file);
+    const cached = previewUrl ? getCachedPreviewEntry(previewUrl, cacheKey) : null;
+    if (cached) {
+      downloadBlobToDevice(cached.blob, file.name);
+      return;
+    }
+
     // 外部直リンク（unsplashなど）の場合
     if (file.url && file.url.startsWith('http') && !file.url.includes('/api/external-files/')) {
       const link = document.createElement('a');
@@ -508,14 +651,11 @@ export default function FileManager({
         }
 
         const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.setAttribute('download', file.name);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        // ダウンロード済みBlobもキャッシュへ保存し、直後のプレビューを即時化
+        if (previewUrl) {
+          setCachedPreviewBlob(previewUrl, blob, contentType, cacheKey);
+        }
+        downloadBlobToDevice(blob, file.name);
       } else {
         const errText = await response.text().catch(() => '');
         setConfirmModal({
@@ -992,14 +1132,23 @@ export default function FileManager({
             {/* モーダルコンテンツ */}
             <div className="flex-1 bg-slate-100 p-6 overflow-auto flex items-center justify-center">
               {previewLoading ? (
-                <div className="flex flex-col items-center">
-                  <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin mb-2" />
-                  <span className="text-xs text-slate-500">読み込み中...</span>
-                </div>
+                <PreviewLoadingState
+                  title={
+                    previewFile.extension === 'pdf'
+                      ? 'PDFを読み込み中...'
+                      : PREVIEW_IMAGE_EXTS.includes(previewFile.extension)
+                      ? '画像を読み込み中...'
+                      : 'ファイルを読み込み中...'
+                  }
+                  subtitle="初回のみファイルを取得します（次回以降はキャッシュから即時表示）"
+                  progress={previewProgress}
+                  accentClass={previewFile.extension === 'pdf' ? 'text-rose-600' : 'text-indigo-600'}
+                  barClass={previewFile.extension === 'pdf' ? 'bg-rose-600' : 'bg-indigo-600'}
+                />
               ) : PREVIEW_IMAGE_EXTS.includes(previewFile.extension) ? (
                 // 画像プレビュー
                 <img 
-                  src={getFileUrl(previewFile) || undefined}
+                  src={previewBlobUrl || getFileUrl(previewFile) || undefined}
                   alt={previewFile.name}
                   referrerPolicy="no-referrer"
                   className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
@@ -1007,11 +1156,11 @@ export default function FileManager({
               ) : previewFile.extension === 'pdf' ? (
                 // PDFプレビュー (iframe)
                 <iframe
-                  src={getFileUrl(previewFile) || undefined}
+                  src={previewBlobUrl || getFileUrl(previewFile) || undefined}
                   className="w-full h-full border-none rounded-lg bg-white shadow-sm"
                   title="PDFプレビュー"
                 />
-              ) : PREVIEW_TEXT_EXTS.includes(previewFile.extension) && previewContent ? (
+              ) : PREVIEW_TEXT_EXTS.includes(previewFile.extension) && previewContent !== null ? (
                 // テキストプレビュー
                 <pre className="w-full h-full bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-xs overflow-auto text-left leading-relaxed">
                   {previewContent}

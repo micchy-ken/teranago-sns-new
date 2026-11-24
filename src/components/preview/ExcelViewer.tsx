@@ -5,10 +5,11 @@ import {
   Search, 
   Download, 
   AlertCircle, 
-  Loader2, 
   Layers,
   ChevronDown
 } from 'lucide-react';
+import { FileFetchProgress, fetchFileBlobWithCache } from '../../utils/filePreviewCache';
+import { PreviewLoadingState } from './PreviewLoadingState';
 
 interface ExcelViewerProps {
   url: string;
@@ -25,23 +26,26 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
   const [sheets, setSheets] = useState<SheetData[]>([]);
   const [activeSheetIndex, setActiveSheetIndex] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
+  const [progress, setProgress] = useState<FileFetchProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
+    setProgress(null);
     setError(null);
     setSheets([]);
     setActiveSheetIndex(0);
 
     const loadExcel = async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const buffer = await response.arrayBuffer();
+        const result = await fetchFileBlobWithCache(url, {
+          onProgress: (p) => {
+            if (isMounted) setProgress(p);
+          },
+        });
+        const buffer = await result.blob.arrayBuffer();
 
         const uint8Array = new Uint8Array(buffer);
         const workbook = XLSX.read(uint8Array, { type: 'array', cellDates: true });
@@ -115,11 +119,13 @@ export function ExcelViewer({ url, fileName, onDownload }: ExcelViewerProps) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-slate-500 min-h-[350px]">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mb-3" />
-        <p className="text-xs font-bold text-slate-700">スプレッドシートを読み込み中...</p>
-        <p className="text-[11px] text-slate-400 mt-1">セルデータを解析しています</p>
-      </div>
+      <PreviewLoadingState
+        title="スプレッドシートを読み込み中..."
+        subtitle="セルデータを解析しています"
+        progress={progress}
+        accentClass="text-emerald-600"
+        barClass="bg-emerald-600"
+      />
     );
   }
 
