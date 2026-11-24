@@ -3,28 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</title>
+  <title>TERAPO 社内ポータル 操作マニュアル</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Inter:wght@400;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Noto+Sans+JP:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --primary: #4f46e5;
-      --primary-dark: #3730a3;
-      --primary-light: #eef2ff;
-      --accent: #0ea5e9;
-      --warning: #d97706;
-      --warning-bg: #fef3c7;
-      --danger: #dc2626;
-      --danger-bg: #fee2e2;
-      --success: #059669;
-      --success-bg: #d1fae5;
-      --bg: #f8fafc;
+      --canvas: #f8fafc;
       --surface: #ffffff;
+      --surface-subtle: #f1f5f9;
       --border: #e2e8f0;
-      --text: #1e293b;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-secondary: #334155;
       --text-muted: #64748b;
-      --sidebar-width: 290px;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: #eef2ff;
+      --accent-border: #c7d2fe;
+      --ok-text: #065f46;
+      --ok-bg: #ecfdf5;
+      --ok-border: #a7f3d0;
+      --warn-text: #92400e;
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --danger-text: #991b1b;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --topbar-height: 60px;
+      --sidebar-width: 276px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --radius-sm: 6px;
     }
 
     * {
@@ -33,1432 +43,2468 @@
       padding: 0;
     }
 
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
-      font-family: 'Noto Sans JP', 'BIZ UDPGothic', sans-serif;
-      background-color: var(--bg);
+      font-family: 'Noto Sans JP', 'BIZ UDPGothic', 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--canvas);
       color: var(--text);
       line-height: 1.75;
+      font-size: 14.5px;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* レイアウト構成 */
-    .app-container {
+    /* =====================================================================
+       トップバー（3ゾーン構成・1行固定・スマホでも15%未満の省スペース）
+       ===================================================================== */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      height: var(--topbar-height);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
       display: flex;
-      min-height: 100vh;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 0 24px;
     }
 
-    /* サイドバー目次 */
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .mobile-menu-btn:hover {
+      background: var(--surface-subtle);
+    }
+
+    .brand-mark {
+      font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .mode-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      background: var(--surface-subtle);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+
+    .mode-tab {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 7px 14px;
+      border-radius: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .mode-tab:hover {
+      color: var(--text);
+    }
+
+    .mode-tab.active {
+      background: var(--surface);
+      color: var(--accent);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    .mode-tab:focus-visible,
+    .btn-primary:focus-visible,
+    .btn-secondary:focus-visible,
+    .nav-link:focus-visible,
+    summary:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .btn-print {
+      appearance: none;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn-print:hover {
+      background: var(--surface-subtle);
+      border-color: var(--text-muted);
+    }
+
+    /* =====================================================================
+       アプリ全体レイアウト（サイドバー ＋ メイン領域）
+       ===================================================================== */
+    .workspace {
+      display: flex;
+      max-width: 1400px;
+      margin: 0 auto;
+      min-height: calc(100vh - var(--topbar-height));
+    }
+
+    /* サイドバー（アクティブタブの目次＋横断検索） */
     .sidebar {
       width: var(--sidebar-width);
-      background: #ffffff;
-      border-right: 1px solid var(--border);
-      position: fixed;
-      top: 0;
-      bottom: 0;
-      left: 0;
+      flex-shrink: 0;
+      position: sticky;
+      top: var(--topbar-height);
+      height: calc(100vh - var(--topbar-height));
       overflow-y: auto;
-      z-index: 40;
-      padding: 24px 16px;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      padding: 20px 16px 28px 16px;
       display: flex;
       flex-direction: column;
       gap: 16px;
     }
 
-    .sidebar-header {
-      padding-bottom: 16px;
-      border-bottom: 2px solid var(--primary-light);
+    .search-box {
+      position: relative;
     }
 
-    .brand-title {
+    .search-input {
+      width: 100%;
+      height: 38px;
+      padding: 0 34px 0 12px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .search-input:focus {
+      background: var(--surface);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+
+    .search-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
       font-size: 15px;
-      font-weight: 900;
-      color: var(--primary);
-      display: flex;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
     }
 
-    .brand-subtitle {
+    .search-clear.visible {
+      display: inline-flex;
+    }
+
+    .search-clear:hover {
+      background: var(--surface-subtle);
+      color: var(--text);
+    }
+
+    .search-results {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .search-results.visible {
+      display: flex;
+    }
+
+    .search-results-header {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding: 2px 6px 4px;
+    }
+
+    .search-hit {
+      display: block;
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+      cursor: pointer;
+      background: transparent;
+      text-align: left;
+      width: 100%;
+      font-family: inherit;
+    }
+
+    .search-hit:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent-border);
+    }
+
+    .search-hit-title {
+      display: block;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .search-hit-meta {
+      display: block;
       font-size: 11px;
       color: var(--text-muted);
-      margin-top: 4px;
-      font-weight: 500;
+      margin-top: 2px;
     }
 
-    .nav-search {
-      width: 100%;
-      padding: 8px 12px;
-      font-size: 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      outline: none;
-      background: var(--bg);
-      transition: all 0.2s;
+    .search-empty {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      padding: 8px 6px;
     }
 
-    .nav-search:focus {
-      border-color: var(--primary);
-      background: #fff;
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-    }
-
-    .nav-menu {
-      list-style: none;
-      display: flex;
+    .toc-panel {
+      display: none;
       flex-direction: column;
       gap: 4px;
     }
 
-    .nav-item a {
+    .toc-panel.active {
       display: flex;
-      align-items: center;
+    }
+
+    .toc-group-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+      padding: 12px 10px 4px 10px;
+    }
+
+    .toc-group-label:first-child {
+      padding-top: 2px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: baseline;
       justify-content: space-between;
-      padding: 8px 12px;
-      border-radius: 8px;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
       text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.4;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .nav-link:hover {
+      background: var(--surface-subtle);
       color: var(--text);
-      font-size: 12.5px;
-      font-weight: 600;
-      transition: all 0.15s ease;
     }
 
-    .nav-item a:hover {
-      background: var(--primary-light);
-      color: var(--primary);
-      transform: translateX(3px);
+    .nav-link.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
     }
 
-    .nav-item a.active {
-      background: var(--primary);
-      color: #fff;
-    }
-
-    .nav-item a.active .badge-auth {
-      background: #fff;
-      color: var(--primary);
-    }
-
-    /* 要権限バッジ */
-    .badge-auth {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 7px;
-      border-radius: 6px;
-      background: #fffbeb;
-      color: #b45309;
-      border: 1px solid #fde68a;
+    .nav-note {
+      font-size: 11px;
+      color: var(--text-muted);
       white-space: nowrap;
+      flex-shrink: 0;
     }
 
-    .badge-admin {
-      background: #fee2e2;
-      color: #b91c1c;
-      border-color: #fca5a5;
+    .nav-link.active .nav-note {
+      color: var(--accent);
     }
 
-    .badge-free {
-      background: #ecfdf5;
-      color: #047857;
-      border-color: #a7f3d0;
+    /* モバイル用ドロワー背景 */
+    .drawer-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      z-index: 44;
     }
 
-    /* メインコンテンツ */
+    .drawer-backdrop.open {
+      display: block;
+    }
+
+    /* =====================================================================
+       メインコンテンツ
+       ===================================================================== */
     .main-content {
-      margin-left: var(--sidebar-width);
       flex: 1;
-      padding: 40px 48px;
-      max-width: 1100px;
+      min-width: 0;
+      padding: 32px 44px 56px 44px;
+      max-width: 1020px;
     }
 
-    .header-banner {
-      background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
-      color: #ffffff;
-      padding: 36px 32px;
-      border-radius: 20px;
-      margin-bottom: 40px;
-      box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.25);
+    .tab-panel {
+      display: none;
     }
 
-    .header-banner h1 {
-      font-size: 26px;
-      font-weight: 900;
+    .tab-panel.active {
+      display: block;
+    }
+
+    /* ページ冒頭ヘッダー（過度なグラデーションを排した洗練されたヘッダー） */
+    .page-intro {
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-kicker {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .page-intro h1 {
+      font-size: clamp(22px, 2.6vw, 28px);
+      font-weight: 800;
       letter-spacing: -0.02em;
-      margin-bottom: 8px;
+      color: var(--text);
+      line-height: 1.3;
+      text-wrap: balance;
+      margin-bottom: 10px;
     }
 
-    .header-banner p {
-      font-size: 14px;
-      opacity: 0.92;
-      max-width: 750px;
-      line-height: 1.6;
+    .page-intro p {
+      font-size: 14.5px;
+      color: var(--text-secondary);
+      max-width: 72ch;
+      margin-bottom: 12px;
     }
 
-    .meta-bar {
+    .meta-inline {
       display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 18px;
-      font-size: 12px;
-      opacity: 0.9;
       flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
     }
 
-    .meta-bar span {
-      background: rgba(255, 255, 255, 0.15);
-      padding: 4px 10px;
-      border-radius: 6px;
-      backdrop-filter: blur(4px);
+    .meta-sep {
+      color: var(--border-strong);
     }
 
-    /* セクションブロック */
+    /* 共通セクションコンテナ（単一エレベーション・余白重視） */
     .doc-section {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 32px;
-      margin-bottom: 32px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-      scroll-margin-top: 24px;
+      border-radius: var(--radius-lg);
+      padding: 28px 30px;
+      margin-bottom: 24px;
+      scroll-margin-top: calc(var(--topbar-height) + 20px);
     }
 
     .section-header {
       display: flex;
-      align-items: center;
+      align-items: baseline;
       justify-content: space-between;
-      border-bottom: 2px solid var(--bg);
-      padding-bottom: 16px;
-      margin-bottom: 24px;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 8px 16px;
+      padding-bottom: 14px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
     }
 
     .section-title {
-      font-size: 20px;
+      font-size: 19px;
       font-weight: 800;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      letter-spacing: -0.015em;
+      color: var(--text);
+      line-height: 1.35;
     }
 
-    .section-icon {
-      font-size: 24px;
+    .section-meta {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .section-meta.auth-required {
+      color: var(--warn-text);
+    }
+
+    .section-meta.admin-only {
+      color: var(--danger-text);
     }
 
     h3 {
-      font-size: 16px;
-      font-weight: 800;
-      color: #1e293b;
-      margin: 28px 0 12px 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 26px 0 10px 0;
     }
 
-    h3::before {
-      content: '';
-      display: inline-block;
-      width: 4px;
-      height: 16px;
-      background: var(--primary);
-      border-radius: 2px;
+    h3:first-of-type {
+      margin-top: 8px;
     }
 
     h4 {
       font-size: 14px;
       font-weight: 700;
-      color: #334155;
-      margin: 18px 0 8px 0;
+      color: var(--text);
+      margin: 16px 0 6px 0;
     }
 
     p {
-      font-size: 14px;
-      color: #334155;
-      margin-bottom: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
     }
 
     ul, ol {
-      margin-left: 20px;
-      margin-bottom: 16px;
-      font-size: 14px;
-      color: #334155;
+      margin: 0 0 14px 20px;
+      color: var(--text-secondary);
     }
 
     li {
+      margin-bottom: 7px;
+    }
+
+    li:last-child {
+      margin-bottom: 0;
+    }
+
+    strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    /* チェックリスト・初回設定グリッド */
+    .setup-step {
+      padding: 20px 0;
+      border-top: 1px solid var(--border);
+      scroll-margin-top: calc(var(--topbar-height) + 20px);
+    }
+
+    .setup-step:first-of-type {
+      border-top: none;
+      padding-top: 4px;
+    }
+
+    .setup-step-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .step-num {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .setup-step-title {
+      font-size: 16.5px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .device-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0 8px 0;
+    }
+
+    .device-col {
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+
+    .device-name {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--text);
       margin-bottom: 8px;
     }
 
-    /* コールアウト・注意書き */
-    .callout {
-      padding: 16px 18px;
-      border-radius: 12px;
-      margin: 18px 0;
-      font-size: 13px;
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      line-height: 1.6;
-    }
-
-    .callout-info {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1e40af;
-    }
-
-    .callout-warning {
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      color: #92400e;
-    }
-
-    .callout-danger {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      color: #991b1b;
-    }
-
-    .callout-success {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      color: #166534;
-    }
-
-    .callout-icon {
-      font-size: 18px;
-      line-height: 1;
-      shrink: 0;
-    }
-
-    /* 操作手順ステップボックス */
-    .step-box {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin: 16px 0;
-    }
-
-    .step-box ol {
-      margin-bottom: 0;
+    .device-col ol {
       margin-left: 18px;
+      margin-bottom: 0;
+      font-size: 13px;
+    }
+
+    .device-col li {
+      margin-bottom: 6px;
+    }
+
+    /* おすすめ3大機能カード */
+    .feature-spotlight {
+      padding: 22px 0;
+      border-top: 1px solid var(--border);
+      scroll-margin-top: calc(var(--topbar-height) + 20px);
+    }
+
+    .feature-spotlight:first-of-type {
+      border-top: none;
+      padding-top: 4px;
+    }
+
+    .spotlight-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .spotlight-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .spotlight-scope {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .mechanism-flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 14px 0 16px 0;
+    }
+
+    .flow-cell {
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+
+    .flow-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .flow-body {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    /* 手順ボックス（左太帯なし・繊細な1px枠と背景差） */
+    .step-box {
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin: 12px 0 16px 0;
+    }
+
+    .step-box ol,
+    .step-box ul {
+      margin-bottom: 0;
     }
 
     .step-box li {
-      margin-bottom: 10px;
       font-size: 13.5px;
+      margin-bottom: 8px;
     }
 
     .step-box li:last-child {
       margin-bottom: 0;
     }
 
-    /* コード・キーバッジ */
+    /* コールアウト（左太線なし・明確なテキストラベル併用） */
+    .callout {
+      padding: 14px 18px;
+      border-radius: var(--radius-md);
+      margin: 14px 0;
+      font-size: 13.5px;
+      line-height: 1.65;
+      border: 1px solid var(--border);
+      background: var(--canvas);
+      color: var(--text-secondary);
+    }
+
+    .callout-label {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 800;
+      margin-right: 8px;
+    }
+
+    .callout-info {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e3a8a;
+    }
+
+    .callout-info .callout-label {
+      color: #1d4ed8;
+    }
+
+    .callout-success {
+      background: var(--ok-bg);
+      border-color: var(--ok-border);
+      color: var(--ok-text);
+    }
+
+    .callout-warning {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+      color: var(--warn-text);
+    }
+
+    .callout-danger {
+      background: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: var(--danger-text);
+    }
+
+    /* タブ間ジャンプ用ナビカード */
+    .next-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 8px;
+    }
+
+    .next-link-btn {
+      appearance: none;
+      text-align: left;
+      font-family: inherit;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .next-link-btn:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .next-link-title {
+      display: block;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .next-link-desc {
+      display: block;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* =====================================================================
+       タブ2: 逆引きレシピ（アコーディオン形式＋一括開閉）
+       ===================================================================== */
+    .recipes-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .recipes-count {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      appearance: none;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface-subtle);
+      color: var(--text);
+    }
+
+    details.recipe-accordion {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 14px;
+      scroll-margin-top: calc(var(--topbar-height) + 20px);
+      overflow: hidden;
+    }
+
+    details.recipe-accordion[open] {
+      border-color: var(--border-strong);
+    }
+
+    details.recipe-accordion summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      user-select: none;
+      transition: background-color 0.15s ease;
+    }
+
+    details.recipe-accordion summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.recipe-accordion summary:hover {
+      background: var(--canvas);
+    }
+
+    .recipe-summary-text {
+      min-width: 0;
+    }
+
+    .recipe-summary-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .recipe-summary-sub {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+
+    .recipe-chevron {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    details.recipe-accordion[open] .recipe-chevron::before {
+      content: '閉じる';
+    }
+
+    details.recipe-accordion:not([open]) .recipe-chevron::before {
+      content: '手順を見る';
+    }
+
+    .recipe-body {
+      padding: 4px 24px 24px 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    .recipe-goal {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin: 16px 0 14px 0;
+    }
+
+    .recipe-subhead {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 18px 0 8px 0;
+    }
+
+    .inline-tab-link {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+
+    .inline-tab-link:hover {
+      color: var(--accent-hover);
+    }
+
+    /* テーブル・コード・キーボード */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 14px 0 20px 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+
+    .feature-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      background: var(--surface);
+    }
+
+    .feature-table th,
+    .feature-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 11px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .feature-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .feature-table th {
+      background: var(--canvas);
+      font-weight: 700;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .feature-table tbody tr:hover td {
+      background: #f8fafc;
+    }
+
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 12px;
-      background: #f1f5f9;
-      color: #0f172a;
+      background: var(--surface-subtle);
+      color: var(--text);
       padding: 2px 6px;
       border-radius: 4px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--border);
       font-weight: 600;
     }
 
     kbd {
       font-family: inherit;
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
       border-bottom: 2px solid #94a3b8;
       border-radius: 4px;
-      padding: 1px 5px;
-      font-size: 11px;
+      padding: 1px 6px;
+      font-size: 11.5px;
       font-weight: 700;
-      color: #475569;
-    }
-
-    /* 機能テーブル */
-    .feature-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0 24px 0;
-      font-size: 13px;
-    }
-
-    .feature-table th, .feature-table td {
-      border: 1px solid var(--border);
-      padding: 10px 14px;
-      text-align: left;
-      vertical-align: top;
-    }
-
-    .feature-table th {
-      background: #f8fafc;
-      font-weight: 700;
-      color: #475569;
-      white-space: nowrap;
-    }
-
-    .feature-table tr:hover td {
-      background: #f8fafc;
-    }
-
-    /* やること別レシピカード・逆引きUI */
-    .nav-group-label {
-      font-size: 10.5px;
-      font-weight: 800;
-      color: var(--text-muted);
-      letter-spacing: 0.04em;
-      padding: 8px 10px 4px 10px;
-      margin-top: 4px;
-    }
-
-    .recipe-toc-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 10px;
-      margin: 16px 0 24px 0;
-    }
-
-    .recipe-toc-card {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 14px;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      text-decoration: none;
-      color: var(--text);
-      font-size: 13px;
-      font-weight: 700;
-      transition: all 0.15s ease;
-    }
-
-    .recipe-toc-card:hover {
-      background: var(--primary-light);
-      border-color: #c7d2fe;
-      color: var(--primary-dark);
-      transform: translateY(-1px);
-    }
-
-    .recipe-card {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 20px 22px;
-      margin-bottom: 20px;
-      background: #ffffff;
-      scroll-margin-top: 24px;
-    }
-
-    .recipe-card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 10px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #f1f5f9;
-    }
-
-    .recipe-card-title {
-      font-size: 16px;
-      font-weight: 800;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .recipe-goal {
-      font-size: 13px;
-      color: #475569;
-      background: #f8fafc;
-      border-left: 3px solid var(--primary);
-      padding: 8px 12px;
-      border-radius: 0 8px 8px 0;
-      margin-bottom: 14px;
-    }
-
-    .recipe-subhead {
-      font-size: 13.5px;
-      font-weight: 800;
-      color: #1e293b;
-      margin: 14px 0 8px 0;
+      color: var(--text-secondary);
     }
 
     /* フッター */
     .manual-footer {
-      text-align: center;
-      padding: 40px 0 20px 0;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
       font-size: 12px;
       color: var(--text-muted);
-      border-top: 1px solid var(--border);
-      margin-top: 40px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
     }
 
-    /* 印刷最適化 */
-    @media print {
-      .sidebar, .nav-search, .btn-print {
-        display: none !important;
-      }
+    /* 印刷専用の見出し（画面上は非表示） */
+    .print-tab-heading {
+      display: none;
+    }
+
+    /* =====================================================================
+       レスポンシブ対応（タブレット・スマホでも迷わず操作可能）
+       ===================================================================== */
+    @media (max-width: 1024px) {
       .main-content {
-        margin-left: 0 !important;
-        padding: 0 !important;
-        max-width: 100% !important;
+        padding: 24px 24px 48px 24px;
       }
-      .doc-section {
-        border: none !important;
-        box-shadow: none !important;
-        page-break-inside: avoid;
-        padding: 16px 0 !important;
-        margin-bottom: 24px !important;
-      }
-      .header-banner {
-        background: #3730a3 !important;
-        color: #fff !important;
-        -webkit-print-color-adjust: exact;
+      .device-grid,
+      .mechanism-flow {
+        grid-template-columns: 1fr;
       }
     }
 
-    @media (max-width: 768px) {
-      .sidebar {
+    @media (max-width: 860px) {
+      .topbar {
+        padding: 0 12px;
+        gap: 8px;
+      }
+
+      .mobile-menu-btn {
+        display: inline-flex;
+      }
+
+      .brand-mark {
         display: none;
       }
+
+      .mode-tabs {
+        flex: 1;
+        justify-content: space-between;
+        overflow-x: auto;
+      }
+
+      .mode-tab {
+        flex: 1;
+        text-align: center;
+        padding: 7px 8px;
+        font-size: 12px;
+      }
+
+      .btn-print {
+        display: none;
+      }
+
+      .sidebar {
+        position: fixed;
+        top: var(--topbar-height);
+        left: 0;
+        bottom: 0;
+        z-index: 45;
+        transform: translateX(-100%);
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        box-shadow: 4px 0 24px rgba(15, 23, 42, 0.14);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
       .main-content {
-        margin-left: 0;
-        padding: 20px 16px;
+        padding: 20px 16px 40px 16px;
+      }
+
+      .doc-section {
+        padding: 20px 18px;
+      }
+
+      details.recipe-accordion summary {
+        padding: 16px 18px;
+      }
+
+      .recipe-body {
+        padding: 4px 18px 20px 18px;
+      }
+
+      .next-links {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* =====================================================================
+       印刷・PDF保存最適化（全タブ・全アコーディオンを自動展開して出力）
+       ===================================================================== */
+    @media print {
+      .topbar,
+      .sidebar,
+      .drawer-backdrop,
+      .recipes-toolbar,
+      .next-links,
+      .recipe-chevron {
+        display: none !important;
+      }
+
+      body {
+        background: #ffffff;
+        font-size: 12px;
+      }
+
+      .workspace {
+        display: block;
+        max-width: 100%;
+      }
+
+      .main-content {
+        max-width: 100%;
+        padding: 0;
+      }
+
+      .tab-panel {
+        display: block !important;
+        margin-bottom: 24px;
+      }
+
+      .print-tab-heading {
+        display: block;
+        font-size: 18px;
+        font-weight: 800;
+        color: #0f172a;
+        padding: 12px 0 8px 0;
+        margin: 20px 0 12px 0;
+        border-bottom: 2px solid #0f172a;
+        page-break-after: avoid;
+      }
+
+      .doc-section,
+      details.recipe-accordion {
+        border: none;
+        border-bottom: 1px solid #cbd5e1;
+        border-radius: 0;
+        padding: 14px 0;
+        margin-bottom: 14px;
+        break-inside: avoid;
+      }
+
+      details.recipe-accordion summary {
+        padding: 8px 0;
+      }
+
+      .recipe-body {
+        padding: 4px 0 12px 0;
+        border-top: none;
       }
     }
   </style>
 </head>
 <body>
-  <div class="app-container">
-    <!-- サイドバーインデックス目次 -->
-    <nav class="sidebar">
-      <div class="sidebar-header">
-        <div class="brand-title">
-          <span>📖 操作マニュアル</span>
-        </div>
-        <div class="brand-subtitle">寺岡オートドアSNS / 寺子屋SNS</div>
-      </div>
 
-      <input type="text" id="manualSearch" class="nav-search" placeholder="🔍 機能・やりたいことを検索..." onkeyup="filterMenu()">
+  <!-- トップバー（1行・3ゾーン：ブランド / 3タブ切替 / 印刷アクション） -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button type="button" id="mobileMenuBtn" class="mobile-menu-btn" aria-label="目次と検索を開く" aria-expanded="false">
+        ☰
+      </button>
+      <a href="#sec-onboarding" class="brand-mark" onclick="switchTab('start'); return false;">TERAPO 操作マニュアル</a>
+    </div>
 
-      <ul class="nav-menu" id="menuList">
-        <li class="nav-group-label">📌 やること別レシピ（逆引き）</li>
-        <li class="nav-item"><a href="#sec-recipes">🎯 やること別ガイド一覧 <span class="badge-auth badge-free">逆引き</span></a></li>
-        <li class="nav-item"><a href="#recipe-site">🏗️ 現場追加・作業・工程入力 <span class="badge-auth badge-free">現場</span></a></li>
-        <li class="nav-item"><a href="#recipe-daily">📝 保守日報・予定自動取込 <span class="badge-auth badge-free">日報</span></a></li>
-        <li class="nav-item"><a href="#recipe-project">🗂️ プロジェクト作成・アサイン <span class="badge-auth badge-free">案件</span></a></li>
-        <li class="nav-item"><a href="#recipe-workflow">✍️ 各種ワークフロー申請 <span class="badge-auth badge-free">承認</span></a></li>
-        <li class="nav-item"><a href="#recipe-meeting">🗓️ 日程調整・重要回覧・BCP <span class="badge-auth badge-free">日常</span></a></li>
-
-        <li class="nav-group-label">📚 機能別リファレンス</li>
-        <li class="nav-item"><a href="#sec-intro">はじめに・概要・PWA <span class="badge-auth badge-free">全般</span></a></li>
-        <li class="nav-item"><a href="#sec-timeline">🏠 タイムライン (SNS) <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-reports">📋 業務日報・現場報告 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-bulletins">📢 社内掲示板・回覧 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-chat">💬 チャット＆@特殊コマンド <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-calendar">📅 共有カレンダー・調整 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-projects">🗂️ プロジェクト管理 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-inspection">🗓️ 点検予定一括登録 <span class="badge-auth">要権限</span></a></li>
-        <li class="nav-item"><a href="#sec-documents">📁 社内文書管理 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-files">🗄️ NAS共有ファイル <span class="badge-auth">要権限</span></a></li>
-        <li class="nav-item"><a href="#sec-safety">🦺 安否確認・緊急BCP <span class="badge-auth">発動:要権限</span></a></li>
-        <li class="nav-item"><a href="#sec-members">👥 社員名簿・組織 <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-utility">🛠️ ユーティリティー <span class="badge-auth badge-free">全員</span></a></li>
-        <li class="nav-item"><a href="#sec-admin">⚙️ 管理者パネル・設定 <span class="badge-auth badge-admin">要管理者</span></a></li>
-        <li class="nav-item"><a href="#sec-roles">🔒 権限ロール一覧 <span class="badge-auth badge-free">仕様</span></a></li>
-        <li class="nav-item"><a href="#sec-faq">❓ よくある質問・FAQ <span class="badge-auth badge-free">解決</span></a></li>
-      </ul>
-
-      <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border);">
-        <button onclick="window.print()" class="btn-print" style="width: 100%; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--text); cursor: pointer;">
-          🖨️ マニュアルを印刷 / PDF保存
-        </button>
-      </div>
+    <nav class="mode-tabs" role="tablist" aria-label="マニュアル表示切替">
+      <button type="button" role="tab" id="tabBtn-start" class="mode-tab active" aria-selected="true" aria-controls="panel-start" onclick="switchTab('start')">
+        はじめに・おすすめ
+      </button>
+      <button type="button" role="tab" id="tabBtn-recipes" class="mode-tab" aria-selected="false" aria-controls="panel-recipes" onclick="switchTab('recipes')">
+        逆引きレシピ
+      </button>
+      <button type="button" role="tab" id="tabBtn-reference" class="mode-tab" aria-selected="false" aria-controls="panel-reference" onclick="switchTab('reference')">
+        機能別リファレンス
+      </button>
     </nav>
+
+    <div class="topbar-right">
+      <button type="button" class="btn-print" onclick="printFullManual()">印刷 / PDF保存</button>
+    </div>
+  </header>
+
+  <div id="drawerBackdrop" class="drawer-backdrop" onclick="closeMobileDrawer()"></div>
+
+  <div class="workspace">
+    <!-- 左サイドバー（横断全文検索 ＋ アクティブタブ専用の目次） -->
+    <aside id="sidebarDrawer" class="sidebar" aria-label="目次と検索">
+      <div class="search-box">
+        <input type="search" id="manualSearch" class="search-input" placeholder="全ページ横断検索（例: マイグループ, 通知）" aria-label="マニュアル内を横断検索">
+        <button type="button" id="searchClearBtn" class="search-clear" aria-label="検索をクリア" onclick="clearSearch()">×</button>
+      </div>
+
+      <!-- 横断検索ヒット一覧 -->
+      <div id="searchResults" class="search-results" aria-live="polite"></div>
+
+      <!-- タブ1 目次：はじめに・おすすめ -->
+      <nav id="toc-start" class="toc-panel active" aria-label="はじめに・おすすめ目次">
+        <div class="toc-group-label">初回おすすめ設定</div>
+        <a href="#step-pwa" class="nav-link" onclick="jumpTo('step-pwa', 'start'); return false;">
+          <span>01. アプリ化（PWA）</span>
+          <span class="nav-note">必須</span>
+        </a>
+        <a href="#step-push" class="nav-link" onclick="jumpTo('step-push', 'start'); return false;">
+          <span>02. WebPush通知</span>
+          <span class="nav-note">必須</span>
+        </a>
+        <a href="#step-env" class="nav-link" onclick="jumpTo('step-env', 'start'); return false;">
+          <span>03. 推奨環境・連絡先</span>
+          <span class="nav-note">確認</span>
+        </a>
+
+        <div class="toc-group-label">使いこなすおすすめ機能</div>
+        <a href="#rec-mygroup" class="nav-link" onclick="jumpTo('rec-mygroup', 'start'); return false;">
+          <span>マイグループ</span>
+          <span class="nav-note">横断</span>
+        </a>
+        <a href="#rec-calendar-fav" class="nav-link" onclick="jumpTo('rec-calendar-fav', 'start'); return false;">
+          <span>カレンダーのお気に入り</span>
+          <span class="nav-note">時短</span>
+        </a>
+        <a href="#rec-share-fav" class="nav-link" onclick="jumpTo('rec-share-fav', 'start'); return false;">
+          <span>横断共有＆お気に入り</span>
+          <span class="nav-note">定番</span>
+        </a>
+
+        <div class="toc-group-label">次のステップ</div>
+        <a href="#sec-next-guide" class="nav-link" onclick="jumpTo('sec-next-guide', 'start'); return false;">
+          <span>逆引き・機能別へ</span>
+        </a>
+      </nav>
+
+      <!-- タブ2 目次：逆引きレシピ -->
+      <nav id="toc-recipes" class="toc-panel" aria-label="逆引きレシピ目次">
+        <div class="toc-group-label">やること別レシピ（5件）</div>
+        <a href="#recipe-site" class="nav-link" onclick="jumpTo('recipe-site', 'recipes'); return false;">
+          <span>1. 現場追加・作業・工程</span>
+          <span class="nav-note">現場</span>
+        </a>
+        <a href="#recipe-daily" class="nav-link" onclick="jumpTo('recipe-daily', 'recipes'); return false;">
+          <span>2. 保守日報・予定自動取込</span>
+          <span class="nav-note">日報</span>
+        </a>
+        <a href="#recipe-project" class="nav-link" onclick="jumpTo('recipe-project', 'recipes'); return false;">
+          <span>3. プロジェクト作成・担当</span>
+          <span class="nav-note">案件</span>
+        </a>
+        <a href="#recipe-workflow" class="nav-link" onclick="jumpTo('recipe-workflow', 'recipes'); return false;">
+          <span>4. 各種ワークフロー申請</span>
+          <span class="nav-note">承認</span>
+        </a>
+        <a href="#recipe-meeting" class="nav-link" onclick="jumpTo('recipe-meeting', 'recipes'); return false;">
+          <span>5. 日程調整・回覧・BCP</span>
+          <span class="nav-note">日常</span>
+        </a>
+      </nav>
+
+      <!-- タブ3 目次：機能別リファレンス（4カテゴリ整理） -->
+      <nav id="toc-reference" class="toc-panel" aria-label="機能別リファレンス目次">
+        <div class="toc-group-label">日常・コミュニケーション</div>
+        <a href="#sec-timeline" class="nav-link" onclick="jumpTo('sec-timeline', 'reference'); return false;">
+          <span>タイムライン (SNS)</span>
+        </a>
+        <a href="#sec-bulletins" class="nav-link" onclick="jumpTo('sec-bulletins', 'reference'); return false;">
+          <span>社内掲示板・回覧</span>
+        </a>
+        <a href="#sec-chat" class="nav-link" onclick="jumpTo('sec-chat', 'reference'); return false;">
+          <span>チャット＆@コマンド</span>
+        </a>
+        <a href="#sec-calendar" class="nav-link" onclick="jumpTo('sec-calendar', 'reference'); return false;">
+          <span>共有カレンダー・調整</span>
+        </a>
+
+        <div class="toc-group-label">業務・現場管理</div>
+        <a href="#sec-reports" class="nav-link" onclick="jumpTo('sec-reports', 'reference'); return false;">
+          <span>業務日報・現場報告</span>
+        </a>
+        <a href="#sec-projects" class="nav-link" onclick="jumpTo('sec-projects', 'reference'); return false;">
+          <span>プロジェクト管理</span>
+        </a>
+        <a href="#sec-inspection" class="nav-link" onclick="jumpTo('sec-inspection', 'reference'); return false;">
+          <span>点検予定一括登録</span>
+          <span class="nav-note">要権限</span>
+        </a>
+
+        <div class="toc-group-label">資料・防災BCP</div>
+        <a href="#sec-documents" class="nav-link" onclick="jumpTo('sec-documents', 'reference'); return false;">
+          <span>社内文書管理</span>
+        </a>
+        <a href="#sec-files" class="nav-link" onclick="jumpTo('sec-files', 'reference'); return false;">
+          <span>NAS共有ファイル</span>
+          <span class="nav-note">要権限</span>
+        </a>
+        <a href="#sec-safety" class="nav-link" onclick="jumpTo('sec-safety', 'reference'); return false;">
+          <span>安否確認・緊急BCP</span>
+          <span class="nav-note">発動:要権限</span>
+        </a>
+
+        <div class="toc-group-label">共通・管理・仕様</div>
+        <a href="#sec-members" class="nav-link" onclick="jumpTo('sec-members', 'reference'); return false;">
+          <span>社員名簿・組織</span>
+        </a>
+        <a href="#sec-utility" class="nav-link" onclick="jumpTo('sec-utility', 'reference'); return false;">
+          <span>ユーティリティー</span>
+        </a>
+        <a href="#sec-admin" class="nav-link" onclick="jumpTo('sec-admin', 'reference'); return false;">
+          <span>管理者パネル・設定</span>
+          <span class="nav-note">要管理者</span>
+        </a>
+        <a href="#sec-roles" class="nav-link" onclick="jumpTo('sec-roles', 'reference'); return false;">
+          <span>権限マトリクス一覧</span>
+        </a>
+        <a href="#sec-faq" class="nav-link" onclick="jumpTo('sec-faq', 'reference'); return false;">
+          <span>よくある質問・FAQ</span>
+        </a>
+      </nav>
+    </aside>
 
     <!-- メインコンテンツ -->
     <main class="main-content">
-      <!-- ヘッダーバナー -->
-      <div class="header-banner">
-        <h1>寺岡オートドアSNS / 寺子屋SNS 総合操作マニュアル</h1>
-        <p>「やりたいこと」からすぐ引ける業務レシピ集と、社内ナレッジ・日報・現場管理・プロジェクト管理・ワークフロー・点検予定・文書キャビネット・安否確認の全機能を網羅した公式操作ガイドです。</p>
-        <div class="meta-bar">
-          <span>バージョン: v2026.11.17 #12 (完全版)</span>
-          <span>最終改定日: 2026年11月17日</span>
-          <span>タイムゾーン: 日本標準時 (JST / UTC+09:00) 厳格準拠</span>
-          <span>対象: 全社員・管理者・現場技術員</span>
+
+      <!-- =================================================================
+           タブ 1: はじめに・おすすめ（初回設定 ＋ 使いこなすおすすめ3大機能）
+           ================================================================= -->
+      <div id="panel-start" class="tab-panel active" role="tabpanel" aria-labelledby="tabBtn-start">
+        <div class="print-tab-heading">第1部：はじめに・初回おすすめ設定・おすすめ機能</div>
+
+        <div id="sec-onboarding" class="page-intro">
+          <div class="page-kicker">初回スタートガイド</div>
+          <h1>TERAPO 社内ポータル 操作マニュアル</h1>
+          <p>最初に済ませておきたい「アプリ化」「WebPush通知」の設定と、毎日の業務がぐっと快適になるおすすめ機能（マイグループ・カレンダーのお気に入り・横断共有＆お気に入り）をまとめています。</p>
+          <div class="meta-inline">
+            <span>バージョン v2026.11.24 #4 (JST)</span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>最終改定 2026年11月24日</span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>日本標準時 (JST / UTC+09:00) 準拠</span>
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span>対象 全社員・現場技術員・管理者</span>
+          </div>
         </div>
+
+        <!-- セクション 1: 初回おすすめ設定 -->
+        <section id="sec-initial-setup" class="doc-section">
+          <div class="section-header">
+            <h2 class="section-title">1. まずは済ませたい初回おすすめ設定</h2>
+            <span class="section-meta">所要時間 約3分 · 全社員対象</span>
+          </div>
+          <p>ログインできたら、まず以下の2つを設定しておくと、スマホでもPCでも通常の業務アプリと同じ感覚で使えます。</p>
+
+          <!-- STEP 01: アプリ化 -->
+          <div id="step-pwa" class="setup-step" data-search-tab="start" data-search-title="初回設定 01：アプリ化（PWAインストール）">
+            <div class="setup-step-head">
+              <span class="step-num">STEP 01</span>
+              <h3 class="setup-step-title" style="margin:0;">アプリ化（ホーム画面に追加 / PWAインストール）</h3>
+            </div>
+            <p>ホーム画面やデスクトップにアプリとして追加すると、ブラウザのURLバーが消えて画面が広くなり、ワンタップで起動できます。<strong>特に iPhone では、アプリ化してから起動することで WebPush 通知を受け取れるようになります。</strong></p>
+
+            <div class="device-grid">
+              <div class="device-col">
+                <div class="device-name">iPhone (Safari)</div>
+                <ol>
+                  <li>必ず <strong>Safari</strong> で本番サイトを開きます。</li>
+                  <li>画面下部中央の「<strong>共有</strong>（四角に上矢印）」をタップします。</li>
+                  <li>一覧から「<strong>ホーム画面に追加</strong>」を選び、右上の「追加」を押します。</li>
+                  <li>今後はホーム画面の <strong>TERAPO アイコン</strong>から起動します。</li>
+                </ol>
+              </div>
+              <div class="device-col">
+                <div class="device-name">Android (Chrome)</div>
+                <ol>
+                  <li><strong>Chrome</strong> で本番サイトを開きます。</li>
+                  <li>画面下部のインストール案内、または右上メニュー「<strong>︙</strong>」をタップします。</li>
+                  <li>「<strong>アプリをインストール</strong>」（または「ホーム画面に追加」）を選択します。</li>
+                </ol>
+              </div>
+              <div class="device-col">
+                <div class="device-name">PC (Chrome / Edge)</div>
+                <ol>
+                  <li><strong>Chrome</strong> または <strong>Edge</strong> で本番サイトを開きます。</li>
+                  <li>アドレスバー右端にある「<strong>インストール</strong>」アイコンをクリックします。</li>
+                  <li>独立したデスクトップアプリとして起動・タスクバー固定ができます。</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 02: WebPush通知 -->
+          <div id="step-push" class="setup-step" data-search-tab="start" data-search-title="初回設定 02：WebPush通知（スマホ・PCリアルタイム通知）">
+            <div class="setup-step-head">
+              <span class="step-num">STEP 02</span>
+              <h3 class="setup-step-title" style="margin:0;">WebPush通知を ON にする</h3>
+            </div>
+            <p>緊急安否確認の発動、チャットでのメンション、重要掲示板、ワークフロー承認依頼、プロジェクトの担当アサインをリアルタイムに受け取れます。PC・スマホそれぞれの端末で設定できます。</p>
+
+            <div class="step-box">
+              <ol>
+                <li>iPhone の場合は、STEP 01 で作成した<strong>ホーム画面のアイコンから TERAPO を起動</strong>してログインします。</li>
+                <li>左メニューの「<strong>マイページ</strong>」を開き、「<strong>Web Push プッシュ通知設定（スマホ・PCリアルタイム通知）</strong>」を展開します（ヘッダー通知メニューの「プッシュ通知設定を開く」からも移動できます）。</li>
+                <li>「<strong>この端末でプッシュ通知を有効にする</strong>」をクリックします。</li>
+                <li>ブラウザから通知許可の確認ダイアログが表示されたら「<strong>許可</strong>」を選択します。</li>
+              </ol>
+            </div>
+
+            <div class="callout callout-info">
+              <span class="callout-label">ポイント</span>
+              会社のPCと個人のスマートフォンなど複数端末で個別に有効化できます。端末側で通知が許可されている限り、自動自己修復機能により受信状態が維持されます。
+            </div>
+          </div>
+
+          <!-- STEP 03: 推奨環境・緊急連絡先 -->
+          <div id="step-env" class="setup-step" data-search-tab="start" data-search-title="初回設定 03：推奨利用環境・緊急連絡先（個人メール）の確認">
+            <div class="setup-step-head">
+              <span class="step-num">STEP 03</span>
+              <h3 class="setup-step-title" style="margin:0;">あわせて確認：推奨環境と緊急連絡先（個人メール）</h3>
+            </div>
+            <p>災害時に会社メールが見られない状況でも安否確認を受け取れるよう、マイページの「<strong>安否確認・緊急連絡先（個人メール）</strong>」も登録しておくと安心です（AES-256-GCM 暗号化で保護され、第三者からは伏字表示されます）。</p>
+
+            <div class="table-wrap">
+              <table class="feature-table">
+                <thead>
+                  <tr>
+                    <th>端末種別</th>
+                    <th>推奨ブラウザ</th>
+                    <th>利用上のポイント</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>パソコン (Windows / Mac)</strong></td>
+                    <td>Google Chrome / Microsoft Edge (最新版)</td>
+                    <td>カレンダーマトリクス、点検Excel取込、文書管理、管理者パネルに最適。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>スマートフォン (iOS / iPhone)</strong></td>
+                    <td>Safari (最新版) ＋ PWA化</td>
+                    <td>ホーム画面アイコンからの起動で全画面表示と WebPush 通知に対応。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>スマートフォン (Android)</strong></td>
+                    <td>Google Chrome (最新版) ＋ PWA化</td>
+                    <td>安否確認や現場からの写真付き日報・チャット投稿がスムーズ。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- セクション 2: おすすめ3大機能 -->
+        <section id="sec-recommended" class="doc-section">
+          <div class="section-header">
+            <h2 class="section-title">2. 毎日の業務が劇的にラクになるおすすめ3大機能</h2>
+            <span class="section-meta">初回設定のあと、まず試してほしい便利機能</span>
+          </div>
+          <p>TERAPO には多数の業務機能がありますが、最初に次の3つを押さえておくと「毎回探す・毎回メンバーを選び直す」手間がなくなります。</p>
+
+          <!-- おすすめ 1: マイグループ -->
+          <div id="rec-mygroup" class="feature-spotlight" data-search-tab="start" data-search-title="おすすめ機能 1：マイグループ（横断メンバーグループ）">
+            <div class="spotlight-head">
+              <h3 class="spotlight-title" style="margin:0;">おすすめ① マイグループ（自分だけのメンバー組み合わせ）</h3>
+              <span class="spotlight-scope">カレンダー · 掲示板 · プロジェクト横断対応</span>
+            </div>
+            <p>部署や拠点の枠を超えて、よく一緒に動くメンバー（例：「担当現場チーム」「よく連絡するメンバー」「案件メンバー」）を自分専用グループとして登録できる機能です。</p>
+
+            <div class="mechanism-flow">
+              <div class="flow-cell">
+                <div class="flow-label">1. 一度つくる</div>
+                <p class="flow-body">カレンダー上部の表示対象で「マイグループ」を選び、管理画面からグループ名とメンバーを登録。</p>
+              </div>
+              <div class="flow-cell">
+                <div class="flow-label">2. カレンダーで使う</div>
+                <p class="flow-body">チーム表示・個人表示の候補をワンクリックでそのメンバーだけに絞り込み。</p>
+              </div>
+              <div class="flow-cell">
+                <div class="flow-label">3. 他機能でも使い回す</div>
+                <p class="flow-body"><strong>掲示板の限定公開</strong>や<strong>プロジェクトの参加メンバー追加</strong>でも「マイグループから追加」で一括選択。</p>
+              </div>
+            </div>
+
+            <div class="step-box">
+              <ol>
+                <li>左メニューの「<strong>カレンダー</strong>」を開きます。</li>
+                <li>上部の表示対象プルダウン（所属 / マイグループ）から「<strong>マイグループ</strong>」を選択します。</li>
+                <li>隣の一覧から「<strong>マイグループの管理・作成...</strong>」を開き、グループ名とメンバーを選んで保存します。</li>
+                <li>作成後は、掲示板の新規投稿（公開範囲）やプロジェクトのボード設定でも「<strong>マイグループから追加</strong>」ボタンからそのまま呼び出せます。</li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- おすすめ 2: カレンダーのお気に入り -->
+          <div id="rec-calendar-fav" class="feature-spotlight" data-search-tab="start" data-search-title="おすすめ機能 2：カレンダーのお気に入り（表示設定のお気に入り）">
+            <div class="spotlight-head">
+              <h3 class="spotlight-title" style="margin:0;">おすすめ② カレンダーのお気に入り（表示設定のワンタップ切替）</h3>
+              <span class="spotlight-scope">カレンダー画面上部「表示設定のお気に入り」</span>
+            </div>
+            <p>「自拠点の保守チーム（週表示）」「自分の個人カレンダー（月表示）」「特定マイグループ」など、よく確認する表示条件に名前を付けて保存し、ワンクリックで切り替えられます。</p>
+
+            <div class="step-box">
+              <ol>
+                <li>カレンダーで、よく使う状態（<strong>個人／チーム</strong>、<strong>拠点・部署またはマイグループ</strong>、<strong>週／月</strong>など）を表示します。</li>
+                <li>上部バーの「<strong>表示設定のお気に入り</strong>（★アイコン）」をクリックします。</li>
+                <li>分かりやすい名前（例：「名古屋保守 週」「自分 月」）を入力して「<strong>現在の画面をお気に入りに追加</strong>」で保存します。</li>
+                <li>次回からは★メニューから選ぶだけで一瞬で切り替わります。よく見る1件をデフォルト初期表示にしておくと、カレンダーを開いた瞬間から狙いの画面が出ます。</li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- おすすめ 3: 横断的な共有とお気に入り機能 -->
+          <div id="rec-share-fav" class="feature-spotlight" data-search-tab="start" data-search-title="おすすめ機能 3：横断的な共有リンクコピー＆お気に入り自動ストック">
+            <div class="spotlight-head">
+              <h3 class="spotlight-title" style="margin:0;">おすすめ③ 横断的な「共有リンク ＆ お気に入り」機能</h3>
+              <span class="spotlight-scope">カレンダー · 掲示板 · プロジェクト · 資産管理 · 現場管理ほか</span>
+            </div>
+            <p>TERAPO では、各画面にある「<strong>共有リンク</strong>」ボタンを押すだけで<strong>「URLのコピー」と「ヘッダーのお気に入りへの自動ストック」</strong>が同時に完了します。チャットで仲間に教えるのと、自分が後からすぐ戻れるブックマーク保存が一発で済みます。</p>
+
+            <div class="mechanism-flow">
+              <div class="flow-cell">
+                <div class="flow-label">共有リンクを押す</div>
+                <p class="flow-body">掲示板トピック、プロジェクトのボード／カード／マイタスク、カレンダー、資産詳細などで「共有リンク」をクリック。</p>
+              </div>
+              <div class="flow-cell">
+                <div class="flow-label">相手に送る ＋ 自動保存</div>
+                <p class="flow-body">ダイレクトURLがコピーされ、同時に画面右上ヘッダーの「<strong>お気に入り</strong>（★）」へ自動登録されます。</p>
+              </div>
+              <div class="flow-cell">
+                <div class="flow-label">横断してすぐ戻る</div>
+                <p class="flow-body">ヘッダーの「お気に入り」から機能をまたいでワンクリック移動。重要な項目は<strong>ピン留め固定</strong>や検索絞り込みも可能。</p>
+              </div>
+            </div>
+
+            <div class="callout callout-success">
+              <span class="callout-label">便利な小ワザ</span>
+              カレンダーの共有リンクは初期状態で<strong>「日付なし（開いた日の“今日”を常に表示）」</strong>としてコピーされるため、お気に入り登録しておけば毎日使えます。特定の日付を共有したいときだけ、コピー直後の通知バーから「表示中の日付を含めて再コピー」を選べます。また、掲示板ではトピック横の「★」で一覧をお気に入り絞り込みすることもできます。
+            </div>
+          </div>
+        </section>
+
+        <!-- セクション 3: 次のガイドへの導線 -->
+        <section id="sec-next-guide" class="doc-section">
+          <div class="section-header">
+            <h2 class="section-title">3. 目的別のマニュアルへ進む</h2>
+            <span class="section-meta">上部タブからいつでも切り替えられます</span>
+          </div>
+          <div class="next-links">
+            <button type="button" class="next-link-btn" onclick="switchTab('recipes')">
+              <span class="next-link-title">逆引きレシピ（やりたいことから探す）</span>
+              <span class="next-link-desc">現場登録・保守日報の自動取込・プロジェクト作成・ワークフロー申請・日程調整の手順をステップ別に確認できます。</span>
+            </button>
+            <button type="button" class="next-link-btn" onclick="switchTab('reference')">
+              <span class="next-link-title">機能別リファレンス（全機能の詳細仕様）</span>
+              <span class="next-link-desc">タイムライン・チャット@コマンド・文書管理・安否確認・権限マトリクス・FAQ を網羅的に調べられます。</span>
+            </button>
+          </div>
+        </section>
       </div>
 
-      <!-- 第1章: はじめに・システム概要・PWA -->
-      <section id="sec-intro" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🌟</span>
-            <span>第1章: はじめに・システム概要・推奨環境・PWAインストール</span>
+      <!-- =================================================================
+           タブ 2: 逆引きレシピ（折りたたみアコーディオン形式）
+           ================================================================= -->
+      <div id="panel-recipes" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-recipes">
+        <div class="print-tab-heading">第2部：やりたいことから探す 逆引きレシピ集</div>
+
+        <div class="page-intro">
+          <div class="page-kicker">目的別クイックガイド</div>
+          <h1>やりたいことから探す（逆引きレシピ）</h1>
+          <p>「どのメニューを開けばいいか分からない」「いつもの業務手順だけすぐ確認したい」ときに、必要なレシピだけを開いて手順を追えます。</p>
+        </div>
+
+        <div class="recipes-toolbar">
+          <span class="recipes-count">全 5 レシピ（クリックで手順を開閉）</span>
+          <div class="toolbar-actions">
+            <button type="button" class="btn-secondary" onclick="toggleAllRecipes(true)">すべて開く</button>
+            <button type="button" class="btn-secondary" onclick="toggleAllRecipes(false)">すべて閉じる</button>
           </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>本システムは、寺岡オートドアグループの技術・現場ナレッジの共有、スケジュール・点検予定の可視化、災害時の迅速な安否確認を実現する社内統合プラットフォームです。GitHub Pages上のフロントエンドと、社内Synology NAS上のセキュアなバックエンド（MS SQL Server / AES-256暗号化）がリアルタイムに連携稼働しています。</p>
-        
-        <h3>推奨利用環境</h3>
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>端末種別</th>
-              <th>推奨ブラウザ</th>
-              <th>特徴・利用上のポイント</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>パソコン (Windows / Mac)</strong></td>
-              <td>Google Chrome, Microsoft Edge (最新版)</td>
-              <td>大画面での点検Excel取り込み、カレンダーマトリクス操作、文書管理、管理者パネルに最適。</td>
-            </tr>
-            <tr>
-              <td><strong>スマートフォン (iOS / iPhone)</strong></td>
-              <td>Safari (最新版)</td>
-              <td>PWAインストール（ホーム画面に追加）により、全画面起動とWebプッシュ通知受信に対応。</td>
-            </tr>
-            <tr>
-              <td><strong>スマートフォン (Android)</strong></td>
-              <td>Google Chrome (最新版)</td>
-              <td>PWAインストール対応。安否確認や現場からの写真付き日報・チャット投稿がスムーズです。</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>PWA（プログレッシブウェブアプリ）のインストール手順</h3>
-        <div class="step-box">
-          <ol>
-            <li><strong>iPhone (Safari) の場合</strong>: 画面下部の中央にある「共有」アイコン（四角から矢印が上に出ているアイコン）をタップし、メニュー一覧から「<strong>ホーム画面に追加</strong>」を選択します。</li>
-            <li><strong>Android (Chrome) の場合</strong>: 画面右上のメニュー「︙」をタップし、「<strong>アプリをインストール</strong>」または「ホーム画面に追加」をタップします。</li>
-            <li><strong>パソコン (Chrome / Edge) の場合</strong>: アドレスバーの右端に表示される「インストール」アイコンをクリックすると、独立したデスクトップアプリとして起動できます。</li>
-          </ol>
-        </div>
-
-        <div class="callout callout-info">
-          <span class="callout-icon">🔔</span>
-          <div>
-            <strong>Web Push通知の許可</strong>: 初回ログイン時またはヘッダー右側のベルアイコンから「通知を許可」してください。緊急安否確認やチャットメンション、重要掲示板の通知をリアルタイムに受け取ることができます。
-          </div>
-        </div>
-      </section>
-
-      <!-- やること別・業務シナリオガイド（逆引きレシピ集） -->
-      <section id="sec-recipes" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🎯</span>
-            <span>やること別（目的別）クイック操作ガイド</span>
-          </div>
-          <span class="badge-auth badge-free">目的から探す逆引きレシピ</span>
-        </div>
-        <p>「どのメニューを開けばいいか分からない」「いつもの業務手順だけをすぐ確認したい」ときは、以下のやりたいことから手順を逆引きできます。</p>
-
-        <div class="recipe-toc-grid">
-          <a href="#recipe-site" class="recipe-toc-card"><span>🏗️</span><span>現場を追加・作業を入れる</span></a>
-          <a href="#recipe-daily" class="recipe-toc-card"><span>📝</span><span>保守日報・スケジュール取込</span></a>
-          <a href="#recipe-project" class="recipe-toc-card"><span>🗂️</span><span>プロジェクト作成・アサイン</span></a>
-          <a href="#recipe-workflow" class="recipe-toc-card"><span>✍️</span><span>各種ワークフローを申請</span></a>
-          <a href="#recipe-meeting" class="recipe-toc-card"><span>🗓️</span><span>日程調整・掲示板・安否回答</span></a>
         </div>
 
         <!-- レシピ1: 現場管理 -->
-        <div id="recipe-site" class="recipe-card">
-          <div class="recipe-card-header">
-            <div class="recipe-card-title"><span>🏗️</span><span>レシピ1：現場管理に現場を追加する・作業（施工日・予定）を入れる</span></div>
-            <span class="badge-auth badge-free">現場管理 ＋ カレンダー連動</span>
-          </div>
-          <div class="recipe-goal">
-            <strong>ゴール</strong>：新しい現場を台帳へ登録し、EG・主要部品ごとの施工日／施工者や、カレンダー連動の工事乗り込み予定を見える化する。
-          </div>
+        <details id="recipe-site" class="recipe-accordion" open data-search-tab="recipes" data-search-title="レシピ1：現場管理に現場を追加する・作業（施工日・予定）を入れる">
+          <summary>
+            <div class="recipe-summary-text">
+              <div class="recipe-summary-title">レシピ1：現場管理に現場を追加する・作業（施工日・予定）を入れる</div>
+              <div class="recipe-summary-sub">現場管理 ＋ カレンダー連動 · 在庫DB連携・主要部品進捗・工事乗り込み予定</div>
+            </div>
+            <span class="recipe-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="recipe-body">
+            <div class="recipe-goal">
+              <strong>ゴール</strong>：新しい現場を台帳へ登録し、EG・主要部品ごとの施工日／施工者や、カレンダー連動の工事乗り込み予定を見える化する。
+            </div>
 
-          <div class="recipe-subhead">A. 新しい現場を追加する</div>
-          <div class="step-box">
-            <ol>
-              <li>左サイドバーの「<strong>現場管理</strong>」を開き、右上の「<strong>現場を新規登録</strong>」をクリックします。</li>
-              <li>在庫データベースと連携する場合は、フォーム上部の検索欄に<strong>現場コード（例: NHQ136A）または現場名</strong>を入力して「<strong>検索して取得</strong>」をクリックし、該当現場を選択します（基本情報・EG台数・主要部品が1台ずつ分割展開されます）。</li>
-              <li>手入力で部品を増やす場合は「<strong>部品を追加</strong>」をクリックして品名・型式等を追加し、基本情報や図面を確認して登録を完了します。</li>
-            </ol>
-          </div>
+            <div class="recipe-subhead">A. 新しい現場を追加する</div>
+            <div class="step-box">
+              <ol>
+                <li>左サイドバーの「<strong>現場管理</strong>」を開き、右上の「<strong>現場を新規登録</strong>」をクリックします。</li>
+                <li>在庫データベースと連携する場合は、フォーム上部の検索欄に<strong>現場コード（例: NHQ136A）または現場名</strong>を入力して「<strong>検索して取得</strong>」をクリックし、該当現場を選択します（基本情報・EG台数・主要部品が1台ずつ分割展開されます）。</li>
+                <li>手入力で部品を増やす場合は「<strong>部品を追加</strong>」をクリックして品名・型式等を追加し、基本情報や図面を確認して登録を完了します。</li>
+              </ol>
+            </div>
 
-          <div class="recipe-subhead">B. 現場に作業（部品進捗・施工スケジュール）を入れる</div>
-          <div class="step-box">
-            <ol>
-              <li><strong>部品ごとの施工日・施工者・進捗を入れる</strong>：現場一覧から対象現場をクリックして詳細画面を開き、「<strong>主要部品・施工進捗</strong>」欄で各台の「出庫日」「施工日」「施工者」「進捗」を入力して「<strong>保存</strong>」します（ガントチャートや全体進捗、CRM取り込みCSV出力へ自動反映されます）。</li>
-              <li><strong>工事予定（乗り込み作業）を入れる</strong>：左サイドバーの「<strong>カレンダー</strong>」から「<strong>予定を追加</strong>」を開き、区分で「<strong>工事</strong>」を選択したうえで、対象現場・乗り込み種別（【新規乗り込み】【出庫】【残工事】）・担当施工者を登録します。</li>
-            </ol>
-          </div>
+            <div class="recipe-subhead">B. 現場に作業（部品進捗・施工スケジュール）を入れる</div>
+            <div class="step-box">
+              <ol>
+                <li><strong>部品ごとの施工日・施工者・進捗を入れる</strong>：現場一覧から対象現場をクリックして詳細画面を開き、「<strong>主要部品・施工進捗</strong>」欄で各台の「出庫日」「施工日」「施工者」「進捗」を入力して「<strong>保存</strong>」します（ガントチャートや全体進捗、CRM取り込みCSV出力へ自動反映されます）。</li>
+                <li><strong>工事予定（乗り込み作業）を入れる</strong>：左サイドバーの「<strong>カレンダー</strong>」から「<strong>予定を追加</strong>」を開き、区分で「<strong>工事</strong>」を選択したうえで、対象現場・乗り込み種別（【新規乗り込み】【出庫】【残工事】）・担当施工者を登録します。</li>
+              </ol>
+            </div>
 
-          <div class="callout callout-info">
-            <span class="callout-icon">💡</span>
-            <div>
-              <strong>現場管理とカレンダーの自動連動</strong>：カレンダーで区分「工事」かつ現場名を紐付けて登録すると、現場管理側の「<strong>現場施工スケジュール・施工実績</strong>」および「<strong>施工者スケジュール（乗り込み現場確認）</strong>」タブに自動集約されます。
+            <div class="callout callout-info">
+              <span class="callout-label">自動連動</span>
+              カレンダーで区分「工事」かつ現場名を紐付けて登録すると、現場管理側の「<strong>現場施工スケジュール・施工実績</strong>」および「<strong>施工者スケジュール（乗り込み現場確認）</strong>」タブに自動集約されます。
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- レシピ2: 保守日報 -->
-        <div id="recipe-daily" class="recipe-card">
-          <div class="recipe-card-header">
-            <div class="recipe-card-title"><span>📝</span><span>レシピ2：保守日報を作る・スケジュールから自動取り込みする</span></div>
-            <span class="badge-auth badge-free">業務日報（保守日報モード）</span>
-          </div>
-          <div class="recipe-goal">
-            <strong>ゴール</strong>：カレンダーの保守・点検予定をワンクリックで保守日報へ取り込み、作業区分と点数を自動計算して提出する。
-          </div>
+        <details id="recipe-daily" class="recipe-accordion" data-search-tab="recipes" data-search-title="レシピ2：保守日報を作る・スケジュールから自動取り込みする">
+          <summary>
+            <div class="recipe-summary-text">
+              <div class="recipe-summary-title">レシピ2：保守日報を作る・スケジュールから自動取り込みする</div>
+              <div class="recipe-summary-sub">業務日報（保守日報モード） · 予定自動展開・点数自動計算・提出／差し戻し</div>
+            </div>
+            <span class="recipe-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="recipe-body">
+            <div class="recipe-goal">
+              <strong>ゴール</strong>：カレンダーの保守・点検予定をワンクリックで保守日報へ取り込み、作業区分と点数を自動計算して提出する。
+            </div>
 
-          <div class="step-box">
-            <ol>
-              <li>左サイドバーの「<strong>業務日報</strong>」を開き、「保守日報」モードから右上の「<strong>新規 保守日報を作成</strong>」をクリックします。</li>
-              <li>画面上部で<strong>対象日付</strong>と<strong>様式（本社／名古屋支店／静岡営業所／浜松営業所／三河営業所など）</strong>を選択します。</li>
-              <li>右上の「<strong>スケジュール自動取り込み</strong>」ボタン（スマホ表示では「自動取込」）をクリックします。選択日の予定から「点検」「取替」「修理」に該当する現場名・作業時間・区分が自動で明細行へ展開され、肌色セル（点数・集計値）が自動計算されます。</li>
-              <li>緑色の手入力欄に必要な作業内容・備考等を追記します。</li>
-              <li>作業途中なら「<strong>下書き保存</strong>」、完了したら「<strong>日報を提出</strong>」をクリックして上長へ回覧します（提出後に修正したい場合は「<strong>取り下げ・編集</strong>」、差し戻された場合は修正後に「<strong>日報を再提出</strong>」を押します）。</li>
-            </ol>
-          </div>
+            <div class="step-box">
+              <ol>
+                <li>左サイドバーの「<strong>業務日報</strong>」を開き、「保守日報」モードから右上の「<strong>新規 保守日報を作成</strong>」をクリックします。</li>
+                <li>画面上部で<strong>対象日付</strong>と<strong>様式（本社／名古屋支店／静岡営業所／浜松営業所／三河営業所など）</strong>を選択します。</li>
+                <li>右上の「<strong>スケジュール自動取り込み</strong>」ボタン（スマホ表示では「自動取込」）をクリックします。選択日の予定から「点検」「取替」「修理」に該当する現場名・作業時間・区分が自動で明細行へ展開され、肌色セル（点数・集計値）が自動計算されます。</li>
+                <li>緑色の手入力欄に必要な作業内容・備考等を追記します。</li>
+                <li>作業途中なら「<strong>下書き保存</strong>」、完了したら「<strong>日報を提出</strong>」をクリックして上長へ回覧します（提出後に修正したい場合は「<strong>取り下げ・編集</strong>」、差し戻された場合は修正後に「<strong>日報を再提出</strong>」を押します）。</li>
+              </ol>
+            </div>
 
-          <div class="callout callout-warning">
-            <span class="callout-icon">⚠️</span>
-            <div>
-              <strong>スケジュールに取り込まれないときのチェック</strong>：自動取り込みの対象は「① 選択した日付（JST）の予定」「② 自分が作成者または参加メンバーに含まれている予定」「③ 区分が『点検』『取替』『修理』のいずれか」に限られます。カレンダー側の予定区分や参加者設定をご確認ください。
+            <div class="callout callout-warning">
+              <span class="callout-label">取り込まれないときの確認</span>
+              自動取り込みの対象は「① 選択した日付（JST）の予定」「② 自分が作成者または参加メンバーに含まれている予定」「③ 区分が『点検』『取替』『修理』のいずれか」に限られます。カレンダー側の予定区分や参加者設定をご確認ください。
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- レシピ3: プロジェクト作成・アサイン -->
-        <div id="recipe-project" class="recipe-card">
-          <div class="recipe-card-header">
-            <div class="recipe-card-title"><span>🗂️</span><span>レシピ3：プロジェクトを作る・カードを追加してメンバーにアサインする</span></div>
-            <span class="badge-auth badge-free">プロジェクト管理（<a href="#sec-projects" style="color:inherit;text-decoration:underline;">第7章詳細</a>）</span>
-          </div>
-          <div class="recipe-goal">
-            <strong>ゴール</strong>：個人／チーム向けのボードを立ち上げ、メンバーにタスクを割り振って進捗を漏れなく追える状態にする。
-          </div>
+        <details id="recipe-project" class="recipe-accordion" data-search-tab="recipes" data-search-title="レシピ3：プロジェクトを作る・カードを追加してメンバーにアサインする">
+          <summary>
+            <div class="recipe-summary-text">
+              <div class="recipe-summary-title">レシピ3：プロジェクトを作る・カードを追加してメンバーにアサインする</div>
+              <div class="recipe-summary-sub">プロジェクト管理 · ボード立ち上げ・担当者アサイン・マイタスク確認</div>
+            </div>
+            <span class="recipe-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="recipe-body">
+            <div class="recipe-goal">
+              <strong>ゴール</strong>：個人／チーム向けのボードを立ち上げ、メンバーにタスクを割り振って進捗を漏れなく追える状態にする。（詳細は <a href="#sec-projects" class="inline-tab-link" onclick="jumpTo('sec-projects', 'reference'); return false;">機能別：プロジェクト管理</a> を参照）
+            </div>
 
-          <div class="recipe-subhead">A. 新しいプロジェクト（ボード）を作る</div>
+            <div class="recipe-subhead">A. 新しいプロジェクト（ボード）を作る</div>
+            <div class="step-box">
+              <ol>
+                <li>左サイドバーの「<strong>プロジェクト</strong>」を開き、画面上部のボード名横にある「<strong>＋ 新規ボード</strong>」ボタン（またはボード名クリックで開くドロップダウン下部の「新しいボードを作成」）をクリックします。</li>
+                <li>「<strong>チーム共有ボード</strong>」または「<strong>個人専用ボード</strong>」を選び、ボード名・説明を入力します。チーム共有の場合は閲覧・参加範囲（指定メンバー／部署／拠点／全社公開）と参加メンバーを選択します（登録済みの<strong>マイグループ</strong>から一括追加もできます）。</li>
+                <li>必要に応じて「カンバン列のカスタマイズ」で列（例：未着手／進行中／確認待ち／完了）を調整し、「<strong>ボードを作成</strong>」をクリックします。</li>
+              </ol>
+            </div>
+
+            <div class="recipe-subhead">B. タスクを追加してメンバーにアサインする</div>
+            <div class="step-box">
+              <ol>
+                <li>カンバン各列の「<code>＋ タイトルを入力してEnter</code>」で素早くカードを作るか、右上の「<strong>カード追加</strong>」をクリックして詳細画面を開きます。</li>
+                <li>上部の種別が「<strong>Todo</strong>」になっていることを確認し、タイトル・ステータス列・<strong>優先度</strong>（高/中/低/なし）・<strong>期限</strong>を設定します。</li>
+                <li>「<strong>担当者</strong>」欄の「<strong>メンバーを選択</strong>」（自分を割り当てる場合は「<strong>＋ 自分を追加</strong>」）から担当メンバーを選んで保存します。新しく割り当てられたメンバーには自動で通知が届きます。</li>
+                <li>チャットや伝言メモの会話からタスク化したい場合は、メッセージ／メモ上の「<strong>プロジェクトへ登録</strong>」を押すと内容をそのまま引き継いで起票できます。</li>
+              </ol>
+            </div>
+
+            <div class="callout callout-success">
+              <span class="callout-label">抜け漏れ防止</span>
+              ボード上部の表示切替で「<strong>マイタスク</strong>」を選ぶと、個人・共有すべてのボードから自分が担当している Todo だけが「期限切れ」「直近（3日以内）」「その他」の順に自動整理されます。
+            </div>
+          </div>
+        </details>
+
+        <!-- レシピ4: ワークフロー -->
+        <details id="recipe-workflow" class="recipe-accordion" data-search-tab="recipes" data-search-title="レシピ4：各種ワークフロー（発注・購入・補充・出張・金銀日報）を申請・承認する">
+          <summary>
+            <div class="recipe-summary-text">
+              <div class="recipe-summary-title">レシピ4：各種ワークフロー（発注・購入・補充・出張・金銀日報）を申請・承認する</div>
+              <div class="recipe-summary-sub">ワークフロー · 新規申請・多段階承認フロー・承認／却下履歴</div>
+            </div>
+            <span class="recipe-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="recipe-body">
+            <div class="recipe-goal">
+              <strong>ゴール</strong>：申請種別に応じた正しい項目・承認ルートで申請を提出し、承認／差し戻しをスムーズに行う。
+            </div>
+
+            <div class="recipe-subhead">A. 新規申請を出す</div>
+            <div class="step-box">
+              <ol>
+                <li>左サイドバーの「<strong>ワークフロー</strong>」を開き、右上の「<strong>新規申請</strong>」をクリックします。</li>
+                <li>申請種別を選択します（<strong>発注申請／購入申請／補充申請／出張申請／金銀日報／その他</strong>）。
+                  <ul>
+                    <li><strong>発注・購入・補充申請</strong>：品目明細や数量・金額（合計額自動計算）、購入依頼先、工事予定日などを入力します。</li>
+                    <li><strong>出張申請</strong>：出張タイトル・行先・期間・目的・添付資料を入力します。</li>
+                    <li><strong>金銀日報</strong>：タイトルに「<code>金銀日報-拠点 (YYYY/MM/DD)</code>」が自動セットされ、同拠点の直近金銀日報「今回残高」が「前回残高」へ自動引き継ぎされます。本日の今回残高を入力してください。</li>
+                  </ul>
+                </li>
+                <li>承認ルート欄で、事前登録済みの「<strong>承認フロー</strong>（多段階承認）」を選ぶか、「<strong>-- 手動で承認者を直接1名指定 --</strong>」から承認者を指定して提出します（途中保存は「下書き」）。</li>
+              </ol>
+            </div>
+
+            <div class="recipe-subhead">B. 承認する・却下／確認する</div>
+            <div class="step-box">
+              <ol>
+                <li>自分が承認者に指定されている申請があると、「<strong>承認待ち</strong>」タブに件数が表示されます。</li>
+                <li>対象申請を開いて内容と添付ファイルを確認し、「承認」またはコメント付きで「却下」を実行します。過去の決裁履歴は「<strong>承認済み</strong>」タブからいつでも参照できます。</li>
+              </ol>
+            </div>
+          </div>
+        </details>
+
+        <!-- レシピ5: 日程調整・掲示板・安否確認 -->
+        <details id="recipe-meeting" class="recipe-accordion" data-search-tab="recipes" data-search-title="レシピ5：会議の日程調整・社内回覧・緊急時の安否回答">
+          <summary>
+            <div class="recipe-summary-text">
+              <div class="recipe-summary-title">レシピ5：会議の日程調整・社内回覧・緊急時の安否回答（よく使う逆引き）</div>
+              <div class="recipe-summary-sub">日常・緊急時 · 空き枠自動抽出・未読／既読トラッキング・災害時回答</div>
+            </div>
+            <span class="recipe-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="recipe-body">
+            <div class="step-box" style="margin-top:16px;">
+              <ul>
+                <li><strong>複数メンバーの空き時間を探して会議を決めたい</strong>：左サイドバー「ユーティリティー」＞「<strong>日程調整</strong>」を開き、対象メンバーと期間を指定すると全員のカレンダー（JST基準）から共通の空き枠を自動抽出し、投票アンケート送信〜確定登録まで行えます。（<a href="#sec-calendar" class="inline-tab-link" onclick="jumpTo('sec-calendar', 'reference'); return false;">機能別：共有カレンダーへ</a>）</li>
+                <li><strong>全社・部署へ重要連絡を回し、誰が読んだか確認したい</strong>：「<strong>掲示板</strong>」から重要ピン留め付きで投稿すると、投稿者・管理者は「閲覧済み／未読」のメンバー一覧をリアルタイムで確認できます。マイグループ宛ての限定公開にも対応しています。（<a href="#sec-bulletins" class="inline-tab-link" onclick="jumpTo('sec-bulletins', 'reference'); return false;">機能別：社内掲示板へ</a>）</li>
+                <li><strong>地震・災害等で安否確認が届いたとき</strong>：画面上部の「緊急安否確認バナー」または通知から「<strong>安否を回答する</strong>」を開き、本人状況・出社可否・家族/自宅状況・現在地を送信します。（<a href="#sec-safety" class="inline-tab-link" onclick="jumpTo('sec-safety', 'reference'); return false;">機能別：安否確認へ</a>）</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- =================================================================
+           タブ 3: 機能別リファレンス（全15セクションを4カテゴリに整理）
+           ================================================================= -->
+      <div id="panel-reference" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-reference">
+        <div class="print-tab-heading">第3部：機能別リファレンス（全機能詳細・権限・FAQ）</div>
+
+        <div class="page-intro">
+          <div class="page-kicker">全機能リファレンス</div>
+          <h1>機能別リファレンス・権限仕様・FAQ</h1>
+          <p>各メニューの詳しい仕様、チャット特殊コマンド、権限ロール一覧、よくある質問を辞書として参照できます。左の目次または上部検索から目的の章へ移動してください。</p>
+        </div>
+
+        <!-- タイムライン -->
+        <section id="sec-timeline" class="doc-section" data-search-tab="reference" data-search-title="タイムライン (社内ナレッジSNS)">
+          <div class="section-header">
+            <h2 class="section-title">タイムライン (社内ナレッジSNS)</h2>
+            <span class="section-meta">日常・コミュニケーション · 全員対象</span>
+          </div>
+          <p>日常の業務の気づき、現場トラブルのシューティング、新製品や施工ノウハウを気軽に発信・共有できるタイムラインです。</p>
+
+          <h3>主な機能と操作詳細</h3>
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>機能</th>
+                  <th>説明</th>
+                  <th>操作方法・Tips</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>新規投稿</strong></td>
+                  <td>テキスト本文、最大10枚の現場写真添付、自動リサイズ（EXIF位置情報の自動削除対応）。</td>
+                  <td>画面上部の投稿フォームに入力し「投稿する」をクリック。URLを貼り付けると自動でリッチカード（サムネイル・タイトル付き）に変換されます。</td>
+                </tr>
+                <tr>
+                  <td><strong>アンケート作成</strong></td>
+                  <td>2〜6個の選択肢を設定し、社員から意見や投票を集計（1人1票）。</td>
+                  <td>投稿フォームの「アンケート」アイコンをクリックして質問と選択肢を入力。</td>
+                </tr>
+                <tr>
+                  <td><strong>スタンプ・いいね</strong></td>
+                  <td>ワンクリックで感謝や了解、お疲れ様の意を伝えるオリジナルスタンプ。</td>
+                  <td>投稿下部のスマイルアイコンからスタンプを選択。リアクションした社員一覧も確認可能。</td>
+                </tr>
+                <tr>
+                  <td><strong>コメント・スレッド返信</strong></td>
+                  <td>投稿に対する詳細な議論や質問、現場からの追加写真共有。</td>
+                  <td>「返信する」をクリックして入力。スレッド形式で会話が整理されます。</td>
+                </tr>
+                <tr>
+                  <td><strong>ナレッジ検索・絞り込み</strong></td>
+                  <td>過去の投稿をキーワード、投稿者、添付ファイル有無で高速全文検索。</td>
+                  <td>タイムライン上部の検索バーにキーワードを入力してEnter。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 社内掲示板 -->
+        <section id="sec-bulletins" class="doc-section" data-search-tab="reference" data-search-title="社内掲示板・公式回覧板">
+          <div class="section-header">
+            <h2 class="section-title">社内掲示板・公式回覧板</h2>
+            <span class="section-meta">日常・コミュニケーション · 全員対象（投稿権限は部署・役職に応じる）</span>
+          </div>
+          <p>全社通達、総務・経理からの重要連絡、安全衛生マニュアルの改定などをカテゴリ別に周知・回覧する公式掲示板です。</p>
+
+          <h3>掲示板の独自機能</h3>
+          <ul>
+            <li><strong>重要ピン留め機能</strong>: 緊急通達や必読連絡は一覧の最上部にハイライト固定されます。</li>
+            <li><strong>公開範囲（拠点・部署／マイグループ）</strong>: 全社公開のほか、特定の拠点・部署やカレンダーで作成した「マイグループ」宛ての限定公開に対応しています。</li>
+            <li><strong>未読・既読トラッキング（全員の閲覧状況）</strong>: 投稿者および管理者は、「誰が閲覧済みで、誰が未読か」の社員名一覧をいつでも確認できます。</li>
+            <li><strong>お気に入り・共有リンク</strong>: 各トピックの「★」でお気に入り登録・絞り込みができ、「共有リンク」でURLコピーと同時にヘッダーのお気に入りへもストックできます。</li>
+            <li><strong>PDF・文書のインライン表示</strong>: 添付された回覧PDFや図面ファイルをダウンロードせず、ブラウザ内で即座に全画面プレビューできます（キャッシュ対応により再表示も高速です）。</li>
+            <li><strong>カテゴリ分類</strong>: 「全社通達」「総務・人事」「安全衛生」「技術・施工」「イベント」などのタグで素早くフィルタリングできます。</li>
+          </ul>
+        </section>
+
+        <!-- グループチャット＆特殊コマンド -->
+        <section id="sec-chat" class="doc-section" data-search-tab="reference" data-search-title="グループチャット・DM＆特殊機能（@コマンド全8種）">
+          <div class="section-header">
+            <h2 class="section-title">グループチャット・DM＆特殊機能（@コマンド全8種）</h2>
+            <span class="section-meta">日常・コミュニケーション · 全員対象</span>
+          </div>
+          <p>1対1のダイレクトメッセージ（DM）および部署・プロジェクト別のグループトークルームで、リアルタイムなメッセージングと業務カードの活用が可能です。</p>
+
+          <h3>チャットの基本操作と便利機能</h3>
+          <ul>
+            <li><strong>メッセージ送信・改行</strong>: <kbd>Enter</kbd> で即時送信、<kbd>Shift</kbd> + <kbd>Enter</kbd> で改行します（日本語変換中のEnter誤送信防止機能付き）。</li>
+            <li><strong>写真アルバム一括送信</strong>: 最大10枚の現場写真を一度に送信可能。サムネイル表示され、クリックすると拡大プレビューできます。</li>
+            <li><strong>既読メンバー一覧</strong>: 送信メッセージ横の「既読」をクリックすると、そのメッセージを読んだメンバーの顔写真と既読時刻一覧を確認できます。</li>
+            <li><strong>ボスモード (業務偽装モード)</strong>: ヘッダーまたは入力欄横のメガネアイコンをクリックすると、画面全体が地味なグレーの業務管理表スタイルに瞬時に切り替わり、周囲からの視線をガードします。</li>
+            <li><strong>URL貼り付け時のリッチカード化</strong>: Webサイトや社内リンクを貼り付けると、自動的にタイトル・概要・サムネイル付きのリンクカードが生成されます。</li>
+          </ul>
+
+          <h3>@特殊機能コマンド群（全8種類）</h3>
+          <p>チャット入力欄の左側にある <strong>「＠」ボタン</strong> をクリックすると、コマンド案内モーダルが開きます。「<strong>@〜を入力</strong>」を押すとコマンド名のみ、「<strong>サンプル入力</strong>」を押すと例文が入力欄にセットされます。</p>
+
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>コマンド</th>
+                  <th>機能名</th>
+                  <th>カード表示と動作仕様</th>
+                  <th>入力例</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>@quiz</code></td>
+                  <td><strong>クイズ・アンケート出題</strong></td>
+                  <td>選択肢ボタン付きのクイズ／アンケートカードを出題。リアルタイム集計、正解判定、解説カード表示に対応。</td>
+                  <td><code>@quiz</code></td>
+                </tr>
+                <tr>
+                  <td><code>@secret</code></td>
+                  <td><strong>シークレット (伏字)</strong></td>
+                  <td><strong>点線フキダシ</strong>の中に、元文章の<strong>文字数・改行と一致する伏字</strong>で隠されます。タップすると本文が開示され、再度隠すことも可能。</td>
+                  <td><code>@secret ここだけの話、実は…</code></td>
+                </tr>
+                <tr>
+                  <td><code>@shout</code></td>
+                  <td><strong>注目アナウンス</strong></td>
+                  <td>青色強調フレームと大見出しフォントで表示。全員に見てほしい急ぎの周知に最適です。</td>
+                  <td><code>@shout 明日10時集合です！ご確認下さい。</code></td>
+                </tr>
+                <tr>
+                  <td><code>@warn</code><br><code>@alert</code></td>
+                  <td><strong>重要注意・警告カード</strong></td>
+                  <td>黄色〜赤色の注意フレームで表示。システム停止予告や施工時の危険防止アナウンスに。</td>
+                  <td><code>@warn 本日18時以降、定期メンテのため利用不可</code></td>
+                </tr>
+                <tr>
+                  <td><code>@todo</code><br><code>@check</code></td>
+                  <td><strong>リスト (チェック可能)</strong></td>
+                  <td>改行や「/」で区切った項目をチェックボックス付きカードに自動変換。端末ごとに達成チェックと進捗率を保持。</td>
+                  <td><code>@todo 議事録共有 / 見積書作成 / 日程調整</code></td>
+                </tr>
+                <tr>
+                  <td><code>@fold</code><br><code>@more</code></td>
+                  <td><strong>長文テキストの折りたたみ</strong></td>
+                  <td>長文や議事録の3行目以降をコンパクトに収納。「続きを読む」でワンタップ展開し、タイムラインを整理。</td>
+                  <td><code>@fold 定例会議の議事録\n・項目1\n・項目2...</code></td>
+                </tr>
+                <tr>
+                  <td><code>@dice</code><br><code>@random</code></td>
+                  <td><strong>サイコロ・ランダム抽選</strong></td>
+                  <td>全ユーザーで結果が完全に一致する公平な決定論的抽選。<br>・<code>@dice</code> → 1〜6の出目<br>・<code>@dice 100</code> → 1〜100の出目<br>・<code>@dice ラーメン, カレー, 寿司</code> → 候補から1件を選定</td>
+                  <td><code>@dice ラーメン, カレー, パスタ, 定食</code></td>
+                </tr>
+                <tr>
+                  <td><code>@calc</code></td>
+                  <td><strong>簡易計算機</strong></td>
+                  <td>四則演算（<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, 括弧）を自動計算し、結果をカード表示。「結果コピー」ボタン付き。</td>
+                  <td><code>@calc 1500 * 1.1</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 共有カレンダー -->
+        <section id="sec-calendar" class="doc-section" data-search-tab="reference" data-search-title="共有カレンダー・予定管理・日程調整・マイグループ・お気に入り">
+          <div class="section-header">
+            <h2 class="section-title">共有カレンダー・予定管理・日程調整</h2>
+            <span class="section-meta">日常・コミュニケーション · 全員対象</span>
+          </div>
+          <p>全社員の予定、現場施工、定期点検、社内行事を日・週・月単位で可視化します。すべての日時計算は日本標準時 (JST / UTC+09:00) に厳格準拠しています。</p>
+
+          <h3>主な機能</h3>
+          <ul>
+            <li><strong>終日予定・時間指定予定</strong>: 現場直行・直帰、工事、点検、出張、有休、会議などの区分を色分け登録。</li>
+            <li><strong>マイグループ ＆ 表示設定のお気に入り</strong>: 拠点・部署を超えた任意メンバーを「マイグループ」登録でき、よく使う表示条件は「表示設定のお気に入り（★）」からワンクリックで切り替え可能（詳細は <a href="#rec-mygroup" class="inline-tab-link" onclick="jumpTo('rec-mygroup', 'start'); return false;">はじめに・おすすめタブ</a> を参照）。</li>
+            <li><strong>共有リンクコピー（日付なし標準）</strong>: 現在の表示条件のURLをコピーすると同時に、ヘッダーのお気に入りにも自動ストックされます。</li>
+            <li><strong>空き枠自動抽出・日程調整機能</strong>: 複数人のカレンダーから共通の「空き時間枠」を自動抽出し、会議や現場打ち合わせの候補日時を瞬時にリストアップできます。</li>
+            <li><strong>外部カレンダー連携 (iCal URL発行)</strong>: カレンダー右上の「iCal連携」から専用URLを取得し、Googleカレンダー、iPhone (iOSカレンダー)、Microsoft Outlookに登録することで、社外のスマートフォン標準カレンダーへ自動同期されます。</li>
+          </ul>
+        </section>
+
+        <!-- 業務日報 -->
+        <section id="sec-reports" class="doc-section" data-search-tab="reference" data-search-title="業務日報・現場作業報告">
+          <div class="section-header">
+            <h2 class="section-title">業務日報・現場作業報告</h2>
+            <span class="section-meta">業務・現場管理 · 全員対象</span>
+          </div>
+          <p>現場施工・保守点検の作業記録、進捗、出勤状況を作成し、上長やチーム内で共有・承認を受ける機能です。</p>
+
+          <h3>日報の作成・承認ワークフロー</h3>
           <div class="step-box">
             <ol>
-              <li>左サイドバーの「<strong>プロジェクト</strong>」を開き、画面上部のボード名横にある「<strong>＋ 新規ボード</strong>」ボタン（またはボード名クリックで開くドロップダウン下部の「新しいボードを作成」）をクリックします。</li>
-              <li>「<strong>チーム共有ボード</strong>」または「<strong>個人専用ボード</strong>」を選び、ボード名・説明を入力します。チーム共有の場合は閲覧・参加範囲（指定メンバー／部署／拠点／全社公開）と参加メンバーを選択します。</li>
-              <li>必要に応じて「カンバン列のカスタマイズ」で列（例：未着手／進行中／確認待ち／完了）を調整し、「<strong>ボードを作成</strong>」をクリックします。</li>
-            </ol>
-          </div>
-
-          <div class="recipe-subhead">B. タスクを追加してメンバーにアサインする</div>
-          <div class="step-box">
-            <ol>
-              <li>カンバン各列の「<code>＋ タイトルを入力してEnter</code>」で素早くカードを作るか、右上の「<strong>カード追加</strong>」をクリックして詳細画面を開きます。</li>
-              <li>上部の種別が「<strong>Todo</strong>」になっていることを確認し、タイトル・ステータス列・<strong>優先度</strong>（高/中/低/なし）・<strong>期限</strong>を設定します。</li>
-              <li>「<strong>担当者</strong>」欄の「<strong>メンバーを選択</strong>」（自分を割り当てる場合は「<strong>＋ 自分を追加</strong>」）から担当メンバーを選んで保存します。新しく割り当てられたメンバーには自動で通知が届きます。</li>
-              <li>チャットや伝言メモの会話からタスク化したい場合は、メッセージ／メモ上の「<strong>プロジェクトへ登録</strong>」を押すと内容をそのまま引き継いで起票できます。</li>
+              <li><strong>「新規日報作成」をクリック</strong>: 日付（初期値は本日・JST）、作業現場名、案件番号を選択または入力します。</li>
+              <li><strong>作業内容と所見の入力</strong>: 「自動ドア修繕」「定期点検」「新規据付」などの作業区分を選び、作業時間・交通費・現場写真を登録します。</li>
+              <li><strong>下書き保存・提出</strong>: 作業途中なら「下書き保存」で中断可能。完了時は「提出する」を押すと、上長へ通知されます。</li>
+              <li><strong>上長承認とコメント</strong>: 管理職（主任・課長・部長）は提出一覧から内容を確認し、「承認印」または「差し戻し（修正指示コメント付き）」を行います。</li>
             </ol>
           </div>
 
           <div class="callout callout-success">
-            <span class="callout-icon">✅</span>
-            <div>
-              <strong>自分の担当タスクだけを抜け漏れなく見るには</strong>：ボード上部の表示切替で「<strong>マイタスク</strong>」を選ぶと、個人・共有すべてのボードから自分が担当しているTodoだけが「期限切れ」「直近（3日以内）」「その他」の順に自動整理されます。
-            </div>
+            <span class="callout-label">時短Tips</span>
+            同じ現場の定期点検や前日の続き作業を行う場合、「前回の作業内容を引用」ボタンで基本項目を引き継げます。保守日報ではカレンダー予定からの「スケジュール自動取り込み」も利用できます（<a href="#recipe-daily" class="inline-tab-link" onclick="jumpTo('recipe-daily', 'recipes'); return false;">逆引きレシピ2へ</a>）。
           </div>
-        </div>
+        </section>
 
-        <!-- レシピ4: ワークフロー -->
-        <div id="recipe-workflow" class="recipe-card">
-          <div class="recipe-card-header">
-            <div class="recipe-card-title"><span>✍️</span><span>レシピ4：各種ワークフロー（発注・購入・補充・出張・金銀日報）を申請・承認する</span></div>
-            <span class="badge-auth badge-free">ワークフロー</span>
+        <!-- プロジェクト管理 -->
+        <section id="sec-projects" class="doc-section" data-search-tab="reference" data-search-title="プロジェクト管理（カンバン・マイタスク・メモボード）">
+          <div class="section-header">
+            <h2 class="section-title">プロジェクト管理（カンバン・マイタスク・メモボード）</h2>
+            <span class="section-meta">業務・現場管理 · 全員対象</span>
           </div>
-          <div class="recipe-goal">
-            <strong>ゴール</strong>：申請種別に応じた正しい項目・承認ルートで申請を提出し、承認／差し戻しをスムーズに行う。
+          <p>個人やチームのタスク（Todo）、案件フォロー、業務手順メモ・参考資料を一元管理できるボード機能です。左サイドバーの「<strong>プロジェクト</strong>」から利用できます。</p>
+
+          <h3>1. ボードの種類と閲覧・参加範囲</h3>
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>ボード種別</th>
+                  <th>公開・共有範囲</th>
+                  <th>主な用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>個人専用ボード</strong></td>
+                  <td>作成者本人のみ閲覧・編集可能</td>
+                  <td>自分専用のTodo整理、個人メモ、参考URL・備忘管理。</td>
+                </tr>
+                <tr>
+                  <td><strong>チーム共有ボード</strong></td>
+                  <td><strong>指定メンバー</strong>（マイグループ追加対応）／<strong>部署</strong>／<strong>拠点</strong>／<strong>全社公開</strong> の4段階から選択</td>
+                  <td>部署ごとの見込み案件フォロー、共同イベント準備、チーム内の引き継ぎ事項・手順書共有。</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <div class="recipe-subhead">A. 新規申請を出す</div>
           <div class="step-box">
             <ol>
-              <li>左サイドバーの「<strong>ワークフロー</strong>」を開き、右上の「<strong>新規申請</strong>」をクリックします。</li>
-              <li>申請種別を選択します（<strong>発注申請／購入申請／補充申請／出張申請／金銀日報／その他</strong>）。
-                <ul>
-                  <li><strong>発注・購入・補充申請</strong>：品目明細や数量・金額（合計額自動計算）、購入依頼先、工事予定日などを入力します。</li>
-                  <li><strong>出張申請</strong>：出張タイトル・行先・期間・目的・添付資料を入力します。</li>
-                  <li><strong>金銀日報</strong>：タイトルに「<code>金銀日報-拠点 (YYYY/MM/DD)</code>」が自動セットされ、同拠点の直近金銀日報「今回残高」が「前回残高」へ自動引き継ぎされます。本日の今回残高を入力してください。</li>
-                </ul>
-              </li>
-              <li>承認ルート欄で、事前登録済みの「<strong>承認フロー</strong>（多段階承認）」を選ぶか、「<strong>-- 手動で承認者を直接1名指定 --</strong>」から承認者を指定して提出します（途中保存は「下書き」）。</li>
+              <li><strong>ボードの切り替え・新規作成</strong>: 画面上部の<strong>ボード名ドロップダウン</strong>から、個人専用／チーム共有ボードをキーワード検索しながら切り替えられます。新規作成は横の「<strong>＋ 新規ボード</strong>」ボタンから設定します。</li>
+              <li><strong>ボード設定・列カスタマイズ・複製</strong>: 右上の「<strong>ボード設定</strong>」から、列の追加・名称変更・並び替え・削除、テーマカラー設定、一覧先頭へのピン留め固定、さらに列構成と未完了カードを引き継いだ「ボードの複製」が行えます。</li>
             </ol>
           </div>
 
-          <div class="recipe-subhead">B. 承認する・却下／確認する</div>
-          <div class="step-box">
-            <ol>
-              <li>自分が承認者に指定されている申請があると、「<strong>承認待ち</strong>」タブに件数が表示されます。</li>
-              <li>対象申請を開いて内容と添付ファイルを確認し、「承認」またはコメント付きで「却下」を実行します。過去の決裁履歴は「<strong>承認済み</strong>」タブからいつでも参照できます。</li>
-            </ol>
+          <h3>2. 3つの表示ビューの使い分け</h3>
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>ビュー名</th>
+                  <th>特徴と便利な使い方</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>カンバン</strong></td>
+                  <td><strong>1行目「資料欄」</strong>（<code>業務計画関係</code>・<code>ミーティング関係</code>など進行しない固定資料をカテゴリ別管理／折り畳み可能）と、<strong>2行目「Todo欄」</strong>（<code>未着手 → 進行中 → 確認待ち → 完了</code>）の2段構成。ドラッグ＆ドロップや「次の列へ移動」で進められ、完了済みは自動で折り畳まれます。</td>
+                </tr>
+                <tr>
+                  <td><strong>リスト</strong></td>
+                  <td>ボード内のカードを表形式で一覧表示。タイトル・ステータス・優先度・期限・更新日で並び替えでき、一覧上部の入力欄から素早く行追加できます。</td>
+                </tr>
+                <tr>
+                  <td><strong>マイタスク</strong></td>
+                  <td>個人・共有すべてのボードを横断し、<strong>自分が担当者にアサインされているTodo</strong>だけを自動集計。「期限切れ」「直近（3日以内）」「その他」に分けて確認でき、元のボードへ即ジャンプできます。</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </div>
 
-        <!-- レシピ5: 日程調整・掲示板・安否確認 -->
-        <div id="recipe-meeting" class="recipe-card">
-          <div class="recipe-card-header">
-            <div class="recipe-card-title"><span>🗓️</span><span>レシピ5：会議の日程調整・社内回覧・緊急時の安否回答（よく使う逆引き）</span></div>
-            <span class="badge-auth badge-free">日常・緊急時</span>
-          </div>
+          <h3>3. カードの追加と詳細機能（Todo／メモ・資料）</h3>
           <ul>
-            <li><strong>複数メンバーの空き時間を探して会議を決めたい</strong>：左サイドバー「ユーティリティー」＞「<strong>日程調整</strong>」を開き、対象メンバーと期間を指定すると全員のカレンダー（JST基準）から共通の空き枠を自動抽出し、投票アンケート送信〜確定登録まで行えます。（→ <a href="#sec-calendar" style="color:var(--primary);font-weight:700;">第6章へ</a>）</li>
-            <li><strong>全社・部署へ重要連絡を回し、誰が読んだか確認したい</strong>：「<strong>掲示板</strong>」から重要ピン留め付きで投稿すると、投稿者・管理者は「閲覧済み／未読」のメンバー一覧をリアルタイムで確認できます。（→ <a href="#sec-bulletins" style="color:var(--primary);font-weight:700;">第4章へ</a>）</li>
-            <li><strong>地震・災害等で安否確認が届いたとき</strong>：画面上部の「緊急安否確認バナー」または通知から「<strong>安否を回答する</strong>」を開き、本人状況・出社可否・家族/自宅状況・現在地を送信します。（→ <a href="#sec-safety" style="color:var(--primary);font-weight:700;">第11章へ</a>）</li>
-          </ul>
-        </div>
-      </section>
-
-      <!-- 第2章: タイムライン -->
-      <section id="sec-timeline" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🏠</span>
-            <span>第2章: タイムライン (社内ナレッジSNS)</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>日常の業務の気づき、現場トラブルのシューティング、新製品や施工ノウハウを気軽に発信・共有できるタイムラインです。</p>
-        
-        <h3>主な機能と操作詳細</h3>
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>機能</th>
-              <th>説明</th>
-              <th>操作方法・Tips</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>新規投稿</strong></td>
-              <td>テキスト本文、最大10枚の現場写真添付、自動リサイズ（EXIF位置情報の自動削除対応）。</td>
-              <td>画面上部の投稿フォームに入力し「投稿する」をクリック。URLを貼り付けると自動でリッチカード（サムネイル・タイトル付き）に変換されます。</td>
-            </tr>
-            <tr>
-              <td><strong>アンケート作成</strong></td>
-              <td>2〜6個の選択肢を設定し、社員から意見や投票を集計（1人1票）。</td>
-              <td>投稿フォームの「📊 アンケート」アイコンをクリックして質問と選択肢を入力。</td>
-            </tr>
-            <tr>
-              <td><strong>スタンプ・いいね</strong></td>
-              <td>ワンクリックで感謝や了解、お疲れ様の意を伝えるオリジナルスタンプ。</td>
-              <td>投稿下部のスマイルアイコンからスタンプを選択。リアクションした社員一覧も確認可能。</td>
-            </tr>
-            <tr>
-              <td><strong>コメント・スレッド返信</strong></td>
-              <td>投稿に対する詳細な議論や質問、現場からの追加写真共有。</td>
-              <td>「💬 返信する」をクリックして入力。スレッド形式で会話が整理されます。</td>
-            </tr>
-            <tr>
-              <td><strong>ナレッジ検索・絞り込み</strong></td>
-              <td>過去の投稿をキーワード、投稿者、添付ファイル有無で高速全文検索。</td>
-              <td>タイムライン上部の検索バーにキーワードを入力してEnter。</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- 第3章: 業務日報 -->
-      <section id="sec-reports" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">📋</span>
-            <span>第3章: 業務日報・現場作業報告</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>現場施工・保守点検の作業記録、進捗、出勤状況を作成し、上長やチーム内で共有・承認を受ける機能です。</p>
-        
-        <h3>日報の作成・承認ワークフロー</h3>
-        <div class="step-box">
-          <ol>
-            <li><strong>「新規日報作成」をクリック</strong>: 日付（初期値は本日・JST）、作業現場名、案件番号を選択または入力します。</li>
-            <li><strong>作業内容と所見の入力</strong>: 「自動ドア修繕」「定期点検」「新規据付」などの作業区分を選び、作業時間・交通費・現場写真を登録します。</li>
-            <li><strong>下書き保存・提出</strong>: 作業途中なら「下書き保存」で中断可能。完了時は「提出する」を押すと、上長へ通知されます。</li>
-            <li><strong>上長承認とコメント</strong>: 管理職（主任・課長・部長）は提出一覧から内容を確認し、「承認印」または「差し戻し（修正指示コメント付き）」を行います。</li>
-          </ol>
-        </div>
-
-        <div class="callout callout-success">
-          <span class="callout-icon">💡</span>
-          <div>
-            <strong>過去日報のワンクリック引用</strong>: 同じ現場の定期点検や前日の続き作業を行う場合、「前回の作業内容を引用」ボタンを押すことで、現場名や基本項目が自動セットされます。
-          </div>
-        </div>
-      </section>
-
-      <!-- 第4章: 社内掲示板 -->
-      <section id="sec-bulletins" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">📢</span>
-            <span>第4章: 社内掲示板・公式回覧板</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象（投稿権限は部署・役職に応じる）</span>
-        </div>
-        <p>全社通達、総務・経理からの重要連絡、安全衛生マニュアルの改定などをカテゴリ別に周知・回覧する公式掲示板です。</p>
-        
-        <h3>掲示板の独自機能</h3>
-        <ul>
-          <li><strong>重要ピン留め機能</strong>: 緊急通達や必読連絡は一覧の最上部にハイライト固定されます。</li>
-          <li><strong>未読・既読トラッキング（全員の閲覧状況）</strong>: 投稿者および管理者は、「誰が閲覧済みで、誰が未読か」の社員名一覧をいつでも確認できます。</li>
-          <li><strong>PDF・文書のインライン表示</strong>: 添付された回覧PDFや図面ファイルをダウンロードせず、ブラウザ内で即座に全画面プレビューできます。</li>
-          <li><strong>カテゴリ分類</strong>: 「全社通達」「総務・人事」「安全衛生」「技術・施工」「イベント」などのタグで素早くフィルタリングできます。</li>
-        </ul>
-      </section>
-
-      <!-- 第5章: グループチャット＆特殊コマンド -->
-      <section id="sec-chat" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">💬</span>
-            <span>第5章: グループチャット・DM＆特殊機能（@コマンド全8種）</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>1対1のダイレクトメッセージ（DM）および部署・プロジェクト別のグループトークルームで、リアルタイムなメッセージングと業務カードの活用が可能です。</p>
-
-        <h3>チャットの基本操作と便利機能</h3>
-        <ul>
-          <li><strong>メッセージ送信・改行</strong>: <kbd>Enter</kbd> で即時送信、<kbd>Shift</kbd> + <kbd>Enter</kbd> で改行します（日本語変換中のEnter誤送信防止機能付き）。</li>
-          <li><strong>写真アルバム一括送信</strong>: 最大10枚の現場写真を一度に送信可能。超高速軽量サムネイルで表示され、クリックするとLightbox拡大表示されます。</li>
-          <li><strong>既読メンバー一覧</strong>: 送信メッセージ横の「既読」をクリックすると、そのメッセージを読んだメンバーの顔写真と既読時刻一覧を確認できます。</li>
-          <li><strong>ボスモード (業務偽装モード)</strong>: ヘッダーまたは入力欄横のメガネアイコンをクリックすると、画面全体が地味なグレーの業務管理表スタイルに瞬時に切り替わり、周囲からの視線をガードします。</li>
-          <li><strong>URL貼り付け時のリッチカード化</strong>: Webサイトや社内リンクを貼り付けると、自動的にタイトル・概要・サムネイル付きのリンクカードが生成されます。</li>
-        </ul>
-
-        <h3>【新機能】@特殊機能コマンド群（全8種類）</h3>
-        <p>チャット入力欄の左側にある <strong>「＠」ボタン</strong> をクリックすると、コマンド案内モーダルが開きます。<br>
-        「<strong>@〜を入力</strong>」を押すとコマンド名のみ、「<strong>サンプル入力</strong>」を押すと例文が入力欄にセットされます。</p>
-
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>コマンド</th>
-              <th>機能名</th>
-              <th>カード表示と動作仕様</th>
-              <th>入力例</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>@quiz</code></td>
-              <td><strong>クイズ・アンケート出題</strong></td>
-              <td>選択肢ボタン付きのクイズ／アンケートカードを出題。リアルタイム集計、正解判定、解説カード表示に対応。</td>
-              <td><code>@quiz</code></td>
-            </tr>
-            <tr>
-              <td><code>@secret</code></td>
-              <td><strong>シークレット (伏字)</strong></td>
-              <td><strong>点線フキダシ</strong>の中に、元文章の<strong>文字数・改行と一致する「ゴニョゴニョ (●■▲◆※)」</strong>で隠されます。タップすると本文が開示され、再度隠すことも可能。</td>
-              <td><code>@secret ここだけの話、実は…</code></td>
-            </tr>
-            <tr>
-              <td><code>@shout</code></td>
-              <td><strong>注目アナウンス</strong></td>
-              <td>メガホンアイコンと青色強調フレーム、大見出しフォントで表示。全員に見てほしい急ぎの周知に最適です。</td>
-              <td><code>@shout 明日10時集合です！ご確認下さい。</code></td>
-            </tr>
-            <tr>
-              <td><code>@warn</code><br><code>@alert</code></td>
-              <td><strong>重要注意・警告カード</strong></td>
-              <td>警告三角アイコンと黄色〜赤色の注意フレームで表示。システム停止予告や施工時の危険防止アナウンスに。</td>
-              <td><code>@warn 本日18時以降、定期メンテのため利用不可</code></td>
-            </tr>
-            <tr>
-              <td><code>@todo</code><br><code>@check</code></td>
-              <td><strong>リスト (チェック可能)</strong></td>
-              <td>改行や「/」で区切った項目をチェックボックス付きカードに自動変換。端末ごとに達成チェックと「2/3完了」等の進捗率を保持。</td>
-              <td><code>@todo 議事録共有 / 見積書作成 / 日程調整</code></td>
-            </tr>
-            <tr>
-              <td><code>@fold</code><br><code>@more</code></td>
-              <td><strong>長文テキストの折りたたみ</strong></td>
-              <td>長文や議事録の3行目以降をコンパクトに収納。「▼ 続きを読む (全〇〇文字)」でワンタップ展開し、タイムラインをスッキリ整理。</td>
-              <td><code>@fold 定例会議の議事録\n・項目1\n・項目2...</code></td>
-            </tr>
-            <tr>
-              <td><code>@dice</code><br><code>@random</code></td>
-              <td><strong>サイコロ・ランダム抽選</strong></td>
-              <td><strong>タイトルに「サイコロ・ランダム抽選」を表示</strong>。全ユーザーで結果が完全に一致する公平な決定論的抽選。<br>
-              ・<code>@dice</code> → 1〜6の出目<br>
-              ・<code>@dice 100</code> → 1〜100の出目<br>
-              ・<code>@dice ラーメン, カレー, 寿司</code> → 候補から1件をランダム選定</td>
-              <td><code>@dice ラーメン, カレー, パスタ, 定食</code></td>
-            </tr>
-            <tr>
-              <td><code>@calc</code></td>
-              <td><strong>簡易計算機</strong></td>
-              <td>計算機アイコンとともに四則演算（<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, 括弧）を自動計算し、結果をカード表示。「結果コピー」ボタン付き。</td>
-              <td><code>@calc 1500 * 1.1</code></td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- 第6章: 共有カレンダー -->
-      <section id="sec-calendar" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">📅</span>
-            <span>第6章: 共有カレンダー・予定管理・日程調整</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>全社員の予定、現場施工、定期点検、社内行事を日・週・月単位で可視化します。すべての日時計算は日本標準時 (JST / UTC+09:00) に厳格準拠しています。</p>
-        
-        <h3>主な機能</h3>
-        <ul>
-          <li><strong>終日予定・時間指定予定</strong>: 現場直行・直帰、出張、有休、会議などの区分を色分け登録。</li>
-          <li><strong>空き枠自動抽出・日程調整機能</strong>: 複数人のカレンダーから共通の「空き時間枠」を自動抽出し、会議や現場打ち合わせの候補日時を瞬時にリストアップできます。</li>
-          <li><strong>外部カレンダー連携 (iCal URL発行)</strong>:
-            カレンダー右上の「iCal連携」をクリックして専用URLを取得し、Googleカレンダー、iPhone (iOSカレンダー)、Microsoft Outlookに登録することで、社外のスマートフォン標準カレンダーへリアルタイム自動同期されます。
-          </li>
-        </ul>
-      </section>
-
-      <!-- 第7章: プロジェクト管理 -->
-      <section id="sec-projects" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🗂️</span>
-            <span>第7章: プロジェクト管理（カンバン・マイタスク・メモボード）</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>個人やチームのタスク（Todo）、案件フォロー、業務手順メモ・参考資料を一元管理できるボード機能です。左サイドバーの「<strong>プロジェクト</strong>」から利用できます。</p>
-
-        <h3>1. ボードの種類と閲覧・参加範囲</h3>
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>ボード種別</th>
-              <th>公開・共有範囲</th>
-              <th>主な用途</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>個人専用ボード</strong> (🔒)</td>
-              <td>作成者本人のみ閲覧・編集可能</td>
-              <td>自分専用のTodo整理、個人メモ、参考URL・パスワード以外の備忘管理。</td>
-            </tr>
-            <tr>
-              <td><strong>チーム共有ボード</strong></td>
-              <td>
-                <strong>指定メンバー</strong>／<strong>部署</strong>／<strong>拠点</strong>／<strong>全社公開</strong> の4段階から選択
-              </td>
-              <td>部署ごとの見込み案件フォロー、共同イベント準備、チーム内の引き継ぎ事項・手順書共有。</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="step-box">
-          <ol>
-            <li><strong>ボードの切り替え・新規作成</strong>: 画面上部の<strong>ボード名ドロップダウン</strong>をクリックすると、個人専用ボード／チーム共有ボードをキーワード検索しながら素早く切り替えられます。新規作成はすぐ横の「<strong>＋ 新規ボード</strong>」ボタン（またはドロップダウン内の「新しいボードを作成」）から、ボード種別（チーム共有／個人専用）・ボード名・公開範囲・参加メンバー・カンバン列構成を設定して作成します。</li>
-            <li><strong>ボード設定・列カスタマイズ・複製</strong>: 画面右上の「<strong>ボード設定</strong>」から、列の追加・名称変更・並び替え・削除、テーマカラー設定、一覧先頭へのピン留め固定、さらに列構成と未完了カードを引き継いだ「ボードの複製」が行えます。カンバン列は画面幅に合わせて自動フィットします（列数が多い場合のみカンバン枠内で横スクロールします）。</li>
-          </ol>
-        </div>
-
-        <h3>2. 3つの表示ビューの使い分け</h3>
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>ビュー名</th>
-              <th>特徴と便利な使い方</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>カンバン</strong></td>
-              <td><strong>1行目「資料欄」</strong>（<code>業務計画関係</code>・<code>ミーティング関係</code>など進行しない固定資料をカテゴリ別管理／折り畳み可能）と、<strong>2行目「Todo欄」</strong>（<code>未着手 → 進行中 → 確認待ち → 完了</code> へ左から右へ進捗を移動）の2段構成で表示します。Todo欄はドラッグ＆ドロップやカード右下の「次の列へ移動」で進められ、完了済みは自動で折り畳まれます。</td>
-            </tr>
-            <tr>
-              <td><strong>リスト</strong></td>
-              <td>ボード内のカードを表形式で一覧表示。タイトル・ステータス・優先度・期限・更新日のクリックで昇順／降順に並び替えでき、一覧上部の入力欄から素早く行追加できます。</td>
-            </tr>
-            <tr>
-              <td><strong>マイタスク</strong></td>
-              <td>個人ボード・共有ボードを横断し、<strong>自分が担当者にアサインされているTodo</strong>だけを自動集計。「期限切れ」「直近（3日以内）」「その他」に分けて期限順で確認でき、元のボードへ即ジャンプできます。</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>3. カードの追加と詳細機能（Todo／メモ・資料）</h3>
-        <ul>
-          <li><strong>カード種別の切り替え</strong>: 詳細画面上部の切り替えタブで、完了チェック・優先度（高/中/低/なし）・期限を管理する「<strong>Todo</strong>」と、常時参照用の「<strong>メモ・資料</strong>」を使い分けられます。</li>
-          <li><strong>クイック1行入力</strong>: カンバン各列の上部にある入力欄にタイトルやURLを入力して <kbd>Enter</kbd> を押すだけで即座にカードを作成できます。</li>
-          <li><strong>メンバーアサインと通知</strong>: チーム共有ボードではカードに複数名の担当者を設定できます。新しく担当者に追加されたメンバーには自動通知が送られます。</li>
-          <li><strong>詳細モーダルの充実機能</strong>:
-            <ul>
-              <li><strong>チェックリスト（小項目）</strong>: カード内で作業手順を細かく分解し、「3 / 5 完了」のように進捗率を管理。</li>
-              <li><strong>参考URL・リンク集（OGP対応）</strong>: 関連システムや社内共有URLをタイトル・ファビコン付きリンクカードとして保存（本文内URLも自動リンク化）。</li>
-              <li><strong>資料添付（D&amp;D／スクショ貼り付け対応）</strong>: PDF・Excel・Word・画像をドラッグ＆ドロップ、または <kbd>Ctrl</kbd>+<kbd>V</kbd>（Macは <kbd>⌘</kbd>+<kbd>V</kbd>）でスクリーンショットを直接貼り付けてプレビュー・共有可能。</li>
-              <li><strong>タグ・ピン留め・コメント</strong>: <code>#タグ</code> による分類、列先頭への固定（ピン留め）、カード内コメントスレッドに対応。</li>
-            </ul>
-          </li>
-        </ul>
-
-        <h3>4. 他機能からのクイック起票 ＆ 共有URL</h3>
-        <div class="callout callout-info">
-          <span class="callout-icon">🔗</span>
-          <div>
-            <strong>チャット・伝言メモからのタスク化</strong>: チャットのメッセージや伝言メモのメニューにある「<strong>プロジェクトへ登録</strong>」ボタンから、本文や添付ファイルを引き継いで任意のボード・列へワンクリックでタスク／メモ起票できます。<br>
-            <strong>共有・お気に入り登録</strong>: ボード右上「<strong>共有・お気に入り</strong>」やカード詳細「<strong>共有</strong>」を押すと、そのボード／カードを直接開くURLがクリップボードにコピーされ、ヘッダーのお気に入りにも登録されます。
-          </div>
-        </div>
-      </section>
-
-      <!-- 第8章: 点検予定一括登録 -->
-      <section id="sec-inspection" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🗓️</span>
-            <span>第8章: 点検予定一括登録・管理</span>
-          </div>
-          <span class="badge-auth">要権限（管理者または個別許可）</span>
-        </div>
-        
-        <div class="callout callout-warning">
-          <span class="callout-icon">🔑</span>
-          <div>
-            <strong>利用権限について</strong>: この機能は「管理者」または管理者パネルで「点検予定管理メニューの表示」が許可されたユーザーのみ利用可能です。
-          </div>
-        </div>
-
-        <p>毎月の定期点検Excel（26列実フォーマット）を取り込み、日付配置・担当者割り当て・現場カレンダーマトリクスExcel出力を一気通貫で行う専用業務機能です。</p>
-
-        <h3>業務フローと機能一覧</h3>
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>機能名</th>
-              <th>説明・操作ポイント</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>実フォーマットExcel取込</strong></td>
-              <td>現場から配布されるExcelファイル（.xlsx）をドラッグ＆ドロップ。C1セルの年月や26列に及ぶ現場データを正確に自動読み込みします。</td>
-            </tr>
-            <tr>
-              <td><strong>現場マスター自動補正</strong></td>
-              <td>過去の点検実績データから「現場ごとの開始時間・貼紙・作業届・WEB入力区分・備考」を照合し、自動引き継ぎ補正します。</td>
-            </tr>
-            <tr>
-              <td><strong>他月・前月データコピー</strong></td>
-              <td>前月の下書きや配置済みデータをマスター情報付きでワンクリック一括コピーし、今月分の初期配置を迅速化します。</td>
-            </tr>
-            <tr>
-              <td><strong>点検予定表Excel出力</strong></td>
-              <td>現場カレンダー形式（縦軸＝日付・曜日、横軸＝案件、土日色分け・特記事項オレンジ強調）で完全互換のExcelシートを出力します。</td>
-            </tr>
-            <tr>
-              <td><strong>カレンダー確定反映</strong></td>
-              <td>仮配置した点検予定に担当技術員を割り当て、共有カレンダーへ一括登録して全員に共有します。</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- 第9章: 社内文書管理 -->
-      <section id="sec-documents" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">📁</span>
-            <span>第9章: 社内文書管理・キャビネット</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象（一部フォルダは権限制御）</span>
-        </div>
-        <p>社内規程、業務マニュアル、申請書テンプレート、施工図面などを階層フォルダで安全に一元管理します。</p>
-
-        <h3>操作ルールとセキュリティ</h3>
-        <ul>
-          <li><strong>文書詳細と改定履歴</strong>: 文書名をクリックすると詳細モーダルが開き、過去の全改定履歴（バージョン1.0, 1.1...）、改定理由、更新者を確認できます。</li>
-          <li><strong>添付ファイルの即時プレビュー</strong>: ファイル名をクリックするだけで、ブラウザ内でPDF・画像・テキストを高速インライン表示します。</li>
-          <li><strong>フォルダ公開範囲の制御</strong>: 「全社員公開」のほか、「特定部署のみ」「特定メンバーのみ」の閲覧制限フォルダを作成できます（作成者・管理者のみ設定可能）。</li>
-          <li><strong>ダウンロード・閲覧監査ログ</strong>: 誰がいつどのファイルをダウンロード・閲覧したかが自動記録され、情報漏洩や不正持ち出しを抑止します。</li>
-        </ul>
-      </section>
-
-      <!-- 第10章: NAS共有ファイル -->
-      <section id="sec-files" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🗄️</span>
-            <span>第10章: NAS共有ファイル (社内ストレージ連携)</span>
-          </div>
-          <span class="badge-auth">要権限（個別許可）</span>
-        </div>
-        <p>社内NAS（Synology）上の特定共有フォルダと直接連携し、外出先や自宅からでも安全に社内大容量ファイルを閲覧・ダウンロードできます。また、外部取引先への一時受渡ファイル（パスワード保護・有効期限付き）の作成も可能です。</p>
-      </section>
-
-      <!-- 第11章: 安否確認 -->
-      <section id="sec-safety" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🦺</span>
-            <span>第11章: 安否確認・緊急BCP連絡</span>
-          </div>
-          <span class="badge-auth">回答:全員 / 発動:要権限</span>
-        </div>
-        
-        <p>地震・風水害・大規模火災などの緊急事態発生時に、全社員へ一斉に安否確認を発動し、回答状況をリアルタイムで集計・可視化するBCP（事業継続計画）機能です。</p>
-
-        <h3>全社員の回答手順</h3>
-        <div class="step-box">
-          <ol>
-            <li><strong>発動通知の受信</strong>: 安否確認が発動されると、アプリ画面上部に「緊急安否確認バナー」が表示され、スマートフォンへのWebプッシュ通知および登録メールアドレスへ一斉送信されます。</li>
-            <li><strong>「安否を回答する」をクリック</strong>: バナーまたは通知から回答モーダルを開きます。</li>
-            <li><strong>状況の選択と送信</strong>:
+            <li><strong>カード種別の切り替え</strong>: 詳細画面上部のタブで、期限・優先度を管理する「<strong>Todo</strong>」と、常時参照用の「<strong>メモ・資料</strong>」を使い分けられます。</li>
+            <li><strong>クイック1行入力</strong>: カンバン各列上部の入力欄にタイトルやURLを入力して <kbd>Enter</kbd> を押すだけで即座にカードを作成できます。</li>
+            <li><strong>メンバーアサインと通知</strong>: チーム共有ボードでは複数名の担当者を設定でき、新しく割り当てられたメンバーへ自動通知が届きます。</li>
+            <li><strong>詳細モーダルの機能</strong>:
               <ul>
-                <li>本人状況: 「無事」「軽傷」「重傷」</li>
-                <li>出社可否: 「即時出社可」「本日不可（明日以降可）」「当面出社不可」</li>
-                <li>家族状況・自宅状況: 「全員無事」「被災あり」</li>
-                <li>現在地・コメント: 現在いる場所や救援依頼などの詳細を入力して送信します。</li>
+                <li><strong>チェックリスト（小項目）</strong>: 作業手順を分解し、「3 / 5 完了」のように進捗率を管理。</li>
+                <li><strong>参考URL・リンク集（OGP対応）</strong>: 関連URLをタイトル・ファビコン付きリンクカードとして保存。</li>
+                <li><strong>資料添付（D&amp;D／スクショ貼り付け対応）</strong>: PDF・Excel・Word・画像をドラッグ＆ドロップ、または <kbd>Ctrl</kbd>+<kbd>V</kbd>（Macは <kbd>⌘</kbd>+<kbd>V</kbd>）で直接貼り付け可能。</li>
+                <li><strong>タグ・ピン留め・コメント</strong>: <code>#タグ</code> 分類、列先頭への固定、カード内コメントスレッドに対応。</li>
               </ul>
             </li>
-          </ol>
-        </div>
-
-        <div class="callout callout-danger">
-          <span class="callout-icon">⚠️</span>
-          <div>
-            <strong>安否確認の発動権限</strong>: 誤発動を防ぐため、安否確認の一斉発動は「システム管理者」または「安否確認発動権限」を持つ担当者のみが実行できます。発動後は拠点別・部署別の回答率グラフがリアルタイム更新されます。
-          </div>
-        </div>
-      </section>
-
-      <!-- 第12章: 社員名簿 -->
-      <section id="sec-members" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">👥</span>
-            <span>第12章: 社員名簿・組織図・プロフィール</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>全社員の所属部署、役職、内線番号、緊急連絡先、顔写真を確認できる名簿です。名前、部署名、役職によるインクリメンタル高速検索に対応しています。</p>
-      </section>
-
-      <!-- 第13章: ユーティリティー -->
-      <section id="sec-utility" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🛠️</span>
-            <span>第13章: ユーティリティー・社内便利ツール集</span>
-          </div>
-          <span class="badge-auth badge-free">全員対象</span>
-        </div>
-        <p>左側サイドバーの「ユーティリティー」メニューから、本操作マニュアル（HTML版）の参照、各種業務ポータル、社外リンク集、印刷機能へ素早くアクセスできます。</p>
-      </section>
-
-      <!-- 第14章: 管理者パネル -->
-      <section id="sec-admin" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">⚙️</span>
-            <span>第14章: 管理者パネル・システム設定・運用</span>
-          </div>
-          <span class="badge-auth badge-admin">要管理者権限</span>
-        </div>
-        
-        <p>システム全体の管理、ユーザーの登録・権限付与、各メニューの表示制御、推奨サーバーコードの確認を行う管理機能です。</p>
-
-        <h3>管理者が設定できる項目</h3>
-        <ul>
-          <li><strong>社員アカウント管理</strong>: 新規社員登録、パスワード変更、アカウントの有効/無効化、管理者権限の付与。</li>
-          <li><strong>個別メニュー権限の切り替え</strong>:
-            社員ごとに「点検予定管理」「NAS共有ファイル」「安否確認発動」の各メニューの表示/非表示を個別にチェックボックスでON/OFF制御可能。
-          </li>
-          <li><strong>代理ログイン機能 (Impersonation)</strong>: 管理者は社員一覧から「代理ログイン」を実行し、該当社員の視点での画面表示や権限状態を安全に検証できます。画面上部の「管理者に戻る」ボタンを押すことで、ワンクリックで元のアカウントに復帰します。</li>
-          <li><strong>推奨バックエンドコード (RecommendServerCode)</strong>: Synology NAS本番サーバー用の最新のExpress/MS SQL Serverルーターコード（<code>routes/*.js</code>）をUI上で確認・エクスポートできます。</li>
-        </ul>
-      </section>
-
-      <!-- 第15章: 権限一覧 -->
-      <section id="sec-roles" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">🔒</span>
-            <span>第15章: 権限マトリクス一覧</span>
-          </div>
-          <span class="badge-auth badge-free">仕様確認</span>
-        </div>
-        
-        <table class="feature-table">
-          <thead>
-            <tr>
-              <th>機能・操作</th>
-              <th>一般社員</th>
-              <th>個別許可ユーザー</th>
-              <th>システム管理者</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>タイムライン投稿・閲覧・いいね・コメント</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>チャット送信・@特殊コマンド利用</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>業務日報作成・閲覧</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>掲示板閲覧・投稿</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>共有カレンダー登録・iCal購読</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>プロジェクト管理（個人／共有ボード・マイタスク）</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td>社内文書管理の閲覧・DL・登録</td>
-              <td>◯</td>
-              <td>◯</td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td><strong>点検予定一括登録・Excel出力</strong></td>
-              <td>✕</td>
-              <td><strong>◯ (個別許可)</strong></td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td><strong>NAS共有ファイル閲覧・DL</strong></td>
-              <td>✕</td>
-              <td><strong>◯ (個別許可)</strong></td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td><strong>安否確認の一斉発動</strong></td>
-              <td>✕</td>
-              <td><strong>◯ (個別許可)</strong></td>
-              <td>◯</td>
-            </tr>
-            <tr>
-              <td><strong>管理者パネル・ユーザー管理・代理ログイン</strong></td>
-              <td>✕</td>
-              <td>✕</td>
-              <td><strong>◯ (要管理者)</strong></td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- 第16章: よくある質問・FAQ -->
-      <section id="sec-faq" class="doc-section">
-        <div class="section-header">
-          <div class="section-title">
-            <span class="section-icon">❓</span>
-            <span>第16章: よくある質問・FAQ・トラブルシューティング</span>
-          </div>
-          <span class="badge-auth badge-free">解決ガイド</span>
-        </div>
-
-        <h3>よくある質問</h3>
-        <div class="step-box">
-          <ul>
-            <li><strong>Q: Webプッシュ通知が届かない場合は？</strong><br>
-            A: ブラウザのアドレスバー左側にある鍵マーク（サイトの設定）をクリックし、「通知」が「許可」になっているかご確認ください。スマートフォンの場合は、端末自体の「設定 ＞ 通知 ＞ ブラウザ」で通知が許可されているかもご確認ください。</li>
-            
-            <li><strong>Q: チャットで@コマンドを送信したのにカードにならない場合は？</strong><br>
-            A: コマンドの先頭に余計な文字が入っていないか、半角の <code>@secret</code> や <code>@shout</code> になっているかご確認ください。入力欄左の「＠」ボタンから挿入すると入力ミスを防げます。</li>
-
-            <li><strong>Q: 外部カレンダー（Google/Outlook）に予定が反映されない場合は？</strong><br>
-            A: iCal購読の更新頻度はGoogleやOutlook側の同期間隔（通常数時間〜半日）に依存します。即座に確認したい場合は社内SNSアプリ上のカレンダー画面をご確認ください。</li>
-
-            <li><strong>Q: パスワードを忘れた場合の対処方法は？</strong><br>
-            A: 社内のシステム管理者に連絡してください。管理者パネルの社員一覧からパスワードの再発行・初期化が可能です。</li>
           </ul>
-        </div>
-      </section>
+
+          <div class="callout callout-info">
+            <span class="callout-label">他機能連携 ＆ 共有URL</span>
+            チャットのメッセージや伝言メモの「<strong>プロジェクトへ登録</strong>」から本文・添付を引き継いで起票できます。また、ボード右上「<strong>共有・お気に入り</strong>」やカード詳細「<strong>共有</strong>」を押すとダイレクトURLがコピーされ、ヘッダーのお気に入りにも自動ストックされます。
+          </div>
+        </section>
+
+        <!-- 点検予定一括登録 -->
+        <section id="sec-inspection" class="doc-section" data-search-tab="reference" data-search-title="点検予定一括登録・管理">
+          <div class="section-header">
+            <h2 class="section-title">点検予定一括登録・管理</h2>
+            <span class="section-meta auth-required">業務・現場管理 · 要権限（管理者または個別許可）</span>
+          </div>
+
+          <div class="callout callout-warning">
+            <span class="callout-label">利用権限</span>
+            この機能は「管理者」または管理者パネルで「点検予定管理メニューの表示」が許可されたユーザーのみ利用可能です。
+          </div>
+
+          <p>毎月の定期点検Excel（26列実フォーマット）を取り込み、日付配置・担当者割り当て・現場カレンダーマトリクスExcel出力を一気通貫で行う専用業務機能です。</p>
+
+          <h3>業務フローと機能一覧</h3>
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>機能名</th>
+                  <th>説明・操作ポイント</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>実フォーマットExcel取込</strong></td>
+                  <td>現場から配布されるExcelファイル（.xlsx）をドラッグ＆ドロップ。C1セルの年月や26列に及ぶ現場データを正確に自動読み込みします。</td>
+                </tr>
+                <tr>
+                  <td><strong>現場マスター自動補正</strong></td>
+                  <td>過去の点検実績データから「現場ごとの開始時間・貼紙・作業届・WEB入力区分・備考」を照合し、自動引き継ぎ補正します。</td>
+                </tr>
+                <tr>
+                  <td><strong>他月・前月データコピー</strong></td>
+                  <td>前月の下書きや配置済みデータをマスター情報付きでワンクリック一括コピーし、今月分の初期配置を迅速化します。</td>
+                </tr>
+                <tr>
+                  <td><strong>点検予定表Excel出力</strong></td>
+                  <td>現場カレンダー形式（縦軸＝日付・曜日、横軸＝案件、土日色分け・特記事項強調）で互換Excelシートを出力します。</td>
+                </tr>
+                <tr>
+                  <td><strong>カレンダー確定反映</strong></td>
+                  <td>仮配置した点検予定に担当技術員を割り当て、共有カレンダーへ一括登録して全員に共有します。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 社内文書管理 -->
+        <section id="sec-documents" class="doc-section" data-search-tab="reference" data-search-title="社内文書管理・キャビネット">
+          <div class="section-header">
+            <h2 class="section-title">社内文書管理・キャビネット</h2>
+            <span class="section-meta">資料・防災BCP · 全員対象（一部フォルダは権限制御）</span>
+          </div>
+          <p>社内規程、業務マニュアル、申請書テンプレート、施工図面などを階層フォルダで安全に一元管理します。</p>
+
+          <h3>操作ルールとセキュリティ</h3>
+          <ul>
+            <li><strong>文書詳細と改定履歴</strong>: 文書名をクリックすると詳細モーダルが開き、過去の全改定履歴（バージョン1.0, 1.1...）、改定理由、更新者を確認できます。</li>
+            <li><strong>添付ファイルの高速プレビュー＆キャッシュ</strong>: PDF・画像・Excel・Word・テキストをブラウザ内で直接プレビュー可能。一度開いたファイルはキャッシュされるため、再表示やそのままダウンロードも待ち時間なく行えます。</li>
+            <li><strong>フォルダ公開範囲の制御</strong>: 「全社員公開」のほか、「特定部署のみ」「特定メンバーのみ」の閲覧制限フォルダを作成できます（作成者・管理者のみ設定可能）。</li>
+            <li><strong>ダウンロード・閲覧監査ログ</strong>: 誰がいつどのファイルをダウンロード・閲覧したかが自動記録され、情報漏洩や不正持ち出しを抑止します。</li>
+          </ul>
+        </section>
+
+        <!-- NAS共有ファイル -->
+        <section id="sec-files" class="doc-section" data-search-tab="reference" data-search-title="NAS共有ファイル (社内ストレージ連携)">
+          <div class="section-header">
+            <h2 class="section-title">NAS共有ファイル (社内ストレージ連携)</h2>
+            <span class="section-meta auth-required">資料・防災BCP · 要権限（個別許可）</span>
+          </div>
+          <p>社内NAS（Synology）上の特定共有フォルダと直接連携し、外出先や自宅からでも安全に社内大容量ファイルを閲覧・ダウンロードできます。また、外部取引先への一時受渡ファイル（パスワード保護・有効期限付き）の作成も可能です。</p>
+        </section>
+
+        <!-- 安否確認 -->
+        <section id="sec-safety" class="doc-section" data-search-tab="reference" data-search-title="安否確認・緊急BCP連絡">
+          <div class="section-header">
+            <h2 class="section-title">安否確認・緊急BCP連絡</h2>
+            <span class="section-meta auth-required">資料・防災BCP · 回答:全員 / 発動:要権限</span>
+          </div>
+          <p>地震・風水害・大規模火災などの緊急事態発生時に、全社員へ一斉に安否確認を発動し、回答状況をリアルタイムで集計・可視化するBCP（事業継続計画）機能です。</p>
+
+          <h3>全社員の回答手順</h3>
+          <div class="step-box">
+            <ol>
+              <li><strong>発動通知の受信</strong>: 安否確認が発動されると、アプリ画面上部に「緊急安否確認バナー」が表示され、スマートフォンへのWebプッシュ通知および登録メールアドレス（会社メール・個人メール）へ一斉送信されます。</li>
+              <li><strong>「安否を回答する」をクリック</strong>: バナーまたは通知から回答モーダルを開きます。</li>
+              <li><strong>状況の選択と送信</strong>:
+                <ul>
+                  <li>本人状況: 「無事」「軽傷」「重傷」</li>
+                  <li>出社可否: 「即時出社可」「本日不可（明日以降可）」「当面出社不可」</li>
+                  <li>家族状況・自宅状況: 「全員無事」「被災あり」</li>
+                  <li>現在地・コメント: 現在いる場所や救援依頼などの詳細を入力して送信します。</li>
+                </ul>
+              </li>
+            </ol>
+          </div>
+
+          <div class="callout callout-danger">
+            <span class="callout-label">発動権限</span>
+            誤発動を防ぐため、安否確認の一斉発動は「システム管理者」または「安否確認発動権限」を持つ担当者のみが実行できます。発動後は拠点別・部署別の回答率グラフがリアルタイム更新されます。
+          </div>
+        </section>
+
+        <!-- 社員名簿 -->
+        <section id="sec-members" class="doc-section" data-search-tab="reference" data-search-title="社員名簿・組織図・プロフィール">
+          <div class="section-header">
+            <h2 class="section-title">社員名簿・組織図・プロフィール</h2>
+            <span class="section-meta">共通・管理 · 全員対象</span>
+          </div>
+          <p>全社員の所属部署、役職、内線番号、緊急連絡先、顔写真を確認できる名簿です。名前、部署名、役職によるインクリメンタル高速検索に対応しています。</p>
+        </section>
+
+        <!-- ユーティリティー -->
+        <section id="sec-utility" class="doc-section" data-search-tab="reference" data-search-title="ユーティリティー・社内便利ツール集">
+          <div class="section-header">
+            <h2 class="section-title">ユーティリティー・社内便利ツール集</h2>
+            <span class="section-meta">共通・管理 · 全員対象</span>
+          </div>
+          <p>左側サイドバーの「ユーティリティー」メニューから、日程調整、本操作マニュアル（HTML版）の参照、各種業務ポータル、社外リンク集などへ素早くアクセスできます。</p>
+        </section>
+
+        <!-- 管理者パネル -->
+        <section id="sec-admin" class="doc-section" data-search-tab="reference" data-search-title="管理者パネル・システム設定・運用">
+          <div class="section-header">
+            <h2 class="section-title">管理者パネル・システム設定・運用</h2>
+            <span class="section-meta admin-only">共通・管理 · 要管理者権限</span>
+          </div>
+          <p>システム全体の管理、ユーザーの登録・権限付与、各メニューの表示制御、マスターデータ管理を行う管理機能です。</p>
+
+          <h3>管理者が設定できる項目</h3>
+          <ul>
+            <li><strong>社員アカウント管理</strong>: 新規社員登録・招待、パスワード再設定発行、アカウントの有効/無効化、管理者権限の付与。</li>
+            <li><strong>個別メニュー権限の切り替え</strong>: 社員ごとに「点検予定管理」「NAS共有ファイル」「安否確認発動」の各メニューの表示/非表示を個別にON/OFF制御可能。</li>
+            <li><strong>代理ログイン機能 (Impersonation)</strong>: 管理者は社員一覧から「代理ログイン」を実行し、該当社員の視点での画面表示や権限状態を安全に検証できます。「管理者に戻る」ボタンでワンクリック復帰します。</li>
+            <li><strong>推奨バックエンドコード</strong>: Synology NAS本番サーバー用のExpress/MS SQL Serverルーターコード構成を確認・参照できます。</li>
+          </ul>
+        </section>
+
+        <!-- 権限マトリクス一覧 -->
+        <section id="sec-roles" class="doc-section" data-search-tab="reference" data-search-title="権限マトリクス一覧">
+          <div class="section-header">
+            <h2 class="section-title">権限マトリクス一覧</h2>
+            <span class="section-meta">共通・管理 · 仕様確認</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="feature-table">
+              <thead>
+                <tr>
+                  <th>機能・操作</th>
+                  <th>一般社員</th>
+                  <th>個別許可ユーザー</th>
+                  <th>システム管理者</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>タイムライン投稿・閲覧・いいね・コメント</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>チャット送信・@特殊コマンド利用</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>業務日報作成・閲覧</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>掲示板閲覧・投稿</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>共有カレンダー登録・マイグループ・お気に入り・iCal購読</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>プロジェクト管理（個人／共有ボード・マイタスク）</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td>社内文書管理の閲覧・DL・登録</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td><strong>点検予定一括登録・Excel出力</strong></td>
+                  <td>✕</td>
+                  <td><strong>◯ (個別許可)</strong></td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td><strong>NAS共有ファイル閲覧・DL</strong></td>
+                  <td>✕</td>
+                  <td><strong>◯ (個別許可)</strong></td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td><strong>安否確認の一斉発動</strong></td>
+                  <td>✕</td>
+                  <td><strong>◯ (個別許可)</strong></td>
+                  <td>◯</td>
+                </tr>
+                <tr>
+                  <td><strong>管理者パネル・ユーザー管理・代理ログイン</strong></td>
+                  <td>✕</td>
+                  <td>✕</td>
+                  <td><strong>◯ (要管理者)</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- FAQ -->
+        <section id="sec-faq" class="doc-section" data-search-tab="reference" data-search-title="よくある質問・FAQ・トラブルシューティング">
+          <div class="section-header">
+            <h2 class="section-title">よくある質問・FAQ・トラブルシューティング</h2>
+            <span class="section-meta">共通・管理 · 解決ガイド</span>
+          </div>
+
+          <div class="step-box">
+            <ul>
+              <li><strong>Q: Webプッシュ通知が届かない場合は？</strong><br>
+              A: iPhone の場合は必ずホーム画面に追加したアイコン（PWA）から起動した状態で、マイページの「この端末でプッシュ通知を有効にする」を実行してください。PCブラウザの場合はアドレスバー左側のサイト設定から「通知」が「許可」になっているか、スマホの場合は端末自体の「設定 ＞ 通知」で許可されているかご確認ください。</li>
+
+              <li><strong>Q: チャットで@コマンドを送信したのにカードにならない場合は？</strong><br>
+              A: コマンドの先頭に余計な文字が入っていないか、半角の <code>@secret</code> や <code>@shout</code> になっているかご確認ください。入力欄左の「＠」ボタンから挿入すると入力ミスを防げます。</li>
+
+              <li><strong>Q: 外部カレンダー（Google/Outlook）に予定が反映されない場合は？</strong><br>
+              A: iCal購読の更新頻度は Google や Outlook 側の同期間隔（通常数時間〜半日）に依存します。即座に確認したい場合は TERAPO 上のカレンダー画面をご確認ください。</li>
+
+              <li><strong>Q: パスワードを忘れた場合の対処方法は？</strong><br>
+              A: 社内のシステム管理者に連絡してください。管理者パネルの社員一覧からパスワード再設定リンクの発行・初期化が可能です。</li>
+            </ul>
+          </div>
+        </section>
+      </div>
 
       <footer class="manual-footer">
-        <p>© 2026 寺岡オートドア SNS / 寺子屋SNS All Rights Reserved. | 社内限定利用マニュアル</p>
+        <span>© 2026 TERAPO 社内ポータル / 寺岡オートドアグループ</span>
+        <span>社内限定利用マニュアル · v2026.11.24 #4 (JST)</span>
       </footer>
     </main>
   </div>
 
   <script>
-    // 検索フィルター
-    function filterMenu() {
-      const input = document.getElementById('manualSearch');
-      const filter = input.value.toLowerCase();
-      const list = document.getElementById('menuList');
-      const items = list.getElementsByTagName('li');
+    const TAB_IDS = ['start', 'recipes', 'reference'];
+    const TAB_LABELS = {
+      start: 'はじめに・おすすめ',
+      recipes: '逆引きレシピ',
+      reference: '機能別リファレンス'
+    };
 
-      for (let i = 0; i < items.length; i++) {
-        const linksInItem = items[i].getElementsByTagName('a');
-        if (!linksInItem || linksInItem.length === 0) {
-          items[i].style.display = filter ? 'none' : '';
-          continue;
+    let currentTab = 'start';
+
+    function switchTab(tabId, options = {}) {
+      if (!TAB_IDS.includes(tabId)) return;
+      currentTab = tabId;
+
+      TAB_IDS.forEach((id) => {
+        const panel = document.getElementById('panel-' + id);
+        const btn = document.getElementById('tabBtn-' + id);
+        const toc = document.getElementById('toc-' + id);
+        const isActive = id === tabId;
+
+        if (panel) panel.classList.toggle('active', isActive);
+        if (toc) toc.classList.toggle('active', isActive);
+        if (btn) {
+          btn.classList.toggle('active', isActive);
+          btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
         }
-        const a = linksInItem[0];
-        const text = a.textContent || a.innerText || '';
-        if (text.toLowerCase().indexOf(filter) > -1) {
-          items[i].style.display = '';
-        } else {
-          items[i].style.display = 'none';
-        }
+      });
+
+      if (!options.preserveScroll) {
+        window.scrollTo({ top: 0, behavior: 'instant' });
       }
+      updateActiveTocLink();
     }
 
-    // スクロール追従アクティブハイライト
-    window.addEventListener('DOMContentLoaded', () => {
-      const links = document.querySelectorAll('.nav-item a');
-      const sections = document.querySelectorAll('.doc-section');
+    function jumpTo(elementId, tabId) {
+      const target = document.getElementById(elementId);
+      const resolvedTab = tabId || findTabForElement(target) || currentTab;
 
-      window.addEventListener('scroll', () => {
-        let current = '';
-        sections.forEach(section => {
-          const sectionTop = section.offsetTop - 120;
-          if (pageYOffset >= sectionTop) {
-            current = section.getAttribute('id');
-          }
-        });
+      if (resolvedTab !== currentTab) {
+        switchTab(resolvedTab, { preserveScroll: true });
+      }
 
-        links.forEach(link => {
-          link.classList.remove('active');
-          if (link.getAttribute('href') === `#${current}`) {
-            link.classList.add('active');
-          }
+      if (target) {
+        if (target.tagName === 'DETAILS') {
+          target.open = true;
+        } else {
+          const parentDetails = target.closest('details');
+          if (parentDetails) parentDetails.open = true;
+        }
+
+        requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          highlightTocHref('#' + elementId);
         });
+      }
+
+      closeMobileDrawer();
+    }
+
+    function findTabForElement(el) {
+      if (!el) return null;
+      const panel = el.closest('.tab-panel');
+      if (!panel || !panel.id) return null;
+      return panel.id.replace('panel-', '');
+    }
+
+    function toggleAllRecipes(shouldOpen) {
+      document.querySelectorAll('#panel-recipes details.recipe-accordion').forEach((d) => {
+        d.open = shouldOpen;
       });
+    }
+
+    function highlightTocHref(href) {
+      const activeToc = document.getElementById('toc-' + currentTab);
+      if (!activeToc) return;
+      activeToc.querySelectorAll('.nav-link').forEach((link) => {
+        link.classList.toggle('active', link.getAttribute('href') === href);
+      });
+    }
+
+    function updateActiveTocLink() {
+      const activeToc = document.getElementById('toc-' + currentTab);
+      if (!activeToc) return;
+      const links = Array.from(activeToc.querySelectorAll('.nav-link'));
+      if (links.length === 0) return;
+
+      let matchedHref = links[0].getAttribute('href');
+      const offsetThreshold = 130;
+
+      for (const link of links) {
+        const href = link.getAttribute('href');
+        if (!href || !href.startsWith('#')) continue;
+        const el = document.getElementById(href.slice(1));
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= offsetThreshold) {
+          matchedHref = href;
+        }
+      }
+      highlightTocHref(matchedHref);
+    }
+
+    /* モバイル目次ドロワー */
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const sidebarDrawer = document.getElementById('sidebarDrawer');
+    const drawerBackdrop = document.getElementById('drawerBackdrop');
+
+    function openMobileDrawer() {
+      sidebarDrawer.classList.add('open');
+      drawerBackdrop.classList.add('open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'true');
+    }
+
+    function closeMobileDrawer() {
+      sidebarDrawer.classList.remove('open');
+      drawerBackdrop.classList.remove('open');
+      mobileMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    mobileMenuBtn.addEventListener('click', () => {
+      if (sidebarDrawer.classList.contains('open')) {
+        closeMobileDrawer();
+      } else {
+        openMobileDrawer();
+      }
     });
+
+    /* 3タブ横断の全文検索 */
+    const searchInput = document.getElementById('manualSearch');
+    const searchClearBtn = document.getElementById('searchClearBtn');
+    const searchResultsEl = document.getElementById('searchResults');
+
+    const searchableItems = Array.from(document.querySelectorAll('[data-search-tab][data-search-title]')).map((el) => ({
+      id: el.id,
+      tab: el.getAttribute('data-search-tab'),
+      title: el.getAttribute('data-search-title') || '',
+      text: (el.textContent || '').replace(/\s+/g, ' ').toLowerCase()
+    }));
+
+    function runCrossTabSearch() {
+      const raw = (searchInput.value || '').trim();
+      const query = raw.toLowerCase();
+      searchClearBtn.classList.toggle('visible', raw.length > 0);
+
+      if (!query) {
+        searchResultsEl.classList.remove('visible');
+        searchResultsEl.innerHTML = '';
+        return;
+      }
+
+      const keywords = query.split(/\s+/).filter(Boolean);
+      const hits = searchableItems.filter((item) =>
+        keywords.every((kw) => item.title.toLowerCase().includes(kw) || item.text.includes(kw))
+      );
+
+      searchResultsEl.classList.add('visible');
+
+      if (hits.length === 0) {
+        searchResultsEl.innerHTML = '<div class="search-empty">該当する項目が見つかりませんでした。</div>';
+        return;
+      }
+
+      const headerHtml = `<div class="search-results-header">検索結果 ${hits.length}件（クリックで移動）</div>`;
+      const itemsHtml = hits.slice(0, 12).map((hit) => `
+        <button type="button" class="search-hit" onclick="jumpTo('${hit.id}', '${hit.tab}')">
+          <span class="search-hit-title">${escapeHtml(hit.title)}</span>
+          <span class="search-hit-meta">${escapeHtml(TAB_LABELS[hit.tab] || '')}</span>
+        </button>
+      `).join('');
+
+      searchResultsEl.innerHTML = headerHtml + itemsHtml;
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      runCrossTabSearch();
+      searchInput.focus();
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    searchInput.addEventListener('input', runCrossTabSearch);
+
+    /* 印刷時は全アコーディオンを展開してから印刷ダイアログを起動 */
+    function printFullManual() {
+      toggleAllRecipes(true);
+      window.print();
+    }
+
+    window.addEventListener('beforeprint', () => {
+      toggleAllRecipes(true);
+    });
+
+    /* ハッシュ付きアクセス対応（例: Man/index.html#rec-mygroup） */
+    function handleInitialHash() {
+      const hash = window.location.hash;
+      if (hash && hash.length > 1) {
+        const targetId = hash.slice(1);
+        const target = document.getElementById(targetId);
+        if (target) {
+          jumpTo(targetId);
+          return;
+        }
+      }
+      updateActiveTocLink();
+    }
+
+    window.addEventListener('scroll', updateActiveTocLink, { passive: true });
+    window.addEventListener('hashchange', handleInitialHash);
+    window.addEventListener('DOMContentLoaded', handleInitialHash);
   </script>
 </body>
 </html>

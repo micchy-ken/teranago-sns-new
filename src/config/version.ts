@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.24.3',
+  version: '2026.11.24.4',
   date: '2026-11-24',
-  releaseNumber: 3,
+  releaseNumber: 4,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.24 #3 (JST)',
-  description: '本番メール通知URL統一＆開発評価環境（旧URL）の管理者限定・一般社員本番誘導ガード実装'
+  display: 'v2026.11.24 #4 (JST)',
+  description: '操作マニュアルを3タブ構成（はじめに・おすすめ／逆引きレシピ／機能別リファレンス）へ全面整理し、初回おすすめ設定＆おすすめ3大機能・横断全文検索を追加'
 } as const;
