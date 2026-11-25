@@ -35,6 +35,7 @@ import { MemberSelector } from './MemberSelector';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { buildPushFromTemplate, buildEmailFromTemplate } from '../config/notificationTemplates';
 import { getLocalDateStr, formatTimeJST, formatDateJST, getJstDateParts } from '../utils/dateUtils';
 import { triggerOpenUserModal } from '../utils/userModal';
 
@@ -486,13 +487,24 @@ export function SchedulePollModal({
         // 参加対象メンバーへ Web Push 通知 ＆ メール通知を自動配信
         const targetIds = formTargetUserIds.filter(id => id && id !== currentUser.id);
         if (targetIds.length > 0) {
+          const candidateSummary = formCandidates
+            .map((c, i) => `候補${i + 1}: ${c.text || `${c.startAt}〜${c.endAt}`}`)
+            .join('\n');
+          const createPollVars = {
+            pollTitle: formTitle,
+            actorName: currentUser.name,
+            durationMinutes: formDuration,
+            location: formLocation || '未定',
+            deadlineLabel: formDeadline ? `${formDeadline} 23:59まで` : '期限なし',
+            candidateSummary: '\n' + candidateSummary,
+            mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : '',
+            pollId: created.id,
+          };
+
           triggerPushNotification({
             targetUserIds: targetIds,
             excludeUserId: currentUser.id,
-            title: `📅 日程調整のお願い: ${formTitle}`,
-            body: `${currentUser.name}さんから「${formTitle}」の日程調整が届きました。候補日への回答をお願いします。`,
-            url: `/?tab=calendar&pollId=${created.id}`,
-            tag: `poll-${created.id}`,
+            ...buildPushFromTemplate('schedule_poll_created', createPollVars),
           });
 
           const targetUsers = targetIds
@@ -500,26 +512,14 @@ export function SchedulePollModal({
             .filter((u): u is User => !!u && u.id !== currentUser.id);
 
           if (targetUsers.length > 0) {
-            const candidateSummary = formCandidates
-              .map((c, i) => `候補${i + 1}: ${c.text || `${c.startAt}〜${c.endAt}`}`)
-              .join('\n');
-
-            dispatchNotificationEmail(targetUsers, {
-              category: 'schedule',
-              categoryLabel: '日程調整',
-              title: `日程調整のお願い: ${formTitle}`,
-              actorName: currentUser.name,
-              details: [
-                { label: '案件名', value: formTitle },
-                { label: '所要時間', value: `${formDuration}分` },
-                { label: '主催者', value: currentUser.name },
-                { label: '場所', value: formLocation || '未定' },
-                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
-                { label: '候補日時一覧', value: '\n' + candidateSummary },
-              ],
-              mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
-              pathParams: `tab=calendar&pollId=${created.id}`,
-            }, currentUser);
+            dispatchNotificationEmail(
+              targetUsers,
+              buildEmailFromTemplate('schedule_poll_created', createPollVars, {
+                actorName: currentUser.name,
+                mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
+              }),
+              currentUser
+            );
           }
         }
       } else {
@@ -597,13 +597,21 @@ export function SchedulePollModal({
 
         // 1. 新規追加メンバーへの回答依頼通知
         if (notifyAddedMembers && addedIds.length > 0) {
+          const addedVars = {
+            pollTitle: formTitle,
+            actorName: currentUser.name,
+            durationMinutes: formDuration,
+            location: formLocation || '未定',
+            deadlineLabel: formDeadline ? `${formDeadline} 23:59まで` : '期限なし',
+            candidateSummary: '\n' + candidateSummary,
+            mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : '',
+            pollId: targetPollId,
+          };
+
           triggerPushNotification({
             targetUserIds: addedIds,
             excludeUserId: currentUser.id,
-            title: `📅 日程調整のお願い: ${formTitle}`,
-            body: `${currentUser.name}さんから「${formTitle}」の日程調整に追加されました。候補日への回答をお願いします。`,
-            url: `/?tab=calendar&pollId=${targetPollId}`,
-            tag: `poll-${targetPollId}`,
+            ...buildPushFromTemplate('schedule_poll_member_added', addedVars),
           });
 
           const addedUsers = addedIds
@@ -611,22 +619,14 @@ export function SchedulePollModal({
             .filter((u): u is User => !!u && String(u.id) !== String(currentUser.id));
 
           if (addedUsers.length > 0) {
-            dispatchNotificationEmail(addedUsers, {
-              category: 'schedule',
-              categoryLabel: '日程調整',
-              title: `日程調整のお願い: ${formTitle}`,
-              actorName: currentUser.name,
-              details: [
-                { label: '案件名', value: formTitle },
-                { label: '所要時間', value: `${formDuration}分` },
-                { label: '主催者', value: currentUser.name },
-                { label: '場所', value: formLocation || '未定' },
-                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
-                { label: '候補日時一覧', value: '\n' + candidateSummary },
-              ],
-              mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
-              pathParams: `tab=calendar&pollId=${targetPollId}`,
-            }, currentUser);
+            dispatchNotificationEmail(
+              addedUsers,
+              buildEmailFromTemplate('schedule_poll_member_added', addedVars, {
+                actorName: currentUser.name,
+                mainContent: formDesc ? `【概要・連絡事項】\n${formDesc}` : undefined,
+              }),
+              currentUser
+            );
           }
         }
 
@@ -640,13 +640,24 @@ export function SchedulePollModal({
           if (editDiffSummary.deadlineChanged) changeNotes.push('回答締切を変更');
           const changeHint = changeNotes.length > 0 ? `（${changeNotes.join('・')}）` : '';
 
+          const updateMainContent = `日程調整の内容が更新されました。\n候補日時の追加・変更がある場合は、下記リンクより回答内容の確認・更新をお願いいたします。${formDesc ? `\n\n【概要・連絡事項】\n${formDesc}` : ''}`;
+          const updatedVars = {
+            pollTitle: formTitle,
+            actorName: currentUser.name,
+            changeHint,
+            changeNotes: changeNotes.length > 0 ? changeNotes.join(' / ') : '基本情報・設定を更新',
+            durationMinutes: formDuration,
+            location: formLocation || '未定',
+            deadlineLabel: formDeadline ? `${formDeadline} 23:59まで` : '期限なし',
+            candidateSummary: '\n' + candidateSummary,
+            mainContent: updateMainContent,
+            pollId: targetPollId,
+          };
+
           triggerPushNotification({
             targetUserIds: existingIds,
             excludeUserId: currentUser.id,
-            title: `📅 日程調整が更新されました: ${formTitle}`,
-            body: `${currentUser.name}さんが「${formTitle}」の内容を更新しました${changeHint}。必要に応じて回答をご確認ください。`,
-            url: `/?tab=calendar&pollId=${targetPollId}`,
-            tag: `poll-updated-${targetPollId}`,
+            ...buildPushFromTemplate('schedule_poll_updated', updatedVars),
           });
 
           const existingUsers = existingIds
@@ -654,22 +665,14 @@ export function SchedulePollModal({
             .filter((u): u is User => !!u && String(u.id) !== String(currentUser.id));
 
           if (existingUsers.length > 0) {
-            dispatchNotificationEmail(existingUsers, {
-              category: 'schedule',
-              categoryLabel: '日程調整更新',
-              title: `【内容更新】日程調整: ${formTitle}`,
-              actorName: currentUser.name,
-              details: [
-                { label: '案件名', value: formTitle },
-                { label: '所要時間', value: `${formDuration}分` },
-                { label: '場所', value: formLocation || '未定' },
-                { label: '回答期限', value: formDeadline ? `${formDeadline} 23:59まで` : '期限なし' },
-                { label: '更新内容', value: changeNotes.length > 0 ? changeNotes.join(' / ') : '基本情報・設定を更新' },
-                { label: '最新の候補日時一覧', value: '\n' + candidateSummary },
-              ],
-              mainContent: `日程調整の内容が更新されました。\n候補日時の追加・変更がある場合は、下記リンクより回答内容の確認・更新をお願いいたします。${formDesc ? `\n\n【概要・連絡事項】\n${formDesc}` : ''}`,
-              pathParams: `tab=calendar&pollId=${targetPollId}`,
-            }, currentUser);
+            dispatchNotificationEmail(
+              existingUsers,
+              buildEmailFromTemplate('schedule_poll_updated', updatedVars, {
+                actorName: currentUser.name,
+                mainContent: updateMainContent,
+              }),
+              currentUser
+            );
           }
         }
 
@@ -798,31 +801,29 @@ export function SchedulePollModal({
 
         // 全員回答が完了した場合、主催者に「確定依頼通知（Web Push & メール）」を送信
         if (answerResult.isAllAnswered && answerResult.organizerId) {
+          const allAnsweredVars = {
+            pollTitle: selectedPoll.title,
+            totalTargetCount: answerResult.totalTargetCount,
+            organizerName: selectedPoll.organizerName,
+            durationMinutes: selectedPoll.durationMinutes,
+            pollId: selectedPoll.id,
+          };
+
           triggerPushNotification({
             targetUserIds: [String(answerResult.organizerId)],
             excludeUserId: currentUser.id,
-            title: `📅 全員回答完了: ${selectedPoll.title}`,
-            body: `参加対象の全員（${answerResult.totalTargetCount}名）の回答が集まりました！日程を確定してください。`,
-            url: `/?tab=calendar&pollId=${selectedPoll.id}`,
-            tag: `poll-all-answered-${selectedPoll.id}`,
+            ...buildPushFromTemplate('schedule_poll_all_answered', allAnsweredVars),
           });
 
           const organizer = users.find(u => String(u.id) === String(answerResult.organizerId));
           if (organizer) {
-            dispatchNotificationEmail([organizer], {
-              category: 'schedule',
-              categoryLabel: '日程調整',
-              title: `【全員回答完了】日程の確定をお願いします: ${selectedPoll.title}`,
-              actorName: currentUser.name,
-              details: [
-                { label: '案件名', value: selectedPoll.title },
-                { label: '回答状況', value: `全員回答完了 (${answerResult.totalTargetCount}/${answerResult.totalTargetCount}名)` },
-                { label: '主催者', value: selectedPoll.organizerName },
-                { label: '所要時間', value: `${selectedPoll.durationMinutes}分` },
-              ],
-              mainContent: `参加対象のメンバー全員から回答が集まりました。\n下記リンクよりアンケート結果を確認し、確定候補日時を選択して本登録を行ってください。`,
-              pathParams: `tab=calendar&pollId=${selectedPoll.id}`,
-            }, currentUser);
+            dispatchNotificationEmail(
+              [organizer],
+              buildEmailFromTemplate('schedule_poll_all_answered', allAnsweredVars, {
+                actorName: currentUser.name,
+              }),
+              currentUser
+            );
           }
         }
       } else {
@@ -874,13 +875,19 @@ export function SchedulePollModal({
             const targetIds = (selectedPoll.targetUserIds || []).filter(id => id && id !== currentUser.id);
 
             if (targetIds.length > 0) {
+              const confirmVars = {
+                pollTitle: selectedPoll.title,
+                confirmedDateTime: candText,
+                location: selectedPoll.location || 'なし',
+                organizerName: selectedPoll.organizerName,
+                mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : '',
+                pollId: selectedPoll.id,
+              };
+
               triggerPushNotification({
                 targetUserIds: targetIds,
                 excludeUserId: currentUser.id,
-                title: `📅 日程確定: ${selectedPoll.title}`,
-                body: `「${selectedPoll.title}」の日程が【${candText}】に確定し、カレンダーに登録されました。`,
-                url: `/?tab=calendar`,
-                tag: `poll-confirmed-${selectedPoll.id}`,
+                ...buildPushFromTemplate('schedule_poll_confirmed', confirmVars),
               });
 
               const targetUsers = targetIds
@@ -888,20 +895,14 @@ export function SchedulePollModal({
                 .filter((u): u is User => !!u && u.id !== currentUser.id);
 
               if (targetUsers.length > 0) {
-                dispatchNotificationEmail(targetUsers, {
-                  category: 'schedule',
-                  categoryLabel: '日程確定',
-                  title: `日程確定: ${selectedPoll.title}`,
-                  actorName: currentUser.name,
-                  details: [
-                    { label: '案件名', value: selectedPoll.title },
-                    { label: '確定日時', value: candText },
-                    { label: '場所', value: selectedPoll.location || 'なし' },
-                    { label: '主催者', value: selectedPoll.organizerName },
-                  ],
-                  mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : undefined,
-                  pathParams: `tab=calendar`,
-                }, currentUser);
+                dispatchNotificationEmail(
+                  targetUsers,
+                  buildEmailFromTemplate('schedule_poll_confirmed', confirmVars, {
+                    actorName: currentUser.name,
+                    mainContent: selectedPoll.description ? `【詳細・メモ】\n${selectedPoll.description}` : undefined,
+                  }),
+                  currentUser
+                );
               }
             }
           } else {

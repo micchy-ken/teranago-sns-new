@@ -18,8 +18,11 @@ import {
   extractJobNoFromEvent,
   toggleOfficeConfirmation,
   fetchInspectionReportsApi,
-  fetchCrmInspectionDataApi
+  fetchCrmInspectionDataApi,
+  findCrmDataByJobNo,
+  applyCrmDataToReport,
 } from '../../utils/inspectionReportStorage';
+import { isSameJobNo } from '../../utils/crmInspectionPdfParser';
 import { getLocalDateStr, formatTimeJST } from '../../utils/dateUtils';
 import { triggerOpenUserModal } from '../../utils/userModal';
 import { InspectionReportEditorModal } from './InspectionReportEditorModal';
@@ -342,24 +345,32 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
   // 各スケジュールイベントとCRMデータ、作成済み報告書を突合
   const matchedScheduleItems = useMemo(() => {
     return dayEvents.map((event) => {
-      // 1. スケジュールに紐づく既存の報告書があるか確認
-      const existingReport = reports.find((r) => r.scheduleEventId === event.id) ||
-        reports.find((r) => r.inspectionDate === selectedDate && r.customerName.includes(event.title.trim()));
-
-      // 2. イベントから台数（quantity）および作業No（jobNo）を正確に抽出
+      // 1. イベントから台数（quantity）および作業No（jobNo）を正確に抽出
       const scheduleQuantity = extractQuantityFromEvent(event);
       const jobNoFromEvent = extractJobNoFromEvent(event);
-      
-      // 3. CRMデータとの突合（作業Noでマッチング、あるいは現場名でマッチング）
-      let matchedCrm = crmList.find((c) => {
-        if (jobNoFromEvent && c.jobNo === jobNoFromEvent) return true;
-        if (c.customerName && event.title && c.customerName.replace(/^[●\s]+/, '').includes(event.title.trim())) return true;
-        if (event.title && c.customerName && event.title.includes(c.customerName.replace(/^[●\s]+/, ''))) return true;
-        return false;
-      });
+
+      // 2. スケジュールに紐づく既存の報告書があるか確認（イベントID → 作業No[ゼロ埋め吸収] → 現場名）
+      const existingReport =
+        reports.find((r) => r.scheduleEventId === event.id) ||
+        (jobNoFromEvent
+          ? reports.find((r) => r.inspectionDate === selectedDate && isSameJobNo(r.jobNo, jobNoFromEvent))
+          : undefined) ||
+        reports.find((r) => r.inspectionDate === selectedDate && r.customerName.includes(event.title.trim()));
+
+      const effectiveJobNo = jobNoFromEvent || existingReport?.jobNo || '';
+
+      // 3. CRMデータとの突合（作業No[ゼロ埋め吸収]を最優先、未一致時は現場名でフォールバック）
+      const matchedCrm =
+        findCrmDataByJobNo(crmList, effectiveJobNo) ||
+        crmList.find((c) => {
+          const cleanCrmName = (c.customerName || '').replace(/^[●\s]+/, '').trim();
+          const cleanTitle = (event.title || '').trim();
+          if (!cleanCrmName || !cleanTitle) return false;
+          return cleanCrmName.includes(cleanTitle) || cleanTitle.includes(cleanCrmName);
+        });
 
       // 4. 前回の報告書（過去に完了した同一現場・作業No）の検索
-      const prevReport = findPreviousReport(matchedCrm?.jobNo || jobNoFromEvent, event.title);
+      const prevReport = findPreviousReport(matchedCrm?.jobNo || effectiveJobNo, event.title);
 
       // 台数の確定：スケジュールから取れる台数を最優先とし、CRMや既存報告書も考慮
       const finalQuantity = scheduleQuantity || matchedCrm?.totalDoorsCount || existingReport?.totalDoorsCount || 1;
@@ -370,11 +381,21 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
         matchedCrm,
         prevReport,
         isCrmImported: !!matchedCrm,
-        jobNo: matchedCrm?.jobNo || jobNoFromEvent || existingReport?.jobNo || '',
+        jobNo: matchedCrm?.jobNo || effectiveJobNo || '',
         scheduleQuantity: finalQuantity,
       };
     });
   }, [dayEvents, reports, crmList, selectedDate]);
+
+  // 既存報告書を開く・印刷する際に、CRMデータ（物件No・設置場所・型式）の未入力分を自動補完
+  const hydrateReportWithCrm = (
+    rep: InspectionReportRecord,
+    explicitCrm?: CrmInspectionData | null
+  ): InspectionReportRecord => {
+    const crm = explicitCrm || findCrmDataByJobNo(crmList, rep.jobNo);
+    if (!crm) return rep;
+    return applyCrmDataToReport(rep, crm, { overwriteNonEmpty: false });
+  };
 
   // フィルター適用後のリスト
   const filteredItems = useMemo(() => {
@@ -959,7 +980,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => setPreviewingReport(rep)}
+                          onClick={() => setPreviewingReport(hydrateReportWithCrm(rep))}
                           className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                         >
                           <Printer className="w-4 h-4" />
@@ -1170,12 +1191,21 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                               <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               <span>{event.location || matchedCrm?.address || '住所未登録'}</span>
                             </div>
-                            {matchedCrm?.doors && (
-                              <div className="flex items-center gap-2 text-slate-600 font-medium flex-wrap">
-                                <span>扉構成:</span>
-                                {matchedCrm.doors.map((d) => (
-                                  <span key={d.doorIndex} className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[11px]">
-                                    {d.location} ({d.model || '標準'})
+                            {matchedCrm?.doors && matchedCrm.doors.length > 0 && (
+                              <div className="flex items-center gap-1.5 text-slate-600 font-medium flex-wrap pt-0.5">
+                                <span className="text-teal-700 font-bold">CRM物件:</span>
+                                {matchedCrm.doors.map((d, dIdx) => (
+                                  <span
+                                    key={d.doorIndex || dIdx}
+                                    className="bg-teal-50/60 px-2 py-0.5 rounded border border-teal-200 text-[11px] inline-flex items-center gap-1"
+                                  >
+                                    {d.doorNumber && (
+                                      <span className="font-mono font-bold text-slate-900">{d.doorNumber}</span>
+                                    )}
+                                    <span>{d.location || '―'}</span>
+                                    {d.model && (
+                                      <span className="font-mono font-bold text-indigo-700">({d.model})</span>
+                                    )}
                                   </span>
                                 ))}
                               </div>
@@ -1272,7 +1302,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                             <button
                               type="button"
-                              onClick={() => setPreviewingReport(existingReport)}
+                              onClick={() => setPreviewingReport(hydrateReportWithCrm(existingReport, matchedCrm))}
                               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                             >
                               <Printer className="w-4 h-4" />
@@ -1281,7 +1311,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
 
                             <button
                               type="button"
-                              onClick={() => setEditingReport(existingReport)}
+                              onClick={() => setEditingReport(hydrateReportWithCrm(existingReport, matchedCrm))}
                               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-indigo-600 border border-indigo-200 flex items-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <Edit3 className="w-4 h-4" />
@@ -1295,7 +1325,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => setPreviewingReport(existingReport)}
+                              onClick={() => setPreviewingReport(hydrateReportWithCrm(existingReport, matchedCrm))}
                               className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
                               title="プレビュー"
                             >
@@ -1303,7 +1333,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditingReport(existingReport)}
+                              onClick={() => setEditingReport(hydrateReportWithCrm(existingReport, matchedCrm))}
                               className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                             >
                               <Edit3 className="w-4 h-4" />
@@ -1375,6 +1405,7 @@ export const InspectionReportTab: React.FC<InspectionReportTabProps> = ({
       {editingReport && (
         <InspectionReportEditorModal
           initialReport={editingReport}
+          matchedCrm={findCrmDataByJobNo(crmList, editingReport.jobNo)}
           onSave={handleSaveReport}
           onClose={() => setEditingReport(null)}
         />

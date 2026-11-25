@@ -4,6 +4,7 @@ import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { DailyReport, User } from '../types';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { buildPushFromTemplate, buildEmailFromTemplate } from '../config/notificationTemplates';
 import { getLocalDateStr } from '../utils/dateUtils';
 
 export interface UseReportManagementOptions {
@@ -216,32 +217,30 @@ export function useReportManagement({
       const typeLabel = getReportTypeLabel(newReport.reportType);
       const dateLabel = newReport.reportType === 'weekly' ? (newReport.weekLabel || `${newReport.weekStartDate}週`) : newReport.date;
       
+      const submitVars = {
+        typeLabel,
+        actorName: currentUser.name,
+        dateLabel,
+        mainContent: newReport.results || newReport.tasks || '',
+        reportId: tempId,
+      };
+      const submitPush = buildPushFromTemplate('report_submitted', submitVars);
+      const submitEmail = buildEmailFromTemplate('report_submitted', submitVars, {
+        actorName: currentUser.name,
+        mainContent: newReport.results || newReport.tasks,
+      });
+
       // 上長が指定されている場合は上長宛、未指定の場合は同部署の承認者または管理者宛
       if (newReport.supervisorId && newReport.supervisorId !== currentUser.id) {
         triggerPushNotification({
           targetUserId: newReport.supervisorId,
           excludeUserId: currentUser.id,
-          title: `📝 ${typeLabel}提出: ${currentUser.name}さん`,
-          body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
-          url: `/?tab=daily_report&reportId=${tempId}`,
-          tag: `report-${tempId}`
+          ...submitPush,
         });
 
         const supervisorUser = usersList.find(u => u.id === newReport.supervisorId);
         if (supervisorUser) {
-          dispatchNotificationEmail([supervisorUser], {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}提出: ${currentUser.name}さん`,
-            actorName: currentUser.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '提出者', value: currentUser.name },
-            ],
-            mainContent: newReport.results || newReport.tasks,
-            pathParams: `tab=daily_report&reportId=${tempId}`,
-          }, currentUser);
+          dispatchNotificationEmail([supervisorUser], submitEmail, currentUser);
         }
       } else {
         // 同部署の管理職/リーダーまたは全管理者に通知
@@ -253,25 +252,10 @@ export function useReportManagement({
           triggerPushNotification({
             targetUserIds: approvers.map(u => u.id),
             excludeUserId: currentUser.id,
-            title: `📝 ${typeLabel}提出: ${currentUser.name}さん`,
-            body: `${dateLabel}の${typeLabel}が提出されました。確認をお願いします。`,
-            url: `/?tab=daily_report&reportId=${tempId}`,
-            tag: `report-${tempId}`
+            ...submitPush,
           });
 
-          dispatchNotificationEmail(approvers, {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}提出: ${currentUser.name}さん`,
-            actorName: currentUser.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '提出者', value: currentUser.name },
-            ],
-            mainContent: newReport.results || newReport.tasks,
-            pathParams: `tab=daily_report&reportId=${tempId}`,
-          }, currentUser);
+          dispatchNotificationEmail(approvers, submitEmail, currentUser);
         }
       }
     }
@@ -360,29 +344,25 @@ export function useReportManagement({
 
       // 1. 差し戻し時 (status: submitted -> draft)
       if (oldReport && oldReport.status === 'submitted' && reportData.status === 'draft' && authorId && authorId !== currentUser.id) {
+        const remandVars = {
+          typeLabel,
+          actorName: currentUser.name,
+          dateLabel,
+          feedbackComment: reportData.feedbackComment || '差し戻し',
+          reportId: id,
+        };
         triggerPushNotification({
           targetUserId: authorId,
           excludeUserId: currentUser.id,
-          title: `↩️ ${typeLabel}差し戻し: ${currentUser.name}さん`,
-          body: `${currentUser.name}さんより${dateLabel}の${typeLabel}が差し戻されました。修正の上、再提出してください。`,
-          url: `/?tab=daily_report&reportId=${id}`,
-          tag: `report-remand-${id}`
+          ...buildPushFromTemplate('report_remanded', remandVars),
         });
 
         if (authorUser) {
-          dispatchNotificationEmail([authorUser], {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}差し戻し: ${currentUser.name}さん`,
-            actorName: currentUser.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '差し戻し者', value: currentUser.name },
-              { label: 'コメント', value: reportData.feedbackComment || '差し戻し' },
-            ],
-            pathParams: `tab=daily_report&reportId=${id}`,
-          }, currentUser);
+          dispatchNotificationEmail(
+            [authorUser],
+            buildEmailFromTemplate('report_remanded', remandVars, { actorName: currentUser.name }),
+            currentUser
+          );
         }
       }
 
@@ -395,58 +375,50 @@ export function useReportManagement({
         (!oldReport || oldReport.supervisorId !== nextSupervisorId)
       ) {
         const nextSupervisor = usersList.find(u => u.id === nextSupervisorId);
+        const fwdVars = {
+          typeLabel,
+          authorName,
+          actorName: currentUser.name,
+          dateLabel,
+          feedbackComment: reportData.feedbackComment || '確認回覧',
+          reportId: id,
+        };
         triggerPushNotification({
           targetUserId: nextSupervisorId,
           excludeUserId: currentUser.id,
-          title: `📄 ${typeLabel}確認依頼（回覧）: ${authorName}さん`,
-          body: `${currentUser.name}さんより${authorName}さんの${dateLabel}の${typeLabel}が回覧されました。確認をお願いします。`,
-          url: `/?tab=daily_report&reportId=${id}`,
-          tag: `report-fwd-${id}`
+          ...buildPushFromTemplate('report_forwarded', fwdVars),
         });
 
         if (nextSupervisor) {
-          dispatchNotificationEmail([nextSupervisor], {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}確認依頼（回覧）: ${authorName}さん`,
-            actorName: currentUser.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '作成者', value: authorName },
-              { label: '前確認者', value: currentUser.name },
-              { label: 'コメント', value: reportData.feedbackComment || '確認回覧' },
-            ],
-            pathParams: `tab=daily_report&reportId=${id}`,
-          }, currentUser);
+          dispatchNotificationEmail(
+            [nextSupervisor],
+            buildEmailFromTemplate('report_forwarded', fwdVars, { actorName: currentUser.name }),
+            currentUser
+          );
         }
       }
 
       // 3. 最終承認時 (status: reviewed)
       if (reportData.status === 'reviewed' && authorId && authorId !== currentUser.id) {
+        const apprVars = {
+          typeLabel,
+          actorName: currentUser.name,
+          dateLabel,
+          feedbackComment: reportData.feedbackComment || '最終承認完了',
+          reportId: id,
+        };
         triggerPushNotification({
           targetUserId: authorId,
           excludeUserId: currentUser.id,
-          title: `🎉 ${typeLabel}最終承認完了: ${currentUser.name}さん`,
-          body: `${currentUser.name}さんが${dateLabel}の${typeLabel}を最終承認（確認完了）しました。`,
-          url: `/?tab=daily_report&reportId=${id}`,
-          tag: `report-appr-${id}`
+          ...buildPushFromTemplate('report_final_approved', apprVars),
         });
 
         if (authorUser) {
-          dispatchNotificationEmail([authorUser], {
-            category: 'inspection',
-            categoryLabel: '点検・報告書',
-            title: `${typeLabel}最終承認完了: ${currentUser.name}さん`,
-            actorName: currentUser.name,
-            details: [
-              { label: '報告種別', value: typeLabel },
-              { label: '対象日付', value: dateLabel },
-              { label: '承認者', value: currentUser.name },
-              { label: 'フィードバック', value: reportData.feedbackComment || '最終承認完了' },
-            ],
-            pathParams: `tab=daily_report&reportId=${id}`,
-          }, currentUser);
+          dispatchNotificationEmail(
+            [authorUser],
+            buildEmailFromTemplate('report_final_approved', apprVars, { actorName: currentUser.name }),
+            currentUser
+          );
         }
       }
     } catch (notifErr) {
@@ -506,29 +478,26 @@ export function useReportManagement({
     if (targetReport && targetReport.author && targetReport.author.id !== currentUser.id) {
       const typeLabel = targetReport.reportType === 'weekly' ? '週報' : '日報';
       const dateLabel = targetReport.reportType === 'weekly' ? (targetReport.weekLabel || `${targetReport.weekStartDate}週`) : targetReport.date;
+      const reviewVars = {
+        typeLabel,
+        actorName: currentUser.name,
+        dateLabel,
+        feedbackQuote: feedbackComment ? `「${feedbackComment.slice(0, 40)}」` : '',
+        feedbackComment: feedbackComment || '確認完了',
+        reportId: id,
+      };
       triggerPushNotification({
         targetUserId: targetReport.author.id,
         excludeUserId: currentUser.id,
-        title: `✍️ ${typeLabel}確認完了: ${currentUser.name}さん`,
-        body: `${currentUser.name}さんが${dateLabel}の${typeLabel}を確認しました。${feedbackComment ? `「${feedbackComment.slice(0, 40)}」` : ''}`,
-        url: `/?tab=daily_report&reportId=${id}`,
-        tag: `report-rev-${id}`
+        ...buildPushFromTemplate('report_reviewed', reviewVars),
       });
 
       const authorUser = usersList.find(u => u.id === targetReport.author.id) || targetReport.author;
-      dispatchNotificationEmail([authorUser], {
-        category: 'inspection',
-        categoryLabel: '点検・報告書',
-        title: `${typeLabel}確認完了: ${currentUser.name}さん`,
-        actorName: currentUser.name,
-        details: [
-          { label: '報告種別', value: typeLabel },
-          { label: '対象日付', value: dateLabel },
-          { label: '確認者', value: currentUser.name },
-          { label: 'フィードバック', value: feedbackComment || '確認完了' },
-        ],
-        pathParams: `tab=daily_report&reportId=${id}`,
-      }, currentUser);
+      dispatchNotificationEmail(
+        [authorUser],
+        buildEmailFromTemplate('report_reviewed', reviewVars, { actorName: currentUser.name }),
+        currentUser
+      );
     }
 
     try {

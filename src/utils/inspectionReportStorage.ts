@@ -9,6 +9,7 @@ import { CalendarEvent, User } from '../types';
 import { getLocalDateStr, formatTimeJST } from './dateUtils';
 import { API_BASE_URL } from '../config/api';
 import { getInspectionMasterItems } from './inspectionMasterStorage';
+import { normalizeJobNo, isSameJobNo } from './crmInspectionPdfParser';
 
 const STORAGE_KEY_REPORTS = 'teranago_inspection_reports_v1';
 const STORAGE_KEY_CRM = 'teranago_crm_inspection_data_v1';
@@ -105,14 +106,22 @@ export function getAllCrmInspectionData(): CrmInspectionData[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // 過去のサンプルデータが残っている場合は除外
-        return parsed.filter(item => item.jobNo !== '01269044' && item.jobNo !== '01296500');
+        return parsed.filter((item) => item && typeof item.jobNo === 'string' && item.jobNo.trim().length > 0);
       }
     }
   } catch (err) {
     console.warn('Failed to parse CRM data from localStorage:', err);
   }
   return [];
+}
+
+/** 作業No（ゼロ埋め有無を自動吸収）でCRMデータを検索 */
+export function findCrmDataByJobNo(
+  crmList: CrmInspectionData[],
+  jobNo?: string | null
+): CrmInspectionData | undefined {
+  if (!jobNo || !Array.isArray(crmList) || crmList.length === 0) return undefined;
+  return crmList.find((c) => isSameJobNo(c.jobNo, jobNo));
 }
 
 /** 保存された全点検報告書を取得（ローカルキャッシュ） */
@@ -266,20 +275,153 @@ export async function fetchCrmInspectionDataApi(yearMonth?: string): Promise<Crm
   return getAllCrmInspectionData();
 }
 
-/** CRM点検データを一括保存（ローカル + サーバーDB即時POST） */
-export function saveCrmInspectionDataList(list: CrmInspectionData[], importedBy?: string) {
+/** CRM点検データを一括保存（既存データと作業No正規化マージ ＋ ローカル＆サーバーDB即時POST） */
+export async function saveCrmInspectionDataList(
+  list: CrmInspectionData[],
+  importedBy?: string,
+  options?: { merge?: boolean }
+): Promise<{
+  ok: boolean;
+  savedToServer: boolean;
+  importedCount: number;
+  totalCount: number;
+  mergedList: CrmInspectionData[];
+  error?: string;
+}> {
+  const shouldMerge = options?.merge !== false;
+  let mergedList: CrmInspectionData[] = [];
+
   try {
-    localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(list));
-    fetch(`${API_BASE_URL}/inspections/crm-data/bulk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: list, importedBy })
-    }).catch(err => {
-      console.warn('[InspectionReportStorage] CRM bulk save server sync error:', err);
-    });
+    const map = new Map<string, CrmInspectionData>();
+    if (shouldMerge) {
+      for (const existing of getAllCrmInspectionData()) {
+        const key = normalizeJobNo(existing.jobNo);
+        if (key) map.set(key, existing);
+      }
+    }
+    for (const item of list) {
+      const key = normalizeJobNo(item.jobNo);
+      if (key) map.set(key, item);
+    }
+    mergedList = Array.from(map.values());
+    localStorage.setItem(STORAGE_KEY_CRM, JSON.stringify(mergedList));
   } catch (err) {
     console.warn('Failed to save CRM data to localStorage:', err);
+    mergedList = list;
   }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/inspections/crm-data/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: list,
+        yearMonth: list[0]?.yearMonth || '',
+        importedBy,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const msg = errBody?.error || `HTTP ${res.status}`;
+      console.warn('[InspectionReportStorage] CRM bulk save server sync error:', msg);
+      return {
+        ok: true,
+        savedToServer: false,
+        importedCount: list.length,
+        totalCount: mergedList.length,
+        mergedList,
+        error: msg,
+      };
+    }
+    return {
+      ok: true,
+      savedToServer: true,
+      importedCount: list.length,
+      totalCount: mergedList.length,
+      mergedList,
+    };
+  } catch (err: any) {
+    console.warn('[InspectionReportStorage] CRM bulk save server sync error:', err);
+    return {
+      ok: true,
+      savedToServer: false,
+      importedCount: list.length,
+      totalCount: mergedList.length,
+      mergedList,
+      error: err?.message || 'ネットワークエラー',
+    };
+  }
+}
+
+/**
+ * 既存の点検報告書（下書き・未反映分など）にCRMデータ（物件No・設置場所・型式）を安全にマッピング反映する
+ * - 既存のチェック判定・計測値・特記事項・サインはすべて保持
+ * - overwriteNonEmpty: false の場合は空欄または初期プレースホルダ（「扉 1」「正面玄関」等）のみ自動補完
+ * - overwriteNonEmpty: true の場合はCRM側の物件No・設置場所・型式を優先反映
+ */
+export function applyCrmDataToReport(
+  report: InspectionReportRecord,
+  crm: CrmInspectionData,
+  options?: { overwriteNonEmpty?: boolean }
+): InspectionReportRecord {
+  const overwrite = options?.overwriteNonEmpty === true;
+  const existingDoors = Array.isArray(report.doors) ? report.doors : [];
+  const crmDoors = Array.isArray(crm.doors) ? crm.doors : [];
+  const targetCount = Math.max(existingDoors.length, crmDoors.length, crm.totalDoorsCount || 0, 1);
+
+  const isPlaceholderLocation = (loc?: string, idx?: number) => {
+    const trimmed = (loc || '').trim();
+    if (!trimmed) return true;
+    if (/^扉\s*\d+$/.test(trimmed)) return true;
+    if (idx === 0 && trimmed === '正面玄関') return true;
+    return false;
+  };
+
+  const nextDoors: InspectionDoorReport[] = [];
+  for (let i = 0; i < targetCount; i++) {
+    const existing = existingDoors[i];
+    const crmDoor = crmDoors[i];
+    if (existing && crmDoor) {
+      const canFillLocation =
+        overwrite ||
+        (!existing.doorNumber && isPlaceholderLocation(existing.location, i)) ||
+        !existing.location?.trim();
+
+      nextDoors.push({
+        ...existing,
+        doorIndex: i + 1,
+        doorNumber: overwrite
+          ? (crmDoor.doorNumber || existing.doorNumber || '')
+          : (existing.doorNumber?.trim() ? existing.doorNumber : (crmDoor.doorNumber || '')),
+        location: canFillLocation
+          ? (crmDoor.location || existing.location || '')
+          : existing.location,
+        model: overwrite
+          ? (crmDoor.model || existing.model || '')
+          : (existing.model?.trim() ? existing.model : (crmDoor.model || '')),
+      });
+    } else if (existing) {
+      nextDoors.push({ ...existing, doorIndex: i + 1 });
+    } else if (crmDoor) {
+      nextDoors.push(
+        createDefaultDoorReport(i + 1, crmDoor.doorNumber, crmDoor.location, crmDoor.model)
+      );
+    } else {
+      nextDoors.push(createDefaultDoorReport(i + 1, '', `扉 ${i + 1}`, ''));
+    }
+  }
+
+  return {
+    ...report,
+    jobNo: report.jobNo?.trim() || crm.jobNo,
+    yearMonth: report.yearMonth?.trim() || crm.yearMonth,
+    address: report.address?.trim() || crm.address || '',
+    phone: report.phone?.trim() || crm.phone || '',
+    contractType: report.contractType?.trim() || crm.contractType || 'ST',
+    isCrmImported: true,
+    totalDoorsCount: nextDoors.length,
+    doors: nextDoors,
+  };
 }
 
 /** 点検報告書を削除 */
@@ -292,13 +434,13 @@ export function deleteInspectionReport(id: string): void {
   }
 }
 
-/** 指定現場の過去（直近）の報告書を検索（同じ作業Noまたは同じお客様名） */
+/** 指定現場の過去（直近）の報告書を検索（同じ作業No[ゼロ埋め吸収]または同じお客様名） */
 export function findPreviousReport(jobNo?: string, customerName?: string): InspectionReportRecord | null {
   const list = getAllInspectionReports();
   // 完了済みのもの（サイン済みまたは下書き）を日付降順で探す
   const matched = list
     .filter(r => {
-      if (jobNo && r.jobNo && r.jobNo === jobNo) return true;
+      if (jobNo && r.jobNo && isSameJobNo(r.jobNo, jobNo)) return true;
       if (customerName && r.customerName && r.customerName.includes(customerName)) return true;
       return false;
     })

@@ -16,6 +16,7 @@ import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { ConfirmModal, ConfirmModalState } from './ConfirmModal';
 import { getLocalDateStr, addMinutesToLocalDatetime, getJstHourAndMinutes, formatDateJST, formatTimeJST, getJstDateParts } from '../utils/dateUtils';
 import { triggerPushNotification } from '../utils/pushNotifications';
+import { buildPushFromTemplate } from '../config/notificationTemplates';
 import { expandRecurringEvents, planRecurrenceSave, isExpandedRecurrenceId, extractDateFromInstanceId, extractParentIdFromInstanceId, isRecurringEvent } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
 import { TeamEventDeleteModal, TeamDeleteMemberScope } from './TeamEventDeleteModal';
@@ -2351,10 +2352,12 @@ export function Calendar({
       triggerPushNotification({
         targetUserId: memoTargetUser.id,
         excludeUserId: currentUser?.id,
-        title: `📞 伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
-        body: `【${reqText}】${content ? ` ${content.slice(0, 40)}` : ''}`,
-        url: `/?tab=memo&memoId=${newMemo.id}`,
-        tag: `memo-${newMemo.id}`
+        ...buildPushFromTemplate('memo_created', {
+          fromDisplay: `${fromCompany ? `${fromCompany} ` : ''}${fromName}`,
+          reqText,
+          contentSnippet: content ? ` ${content.slice(0, 40)}` : '',
+          memoId: newMemo.id,
+        }),
       });
     }
 

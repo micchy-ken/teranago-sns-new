@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   InspectionReportRecord, 
   InspectionDoorReport, 
+  CrmInspectionData,
   JUDGEMENT_OPTIONS,
   InspectionJudgementCode,
   InspectionCheckCategoryDef,
@@ -9,7 +10,10 @@ import {
 } from '../../types/inspectionReport';
 import { 
   createDefaultDoorReport, 
-  createDefaultCheckResults 
+  createDefaultCheckResults,
+  getAllCrmInspectionData,
+  findCrmDataByJobNo,
+  applyCrmDataToReport,
 } from '../../utils/inspectionReportStorage';
 import {
   getInspectionMasterCategories,
@@ -37,16 +41,26 @@ import {
 
 interface InspectionReportEditorModalProps {
   initialReport: InspectionReportRecord;
+  matchedCrm?: CrmInspectionData | null;
   onSave: (report: InspectionReportRecord) => void;
   onClose: () => void;
 }
 
 export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalProps> = ({
   initialReport,
+  matchedCrm,
   onSave,
   onClose,
 }) => {
   const [report, setReport] = useState<InspectionReportRecord>(initialReport);
+  const resolvedCrm = matchedCrm || findCrmDataByJobNo(getAllCrmInspectionData(), report.jobNo);
+
+  const handleApplyCrmDoors = () => {
+    if (!resolvedCrm) return;
+    const merged = applyCrmDataToReport(report, resolvedCrm, { overwriteNonEmpty: true });
+    setReport(merged);
+    showToast(`CRMデータ（作業No: ${resolvedCrm.jobNo}）から物件No・設置場所・型式を反映しました`);
+  };
   const [selectedDoorIndex, setSelectedDoorIndex] = useState<number>(0);
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -355,6 +369,18 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
                   <Plus className="w-3.5 h-3.5" />
                   <span>扉追加</span>
                 </button>
+
+                {resolvedCrm && resolvedCrm.doors && resolvedCrm.doors.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleApplyCrmDoors}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition-colors flex items-center gap-1 shrink-0 cursor-pointer whitespace-nowrap"
+                    title={`CRM取込データ（作業No: ${resolvedCrm.jobNo}）の物件No・設置場所・型式を反映します`}
+                  >
+                    <FileText className="w-3.5 h-3.5 text-teal-700" />
+                    <span>CRM物件情報を反映 ({resolvedCrm.doors.length}台)</span>
+                  </button>
+                )}
               </div>
 
               {doors.length > 1 && (
@@ -373,12 +399,12 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <label className="block text-slate-500 font-bold mb-1">扉No (建具番号)</label>
+                  <label className="block text-slate-500 font-bold mb-1">物件No (扉No)</label>
                   <input
                     type="text"
                     value={currentDoor.doorNumber}
                     onChange={(e) => updateCurrentDoor({ doorNumber: e.target.value })}
-                    placeholder="例: 247653"
+                    placeholder="例: 00025397"
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-800 bg-slate-50/50"
                   />
                 </div>
@@ -388,17 +414,17 @@ export const InspectionReportEditorModal: React.FC<InspectionReportEditorModalPr
                     type="text"
                     value={currentDoor.location}
                     onChange={(e) => updateCurrentDoor({ location: e.target.value })}
-                    placeholder="例: 正面玄関 / 風除室 外側"
+                    placeholder="例: 風除室 外側 / ＥＶ前"
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-bold text-slate-800 bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-500 font-bold mb-1">機種 (型式)</label>
+                  <label className="block text-slate-500 font-bold mb-1">型式 (機種)</label>
                   <input
                     type="text"
                     value={currentDoor.model}
                     onChange={(e) => updateCurrentDoor({ model: e.target.value })}
-                    placeholder="例: 100KLCM / TAS-EB-15T"
+                    placeholder="例: TAS-EB-15T"
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-indigo-700 bg-white"
                   />
                 </div>

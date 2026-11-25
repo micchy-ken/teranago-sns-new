@@ -1,6 +1,6 @@
 {
-  "short_name": "社内SNS",
-  "name": "寺子屋社内ナレッジSNS",
+  "short_name": "TERAPO",
+  "name": "TERAPO",
   "id": "./",
   "icons": [
     {
@@ -40,14 +40,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "社内SNS モバイル"
+      "label": "TERAPO モバイル"
     },
     {
       "src": "pwa-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "社内SNS デスクトップ"
+      "label": "TERAPO デスクトップ"
     }
   ],
   "start_url": "./",
@@ -56,5 +56,5 @@
   "display": "standalone",
   "orientation": "portrait-primary",
   "scope": "./",
-  "description": "寺子屋グループ 社内ナレッジSNS & 業務管理プラットフォーム"
+  "description": "TERAPO 社内ナレッジSNS & 業務管理プラットフォーム"
 }

@@ -86,8 +86,19 @@ import {
 import { getAvatarUrl } from '../utils/avatar';
 import { markEventAsRead } from '../utils/notifications';
 import { API_BASE_URL } from '../config/api';
-import { getAllInspectionReports, fetchInspectionReportsApi } from '../utils/inspectionReportStorage';
-import { InspectionReportRecord } from '../types/inspectionReport';
+import {
+  getAllInspectionReports,
+  fetchInspectionReportsApi,
+  getAllCrmInspectionData,
+  fetchCrmInspectionDataApi,
+  saveCrmInspectionDataList,
+} from '../utils/inspectionReportStorage';
+import { InspectionReportRecord, CrmInspectionData } from '../types/inspectionReport';
+import {
+  parseMultipleCrmInspectionPdfs,
+  normalizeJobNo,
+  isSameJobNo,
+} from '../utils/crmInspectionPdfParser';
 import { ensureJstIsoString } from '../utils/dateUtils';
 
 interface InspectionSchedulerProps {
@@ -173,11 +184,11 @@ export function InspectionScheduler({
     if (!item) return false;
     if (inspectionReports.length === 0) return false;
 
-    // 1. 作業No (jobNo) での照合
+    // 1. 作業No (jobNo) での照合（ゼロ埋め有無を自動吸収）
     if (item.jobNo && item.jobNo.trim()) {
       const targetJob = item.jobNo.trim();
       const match = inspectionReports.find((r) => 
-        r.jobNo === targetJob && (r.status === 'signed' || Boolean(r.customerSignature))
+        isSameJobNo(r.jobNo, targetJob) && (r.status === 'signed' || Boolean(r.customerSignature))
       );
       if (match) return true;
     }
@@ -392,6 +403,56 @@ export function InspectionScheduler({
   const [excelImportStrategyChoice, setExcelImportStrategyChoice] = useState<'replace' | 'append'>('replace');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // CRM点検報告書PDF（物件No・設置場所・型式マッピング）取込状態
+  const crmPdfInputRef = useRef<HTMLInputElement>(null);
+  const [crmDataList, setCrmDataList] = useState<CrmInspectionData[]>(() => getAllCrmInspectionData());
+  const [isDraggingCrmPdf, setIsDraggingCrmPdf] = useState<boolean>(false);
+  const [isParsingCrmPdf, setIsParsingCrmPdf] = useState<boolean>(false);
+  const [isSavingCrmPdf, setIsSavingCrmPdf] = useState<boolean>(false);
+  const [crmPdfError, setCrmPdfError] = useState<string | null>(null);
+  const [pendingCrmPdfImport, setPendingCrmPdfImport] = useState<{
+    fileNames: string[];
+    items: CrmInspectionData[];
+    totalPages: number;
+    skippedPages: number[];
+    detectedYearMonths: string[];
+    totalDoors: number;
+  } | null>(null);
+
+  useEffect(() => {
+    fetchCrmInspectionDataApi().then((list) => {
+      if (Array.isArray(list)) {
+        setCrmDataList(list);
+      }
+    });
+  }, []);
+
+  const crmByJobNoMap = useMemo(() => {
+    const map = new Map<string, CrmInspectionData>();
+    for (const crm of crmDataList) {
+      const key = normalizeJobNo(crm.jobNo);
+      if (key) map.set(key, crm);
+    }
+    return map;
+  }, [crmDataList]);
+
+  const schedulerJobNoSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) {
+      const key = normalizeJobNo(it.jobNo);
+      if (key) set.add(key);
+    }
+    return set;
+  }, [items]);
+
+  const matchedSchedulerCrmCount = useMemo(() => {
+    if (items.length === 0 || crmByJobNoMap.size === 0) return 0;
+    return items.filter((it) => {
+      const key = normalizeJobNo(it.jobNo);
+      return Boolean(key && crmByJobNoMap.has(key));
+    }).length;
+  }, [items, crmByJobNoMap]);
 
   // ==========================================
   // 前月 / 翌月 計算ヘルパー
@@ -1323,6 +1384,84 @@ export function InspectionScheduler({
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  // ------------------------------------------
+  // CRM点検報告書 PDF 読込・マッピング処理（5台以下帳票）
+  // ------------------------------------------
+  const handleCrmPdfFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList || []).filter(
+      (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+    );
+    if (files.length === 0) {
+      setCrmPdfError('PDFファイル（.pdf）を選択またはドラッグ＆ドロップしてください。');
+      return;
+    }
+
+    setCrmPdfError(null);
+    setIsParsingCrmPdf(true);
+    try {
+      const result = await parseMultipleCrmInspectionPdfs(files);
+      if (result.items.length === 0) {
+        setCrmPdfError(
+          'CRM点検報告書（5台以下様式）の作業No・物件情報を抽出できませんでした。ファイル形式をご確認ください。'
+        );
+        return;
+      }
+      setPendingCrmPdfImport({
+        fileNames: files.map((f) => f.name),
+        items: result.items,
+        totalPages: result.totalPages,
+        skippedPages: result.skippedPages,
+        detectedYearMonths: result.detectedYearMonths,
+        totalDoors: result.totalDoors,
+      });
+    } catch (err: any) {
+      console.error('[InspectionScheduler] CRM PDF parse error:', err);
+      setCrmPdfError(`PDFの解析に失敗しました: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsParsingCrmPdf(false);
+      if (crmPdfInputRef.current) {
+        crmPdfInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDropCrmPdf = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingCrmPdf(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleCrmPdfFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleConfirmCrmPdfImport = async () => {
+    if (!pendingCrmPdfImport || isSavingCrmPdf) return;
+    setIsSavingCrmPdf(true);
+    try {
+      const saveResult = await saveCrmInspectionDataList(
+        pendingCrmPdfImport.items,
+        currentUser.name,
+        { merge: true }
+      );
+      setCrmDataList(saveResult.mergedList);
+
+      const matchedNow = pendingCrmPdfImport.items.filter((c) =>
+        schedulerJobNoSet.has(normalizeJobNo(c.jobNo))
+      ).length;
+      const syncNote = saveResult.savedToServer ? '' : '（ローカル保存・サーバー未同期）';
+      const matchNote = items.length > 0 ? `／当月予定と ${matchedNow}件 一致` : '';
+
+      setCopySuccessToast(
+        `CRM点検報告書PDFから ${pendingCrmPdfImport.items.length}件（計${pendingCrmPdfImport.totalDoors}台）を取り込みました${matchNote}${syncNote}`
+      );
+      setTimeout(() => setCopySuccessToast(null), 5000);
+      setPendingCrmPdfImport(null);
+    } catch (err: any) {
+      setCrmPdfError(`CRMデータの保存に失敗しました: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsSavingCrmPdf(false);
     }
   };
 
@@ -2431,38 +2570,116 @@ export function InspectionScheduler({
               </button>
             </div>
 
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDropFile}
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full max-w-2xl border-2 border-dashed border-indigo-200 hover:border-indigo-500 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all group"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    handleFileUpload(e.target.files[0]);
-                  }
-                }}
-              />
-              <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                <Upload className="w-7 h-7" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full max-w-5xl">
+              {/* 左: 点検予定エクセル D&D */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDropFile}
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-indigo-200 hover:border-indigo-500 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all group"
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFileUpload(e.target.files[0]);
+                    }
+                  }}
+                />
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <Upload className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-bold text-slate-800">
+                  点検予定エクセルをドラッグ＆ドロップ
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  またはクリックして選択 (.xlsx / .xls)
+                  <br />
+                  C1セル等から点検月を自動認識します
+                </p>
               </div>
-              <p className="text-sm font-bold text-slate-800">
-                点検予定エクセルファイルをここにドラッグ＆ドロップ
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                またはクリックしてファイルを選択 (.xlsx / .xls) ── C1セル（またはヘッダー）から「点検月（2026/08等）」を自動認識します
-              </p>
+
+              {/* 右: CRM点検報告書PDF D&D（物件No・設置場所・型式マッピング） */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!isDraggingCrmPdf) setIsDraggingCrmPdf(true);
+                }}
+                onDragLeave={() => setIsDraggingCrmPdf(false)}
+                onDrop={handleDropCrmPdf}
+                onClick={() => !isParsingCrmPdf && crmPdfInputRef.current?.click()}
+                className={`w-full border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all group ${
+                  isDraggingCrmPdf
+                    ? 'border-teal-500 bg-teal-50/80 ring-2 ring-teal-200'
+                    : 'border-teal-200 hover:border-teal-500 bg-teal-50/20 hover:bg-teal-50/50'
+                }`}
+              >
+                <input
+                  ref={crmPdfInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleCrmPdfFiles(e.target.files);
+                    }
+                  }}
+                />
+                <div className="w-12 h-12 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  {isParsingCrmPdf ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <FileText className="w-6 h-6" />
+                  )}
+                </div>
+                <p className="text-sm font-bold text-slate-800">
+                  {isParsingCrmPdf
+                    ? 'CRM点検報告書PDFを解析中...'
+                    : 'CRM点検報告書PDFをドラッグ＆ドロップ'}
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  作業Noで紐付け → <strong className="text-teal-800">物件No・設置場所・型式</strong>を自動マッピング
+                  <br />
+                  複数PDF同時ドロップ可（5台以下帳票対応・ゼロ埋め自動吸収）
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px] font-bold">
+                  <span className="px-2.5 py-0.5 rounded-lg bg-white text-teal-800 border border-teal-200 whitespace-nowrap">
+                    CRM取込済: {crmDataList.length}件
+                  </span>
+                  {items.length > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-nowrap">
+                      当月予定と一致: {matchedSchedulerCrmCount} / {items.length}件
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-slate-600 pt-2">
+
+            {crmPdfError && (
+              <div className="w-full max-w-5xl bg-rose-50 border border-rose-200 text-rose-800 rounded-xl px-4 py-2.5 text-xs font-semibold flex items-center justify-between gap-3 text-left">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{crmPdfError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCrmPdfError(null)}
+                  className="text-rose-600 hover:text-rose-800 text-xs font-bold px-2 py-0.5 rounded hover:bg-rose-100 cursor-pointer shrink-0"
+                >
+                  閉じる
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-slate-600 pt-1">
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">現場名 → 件名</span>
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">住所 → 場所</span>
               <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">作業No・台数・客先規則・現場コード・作業名 → 内容</span>
-              <span className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-200">担当者名 → 保守メンバー自動マッチング</span>
+              <span className="px-2.5 py-1 bg-teal-50 text-teal-800 rounded-lg border border-teal-200">CRM PDF（物件No・設置場所・型式） → 点検報告書へ自動反映＆印刷</span>
             </div>
           </div>
 
@@ -2549,10 +2766,24 @@ export function InspectionScheduler({
                           (item.workName ? item.workName.toLowerCase().includes(q) : false)
                         );
                       })
-                      .map((item, idx) => (
+                      .map((item, idx) => {
+                        const matchedCrm = crmByJobNoMap.get(normalizeJobNo(item.jobNo));
+                        return (
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 font-mono text-slate-400 text-center whitespace-nowrap">{idx + 1}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600 whitespace-nowrap">{item.jobNo}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600 whitespace-nowrap">
+                          <div>{item.jobNo}</div>
+                          {matchedCrm && (
+                            <span
+                              className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-sans font-bold"
+                              title={matchedCrm.doors
+                                .map((d) => `${d.doorNumber || '-'} / ${d.location || '-'} / ${d.model || '-'}`)
+                                .join('\n')}
+                            >
+                              CRM連携 {matchedCrm.doors.length}台
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2.5 px-3 min-w-0">
                           <div className="font-bold text-slate-900 truncate" title={item.siteName}>{item.siteName}</div>
                           {item.siteCode && (
@@ -2582,7 +2813,8 @@ export function InspectionScheduler({
                           )}
                         </td>
                       </tr>
-                    ))}
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -5207,6 +5439,47 @@ export function InspectionScheduler({
               )}
             </div>
 
+            {/* CRM物件マッピング情報（物件No・設置場所・型式） */}
+            {(() => {
+              const matchedCrm = crmByJobNoMap.get(normalizeJobNo(detailModalItem.jobNo));
+              if (!matchedCrm || !matchedCrm.doors || matchedCrm.doors.length === 0) return null;
+              return (
+                <div className="bg-teal-50/60 rounded-2xl p-3.5 border border-teal-200 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-teal-900 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-teal-700" />
+                      CRMマッピング扉情報（{matchedCrm.doors.length}台）
+                    </span>
+                    <span className="text-[10px] font-mono text-teal-700">
+                      作業No: {matchedCrm.jobNo}
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto bg-white rounded-xl border border-teal-200/80">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-teal-50/80 text-teal-900 border-b border-teal-200/80">
+                        <tr>
+                          <th className="py-1.5 px-2 font-bold whitespace-nowrap">#</th>
+                          <th className="py-1.5 px-2 font-bold whitespace-nowrap">物件No</th>
+                          <th className="py-1.5 px-2 font-bold whitespace-nowrap">設置場所</th>
+                          <th className="py-1.5 px-2 font-bold whitespace-nowrap">型式</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-teal-100">
+                        {matchedCrm.doors.map((d, dIdx) => (
+                          <tr key={d.doorIndex || dIdx}>
+                            <td className="py-1.5 px-2 font-mono text-slate-400">{dIdx + 1}</td>
+                            <td className="py-1.5 px-2 font-mono font-bold text-slate-900 whitespace-nowrap">{d.doorNumber || '―'}</td>
+                            <td className="py-1.5 px-2 text-slate-800">{d.location || '―'}</td>
+                            <td className="py-1.5 px-2 font-mono font-bold text-indigo-700 whitespace-nowrap">{d.model || '―'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 担当メンバー */}
             <div className="space-y-1.5">
               <span className="text-xs font-bold text-slate-700 block">担当メンバー:</span>
@@ -6156,6 +6429,184 @@ export function InspectionScheduler({
                     : `${targetYearMonth} へ取り込み実行`}
                 </span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          CRM点検報告書PDF 取込確認・プレビューモーダル
+          ========================================== */}
+      {pendingCrmPdfImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[90vh] flex flex-col">
+            {/* ヘッダー */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3.5 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    CRM点検報告書PDF 取り込み確認（物件No・設置場所・型式）
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    ファイル: <span className="font-semibold text-slate-700">{pendingCrmPdfImport.fileNames.join(', ')}</span>
+                    {' '}（全{pendingCrmPdfImport.totalPages}ページ → {pendingCrmPdfImport.items.length}現場・計{pendingCrmPdfImport.totalDoors}台を抽出）
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSavingCrmPdf && setPendingCrmPdfImport(null)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* サマリー指標 */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs shrink-0">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                <div className="text-[11px] text-slate-500 font-semibold">抽出現場数</div>
+                <div className="text-base font-black text-slate-900 font-mono mt-0.5">
+                  {pendingCrmPdfImport.items.length} <span className="text-xs font-bold text-slate-500">件</span>
+                </div>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                <div className="text-[11px] text-slate-500 font-semibold">抽出扉台数</div>
+                <div className="text-base font-black text-teal-800 font-mono mt-0.5">
+                  {pendingCrmPdfImport.totalDoors} <span className="text-xs font-bold text-slate-500">台</span>
+                </div>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                <div className="text-[11px] text-slate-500 font-semibold">検出対象年月</div>
+                <div className="text-sm font-black text-indigo-800 font-mono mt-1 truncate">
+                  {pendingCrmPdfImport.detectedYearMonths.length > 0
+                    ? pendingCrmPdfImport.detectedYearMonths
+                        .map((ym) => (ym.length === 6 ? `${ym.slice(0, 4)}/${ym.slice(4)}` : ym))
+                        .join(', ')
+                    : '未記載'}
+                </div>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+                <div className="text-[11px] text-emerald-700 font-semibold">当月予定との一致</div>
+                <div className="text-base font-black text-emerald-800 font-mono mt-0.5">
+                  {pendingCrmPdfImport.items.filter((c) => schedulerJobNoSet.has(normalizeJobNo(c.jobNo))).length}
+                  <span className="text-xs font-bold text-emerald-700"> / {pendingCrmPdfImport.items.length}件</span>
+                </div>
+              </div>
+            </div>
+
+            {pendingCrmPdfImport.skippedPages.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3.5 py-2 text-xs shrink-0">
+                作業Noを検出できなかったページ（{pendingCrmPdfImport.skippedPages.length}ページ）はスキップされました。
+              </div>
+            )}
+
+            {/* 抽出データ一覧テーブル */}
+            <div className="flex-1 min-h-0 overflow-auto border border-slate-200 rounded-2xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold sticky top-0 z-10">
+                  <tr>
+                    <th className="py-2.5 px-3 whitespace-nowrap">作業No</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">お客様名</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap text-center">台数</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">物件No / 設置場所 / 型式</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap text-center">予定管理</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {pendingCrmPdfImport.items.map((crm) => {
+                    const isMatched = schedulerJobNoSet.has(normalizeJobNo(crm.jobNo));
+                    return (
+                      <tr key={crm.jobNo} className="hover:bg-slate-50/70 align-top">
+                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-700 whitespace-nowrap">
+                          {crm.jobNo}
+                          {crm.contractType && (
+                            <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-sans">
+                              {crm.contractType}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 min-w-[160px]">
+                          <div className="font-bold text-slate-900">{crm.customerName}</div>
+                          {crm.address && (
+                            <div className="text-[11px] text-slate-500 mt-0.5">{crm.address}</div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-700 whitespace-nowrap">
+                          {crm.totalDoorsCount}台
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="space-y-1">
+                            {crm.doors.map((d, dIdx) => (
+                              <div
+                                key={d.doorIndex || dIdx}
+                                className="flex flex-wrap items-center gap-1.5 text-[11px] bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80"
+                              >
+                                <span className="font-mono font-bold text-slate-900">
+                                  {d.doorNumber || '―'}
+                                </span>
+                                <span className="text-slate-300">/</span>
+                                <span className="font-semibold text-slate-800">
+                                  {d.location || '―'}
+                                </span>
+                                <span className="text-slate-300">/</span>
+                                <span className="font-mono font-bold text-indigo-700">
+                                  {d.model || '―'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          {isMatched ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
+                              <Check className="w-3 h-3" />
+                              一致
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-semibold">
+                              予定未一致
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* フッターボタン */}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 shrink-0">
+              <p className="text-[11px] text-slate-500">
+                ※ 既存のCRMデータは保持され、同じ作業No（ゼロ埋め吸収）のみ最新内容で上書き更新されます。
+              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={isSavingCrmPdf}
+                  onClick={() => setPendingCrmPdfImport(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingCrmPdf}
+                  onClick={handleConfirmCrmPdfImport}
+                  className="px-5 py-2 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-all cursor-pointer shadow-md shadow-teal-200 flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isSavingCrmPdf ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  <span>{pendingCrmPdfImport.items.length}件を取り込んで保存</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

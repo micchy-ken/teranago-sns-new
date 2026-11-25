@@ -2,6 +2,7 @@ import { User } from '../../types';
 import { ProjectBoard, ProjectCard } from '../../types/project';
 import { triggerPushNotification } from '../../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../../utils/emailNotificationDispatcher';
+import { buildPushFromTemplate, buildEmailFromTemplate } from '../../config/notificationTemplates';
 
 const PRIORITY_LABELS: Record<string, string> = {
   high: '高',
@@ -47,19 +48,34 @@ export async function notifyProjectAssignees(params: {
   const deepLinkUrl = `/?${deepLinkPath}`;
   const kindLabel = card.cardType === 'memo' ? 'メモ・資料' : 'タスク';
 
+  const vars = {
+    boardTitle: board.title,
+    kindLabel,
+    actorName: actor.name,
+    cardTitle: card.title,
+    dueDateHint: card.dueDate ? `（期限: ${card.dueDate}）` : '',
+    emailPrefix: isNewCard ? '【担当アサイン】' : '【担当者変更】',
+    dueDate: card.dueDate || '未設定',
+    priorityLabel: PRIORITY_LABELS[card.priority] || 'なし',
+    description: card.description ? card.description.slice(0, 600) : '',
+    projectId: encodeURIComponent(board.id),
+    taskId: encodeURIComponent(card.id),
+  };
+
   try {
+    const pushPayload = buildPushFromTemplate('project_assignee_added', vars, {
+      url: deepLinkUrl,
+      tag: buildSafeProjectPushTag('pa', card.id),
+    });
     await triggerPushNotification({
       targetUserIds: uniqueIds,
       excludeUserId: actorId,
-      title: `📌 ${board.title}｜${kindLabel}担当に割り当て`,
-      body: `${actor.name}さんが「${card.title}」の担当者にあなたを指定しました${card.dueDate ? `（期限: ${card.dueDate}）` : ''}`,
-      url: deepLinkUrl,
-      tag: buildSafeProjectPushTag('pa', card.id),
+      ...pushPayload,
       data: {
         type: 'project_assign',
         projectId: board.id,
         taskId: card.id,
-        url: deepLinkUrl,
+        url: pushPayload.url,
       },
     });
   } catch (err) {
@@ -70,23 +86,11 @@ export async function notifyProjectAssignees(params: {
     try {
       await dispatchNotificationEmail(
         recipients,
-        {
-          category: 'project',
-          categoryLabel: 'プロジェクト・Todo',
-          title: isNewCard
-            ? `【担当アサイン】${card.title}`
-            : `【担当者変更】${card.title}`,
+        buildEmailFromTemplate('project_assignee_added', vars, {
           actorName: actor.name,
-          details: [
-            { label: 'ボード', value: board.title },
-            { label: '種別', value: kindLabel },
-            { label: 'タイトル', value: card.title },
-            { label: '期限', value: card.dueDate || '未設定' },
-            { label: '優先度', value: PRIORITY_LABELS[card.priority] || 'なし' },
-          ],
           mainContent: card.description ? card.description.slice(0, 600) : undefined,
           pathParams: deepLinkPath,
-        },
+        }),
         actor
       );
     } catch (err) {
@@ -121,19 +125,30 @@ export async function notifyProjectComment(params: {
   const deepLinkUrl = `/?${deepLinkPath}`;
   const snippet = (commentText || '').trim().slice(0, 120) || 'ファイルが添付されました';
 
+  const vars = {
+    boardTitle: board.title,
+    cardTitle: card.title,
+    actorName: actor.name,
+    snippet,
+    commentText: commentText.trim() || '（添付ファイルあり）',
+    projectId: encodeURIComponent(board.id),
+    taskId: encodeURIComponent(card.id),
+  };
+
   try {
+    const pushPayload = buildPushFromTemplate('project_comment_added', vars, {
+      url: deepLinkUrl,
+      tag: buildSafeProjectPushTag('pc', card.id),
+    });
     await triggerPushNotification({
       targetUserIds: uniqueIds,
       excludeUserId: actorId,
-      title: `💬 ${board.title}｜${card.title}`,
-      body: `${actor.name}: ${snippet}`,
-      url: deepLinkUrl,
-      tag: buildSafeProjectPushTag('pc', card.id),
+      ...pushPayload,
       data: {
         type: 'project_comment',
         projectId: board.id,
         taskId: card.id,
-        url: deepLinkUrl,
+        url: pushPayload.url,
       },
     });
   } catch (err) {
@@ -144,19 +159,11 @@ export async function notifyProjectComment(params: {
     try {
       await dispatchNotificationEmail(
         recipients,
-        {
-          category: 'project',
-          categoryLabel: 'プロジェクト・Todo',
-          title: `【新着コメント】${card.title}`,
+        buildEmailFromTemplate('project_comment_added', vars, {
           actorName: actor.name,
-          details: [
-            { label: 'ボード', value: board.title },
-            { label: 'カード', value: card.title },
-            { label: 'コメント投稿者', value: actor.name },
-          ],
           mainContent: commentText.trim() || '（添付ファイルあり）',
           pathParams: deepLinkPath,
-        },
+        }),
         actor
       );
     } catch (err) {

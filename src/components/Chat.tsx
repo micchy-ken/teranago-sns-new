@@ -53,6 +53,7 @@ import { uploadMultipleFiles, uploadFile, isPreviewable, resolveFileUrl } from '
 import { createImageVariants } from '../utils/imageResize';
 import { FilePreviewModal } from './FilePreviewModal';
 import { triggerPushNotification } from '../utils/pushNotifications';
+import { buildPushFromTemplate } from '../config/notificationTemplates';
 import { renderContentWithLinks } from '../utils/renderContentWithLinks';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { logActivity } from '../utils/logger';
@@ -2163,12 +2164,12 @@ export function Chat({
         triggerPushNotification({
           targetUserIds: otherParticipantIds,
           excludeUserId: currentUser.id,
-          title: `💬 ${currentUser.name} (${roomName})`,
-          body: previewContent.slice(0, 60),
-          url: `/?tab=chat&chatRoomId=${roomId}`,
-          tag: `chat-${roomId}`,
-          renotify: false,
-          requireInteraction: false
+          ...buildPushFromTemplate('chat_message_received', {
+            actorName: currentUser.name,
+            roomName,
+            previewContent: previewContent.slice(0, 60),
+            roomId,
+          }),
         });
       }
     }

@@ -9,6 +9,11 @@ import {
   getInspectionMasterCategories,
   getInspectionMasterItems
 } from '../../utils/inspectionMasterStorage';
+import {
+  getAllCrmInspectionData,
+  findCrmDataByJobNo,
+  applyCrmDataToReport,
+} from '../../utils/inspectionReportStorage';
 import { 
   Printer, 
   X, 
@@ -27,9 +32,16 @@ interface InspectionReportPrintViewProps {
 export type PrintLayoutMode = 'standard5' | 'wide15' | 'auto';
 
 export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps> = ({
-  report,
+  report: rawReport,
   onClose,
 }) => {
+  // CRM取込データ（作業No一致・ゼロ埋め吸収）が存在する場合、未入力の物件No・設置場所・型式を印刷表示へ自動補完
+  const report = useMemo(() => {
+    const matchedCrm = findCrmDataByJobNo(getAllCrmInspectionData(), rawReport.jobNo);
+    if (!matchedCrm) return rawReport;
+    return applyCrmDataToReport(rawReport, matchedCrm, { overwriteNonEmpty: false });
+  }, [rawReport]);
+
   const doors = report.doors || [];
   
   // 動的マスター（非表示設定の項目は印刷対象外）
@@ -446,21 +458,51 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                             ))}
                           </tr>
 
-                          {/* 扉ヘッダー（建具・機種・開閉回数など） */}
-                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                            <td colSpan={2} className="border-r border-slate-900 p-1 font-bold text-right pr-2">
-                              扉No / 設置場所 / 機種
+                          {/* 扉ヘッダー（CRM点検報告書準拠: 物件No / 設置場所 / 型式 を独立3行で印刷） */}
+                          <tr className="border-b border-slate-400 bg-slate-50 text-[9.5px]">
+                            <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                              物件No
                             </td>
                             {pageDoors.map((col, cIdx) => (
-                              <td key={cIdx} className="border-r border-slate-900 p-1 text-slate-800 last:border-r-0">
+                              <td key={cIdx} className="border-r border-slate-900 px-1 py-0.5 text-slate-900 last:border-r-0">
                                 {col.door ? (
-                                  <>
-                                    <div className="font-mono font-bold text-slate-900 truncate">{col.door.doorNumber || '―'}</div>
-                                    <div className="text-[9px] text-slate-600 truncate">{col.door.location || '―'}</div>
-                                    <div className="text-[9px] font-bold text-indigo-700 truncate">{col.door.model || '―'}</div>
-                                  </>
+                                  <div className="font-mono font-bold text-[9.5px] leading-tight break-all">
+                                    {col.door.doorNumber || '―'}
+                                  </div>
                                 ) : (
-                                  <div className="text-slate-300 py-1 font-mono">―</div>
+                                  <div className="text-slate-300 font-mono">―</div>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                          <tr className="border-b border-slate-400 bg-white text-[9.5px]">
+                            <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                              設置場所
+                            </td>
+                            {pageDoors.map((col, cIdx) => (
+                              <td key={cIdx} className="border-r border-slate-900 px-1 py-0.5 text-slate-800 last:border-r-0">
+                                {col.door ? (
+                                  <div className="text-[9px] font-medium text-slate-800 leading-tight break-words">
+                                    {col.door.location || '―'}
+                                  </div>
+                                ) : (
+                                  <div className="text-slate-300 font-mono">―</div>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                          <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
+                            <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                              型式
+                            </td>
+                            {pageDoors.map((col, cIdx) => (
+                              <td key={cIdx} className="border-r border-slate-900 px-1 py-0.5 text-slate-800 last:border-r-0">
+                                {col.door ? (
+                                  <div className="font-mono text-[9px] font-bold text-indigo-800 leading-tight break-words">
+                                    {col.door.model || '―'}
+                                  </div>
+                                ) : (
+                                  <div className="text-slate-300 font-mono">―</div>
                                 )}
                               </td>
                             ))}
@@ -666,18 +708,49 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                         </th>
                       ))}
                     </tr>
-                    {/* 扉ヘッダー（建具・機種など） */}
-                    <tr className="border-b border-slate-900 bg-slate-50 text-[8.5px]">
-                      <td colSpan={2} className="border-r border-slate-900 p-0.5 font-bold text-right pr-1">
-                        扉No / 機種
+                    {/* 扉ヘッダー（CRM点検報告書準拠: 物件No / 設置場所 / 型式） */}
+                    <tr className="border-b border-slate-400 bg-slate-50 text-[8px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-1 py-0.5 font-bold text-right text-slate-800">
+                        物件No
                       </td>
                       {wideCols.map((col, cIdx) => (
-                        <td key={cIdx} className="border-r border-slate-900 p-0.5 text-slate-800 last:border-r-0">
+                        <td key={cIdx} className="border-r border-slate-900 px-0.5 py-0.5 text-slate-900 last:border-r-0">
                           {col.door ? (
-                            <>
-                              <div className="font-mono font-bold truncate">{col.door.doorNumber || '―'}</div>
-                              <div className="text-[7.5px] text-indigo-700 truncate">{col.door.model || '―'}</div>
-                            </>
+                            <div className="font-mono font-bold leading-tight break-all">
+                              {col.door.doorNumber || '―'}
+                            </div>
+                          ) : (
+                            <span className="text-slate-300">―</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-slate-400 bg-white text-[8px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-1 py-0.5 font-bold text-right text-slate-800">
+                        設置場所
+                      </td>
+                      {wideCols.map((col, cIdx) => (
+                        <td key={cIdx} className="border-r border-slate-900 px-0.5 py-0.5 text-slate-800 last:border-r-0">
+                          {col.door ? (
+                            <div className="text-[7.5px] leading-tight break-words">
+                              {col.door.location || '―'}
+                            </div>
+                          ) : (
+                            <span className="text-slate-300">―</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-slate-900 bg-slate-50 text-[8px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-1 py-0.5 font-bold text-right text-slate-800">
+                        型式
+                      </td>
+                      {wideCols.map((col, cIdx) => (
+                        <td key={cIdx} className="border-r border-slate-900 px-0.5 py-0.5 text-slate-800 last:border-r-0">
+                          {col.door ? (
+                            <div className="font-mono text-[7.5px] font-bold text-indigo-800 leading-tight break-words">
+                              {col.door.model || '―'}
+                            </div>
                           ) : (
                             <span className="text-slate-300">―</span>
                           )}
@@ -816,15 +889,54 @@ export const InspectionReportPrintView: React.FC<InspectionReportPrintViewProps>
                         </th>
                       ))}
                     </tr>
-                    <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
-                      <td colSpan={2} className="border-r border-slate-900 p-1 font-bold text-right pr-2">
-                        扉No / 設置場所 / 機種
+                    <tr className="border-b border-slate-400 bg-slate-50 text-[9.5px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                        物件No
                       </td>
                       {doors.map((door, idx) => (
-                        <td key={door.doorIndex || idx} className="border-r border-slate-900 p-1 text-slate-800 last:border-r-0">
-                          <div className="font-mono font-bold text-slate-900">{door.doorNumber || '―'}</div>
-                          <div className="text-[9px] text-slate-600 truncate">{door.location || '―'}</div>
-                          <div className="text-[9px] font-bold text-indigo-700 truncate">{door.model || '―'}</div>
+                        <td key={door.doorIndex || idx} className="border-r border-slate-900 px-1 py-0.5 text-slate-900 last:border-r-0">
+                          <div className="font-mono font-bold text-[9.5px] leading-tight break-all">
+                            {door.doorNumber || '―'}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-slate-400 bg-white text-[9.5px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                        設置場所
+                      </td>
+                      {doors.map((door, idx) => (
+                        <td key={door.doorIndex || idx} className="border-r border-slate-900 px-1 py-0.5 text-slate-800 last:border-r-0">
+                          <div className="text-[9px] font-medium text-slate-800 leading-tight break-words">
+                            {door.location || '―'}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                        型式
+                      </td>
+                      {doors.map((door, idx) => (
+                        <td key={door.doorIndex || idx} className="border-r border-slate-900 px-1 py-0.5 text-slate-800 last:border-r-0">
+                          <div className="font-mono text-[9px] font-bold text-indigo-800 leading-tight break-words">
+                            {door.model || '―'}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-slate-900 bg-slate-50 text-[9.5px]">
+                      <td colSpan={2} className="border-r border-slate-900 px-2 py-0.5 font-bold text-right text-slate-800">
+                        開閉回数 / 開・閉速度 / タイマー
+                      </td>
+                      {doors.map((door, idx) => (
+                        <td key={door.doorIndex || idx} className="border-r border-slate-900 px-1 py-0.5 text-slate-800 last:border-r-0">
+                          <div className="font-mono font-semibold text-slate-900">
+                            {door.openCount ? `${door.openCount}回` : '―'}
+                          </div>
+                          <div className="text-[8.5px] text-slate-600">
+                            開:{door.openSpeed || '8'} / 閉:{door.closeSpeed || '3'} ({door.timerSeconds || '1'}s)
+                          </div>
                         </td>
                       ))}
                     </tr>

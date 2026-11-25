@@ -7,7 +7,9 @@ import { MaintenanceOfficeConfigAdmin } from './admin/MaintenanceOfficeConfigAdm
 import { DrivingLogOfficeConfigAdmin } from './admin/DrivingLogOfficeConfigAdmin';
 import { SingleMemberSelect } from './admin/SingleMemberSelect';
 import { BulkMenuVisibilityAdmin } from './admin/BulkMenuVisibilityAdmin';
+import { NotificationTemplatesAdmin } from './admin/NotificationTemplatesAdmin';
 import { 
+  Bell,
   Shield, 
   Building2, 
   Sliders,
@@ -165,7 +167,7 @@ export function AdminPanel({
   onUpdateItemMaster,
   onDeleteItemMaster,
 }: AdminPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'driving_log_report' | 'inspection_items' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'offices' | 'maintenance_report' | 'driving_log_report' | 'inspection_items' | 'notification_templates' | 'divisions' | 'positions' | 'items' | 'approval_flows' | 'stamps' | 'logs' | 'system' | 'workflows_cleanup'>('users');
   const [isInspectionMasterOpen, setIsInspectionMasterOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({ isOpen: false, title: '', message: '' });
   const [searchQuery, setSearchQuery] = useState('');
@@ -2302,6 +2304,18 @@ export function AdminPanel({
             <ListChecks className="w-3.5 h-3.5" />
             点検項目マスター設定
           </button>
+          <button
+            onClick={() => setActiveSubTab('notification_templates')}
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeSubTab === 'notification_templates'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50'
+            }`}
+            title="Web Push・メール通知の現行文面・URL有無を実際の見た目に近いプレビューで確認します"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            通知様式（Push・メール）
+          </button>
         </div>
 
         <div className="h-px bg-slate-100" />
@@ -3336,6 +3350,11 @@ export function AdminPanel({
       {/* SUB TAB: DRIVING LOG OFFICE CONFIGS */}
       {activeSubTab === 'driving_log_report' && (
         <DrivingLogOfficeConfigAdmin offices={offices} />
+      )}
+
+      {/* SUB TAB: NOTIFICATION TEMPLATES PREVIEW */}
+      {activeSubTab === 'notification_templates' && (
+        <NotificationTemplatesAdmin />
       )}
 
       {/* SUB TAB: INSPECTION ITEMS MASTER CONFIG */}

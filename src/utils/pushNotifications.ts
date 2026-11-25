@@ -743,13 +743,15 @@ export async function triggerPushNotification(params: {
   title: string;
   body: string;
   url?: string;
+  includeUrl?: boolean;
   tag?: string;
   requireInteraction?: boolean;
   renotify?: boolean;
   silent?: boolean;
   data?: any;
 }): Promise<void> {
-  const normalizedUrl = resolveNotificationUrl(params.url);
+  const includeUrl = params.includeUrl !== false;
+  const normalizedUrl = includeUrl ? resolveNotificationUrl(params.url) : '';
   const payload = {
     ...params,
     url: normalizedUrl,

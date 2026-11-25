@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { markMemoAsRead, isMemoUnhandled } from '../utils/notifications';
 import { triggerPushNotification } from '../utils/pushNotifications';
 import { dispatchNotificationEmail } from '../utils/emailNotificationDispatcher';
+import { buildPushFromTemplate, buildEmailFromTemplate } from '../config/notificationTemplates';
 import { triggerOpenUserModal } from '../utils/userModal';
 import { 
   Phone, 
@@ -441,33 +442,33 @@ export function MemoList({
 
         // Push通知送信
         const targetIds = targetUsers.map(u => u.id).filter(id => id && id !== currentUser.id);
+        const memoVars = {
+          fromDisplay: `${fromCompany ? `${fromCompany} ` : ''}${fromName}`,
+          reqText,
+          contentSnippet: content ? ` ${content.slice(0, 40)}` : '',
+          fromPhone: fromPhone || 'なし',
+          actorName: currentUser.name,
+          content: content || '',
+          memoId: newMemo.id,
+        };
 
         triggerPushNotification({
           targetUserIds: targetIds.length > 0 ? targetIds : undefined,
           excludeUserId: currentUser.id,
-          title: `📞 伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
-          body: `【${reqText}】${content ? ` ${content.slice(0, 40)}` : ''}`,
-          url: `/?tab=memo&memoId=${newMemo.id}`,
-          tag: `memo-${newMemo.id}`
+          ...buildPushFromTemplate('memo_created', memoVars),
         });
 
         // メール通知を通知センター設定に応じて配信
         const targetRecipients = targetUsers.filter(u => u.id && u.id !== currentUser.id);
         if (targetRecipients.length > 0) {
-          dispatchNotificationEmail(targetRecipients, {
-            category: 'memo',
-            categoryLabel: '伝言メモ',
-            title: `伝言メモ: ${fromCompany ? `${fromCompany} ` : ''}${fromName}様`,
-            actorName: currentUser.name,
-            details: [
-              { label: '相手様名', value: `${fromCompany ? `${fromCompany} ` : ''}${fromName} 様` },
-              { label: 'お電話番号', value: fromPhone || 'なし' },
-              { label: 'ご用件', value: reqText },
-              { label: '登録担当者', value: currentUser.name },
-            ],
-            mainContent: content || undefined,
-            pathParams: `tab=memo&memoId=${newMemo.id}`,
-          }, currentUser);
+          dispatchNotificationEmail(
+            targetRecipients,
+            buildEmailFromTemplate('memo_created', memoVars, {
+              actorName: currentUser.name,
+              mainContent: content || undefined,
+            }),
+            currentUser
+          );
         }
 
         // リセット

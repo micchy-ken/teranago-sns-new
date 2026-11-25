@@ -63,6 +63,7 @@ import {
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
+import { buildPushFromTemplate, buildEmailFromTemplate } from './config/notificationTemplates';
 import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
@@ -72,7 +73,7 @@ import { GlobalWorkflowDetailModal } from './components/GlobalWorkflowDetailModa
 import { UserDirectory } from './components/UserDirectory';
 import { UserDetailModal } from './components/UserDetailModal';
 import { filterStepsForApplicant, resolveApproverForStep, resolveApproversForStep, isUserCurrentApprover, getSupervisorAtLevel, findBestMatchingApprovalFlow } from './utils/workflowHelpers';
-import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId } from './utils/recurrenceUtils';
+import { planRecurrenceSave, planRecurrenceDelete, safeParseRecurrence, safeParseExceptions, expandRecurringEvents, isExpandedRecurrenceId, extractParentIdFromInstanceId, extractDateFromInstanceId, isRecurringEvent } from './utils/recurrenceUtils';
 import { sortUsersByDivision } from './utils/userSort';
 import { getUserOfficeName, getUserDivisionName } from './utils/masterResolver';
 import { hasTopicTargetMembers, canUserViewTopic, getTopicScopeBadgeLabel } from './utils/boardHelpers';
@@ -1255,8 +1256,8 @@ export default function App() {
             isAllDay: e.isAllDay === true || e.isAllDay === 1 || e.isAllDay === 'true' || e.isAllDay === '1',
             isPrivate: Boolean(e.isPrivate === true || e.isPrivate === 1 || e.isPrivate === 'true' || e.isPrivate === '1' || detailsObj.isPrivate === true || detailsObj.isPrivate === 1 || detailsObj.isPrivate === 'true' || detailsObj.isPrivate === '1' || e.isSecret === true || e.isSecret === 1),
             type: e.category || 'personal',
-            office: e.office || '全社',
-            division: e.division || '全部署',
+            office: (!e.office || e.office === 'all') ? '全社' : e.office,
+            division: (!e.division || e.division === 'all') ? '全部署' : e.division,
             ...detailsObj,
             location: e.location || detailsObj.location || '',
             memo: e.memo || detailsObj.memo || '',
@@ -2435,6 +2436,15 @@ export default function App() {
     const scopeLabelForEmail = getTopicScopeBadgeLabel(topicData, offices, divisions);
 
     // 掲示板プッシュ通知・メール通知の配信先決定
+    const boardVars = {
+      topicTitle: topicData.title,
+      actorName: topicData.author.name,
+      topicCategory: topicData.category || '掲示',
+      scopeLabel: scopeLabelForEmail,
+      content: topicData.content,
+      topicId: tempId,
+    };
+    const boardPush = buildPushFromTemplate('board_topic_created', boardVars);
     let targetBoardUsers: User[] = [];
     if (isMemberScoped) {
       const targetIdSet = new Set((topicData.targetUserIds || []).map(String));
@@ -2446,10 +2456,7 @@ export default function App() {
         triggerPushNotification({
           targetUserIds: pushRecipientIds,
           excludeUserId: topicData.author.id,
-          title: `📢 掲示板新着: ${topicData.title}`,
-          body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
-          url: `/?tab=board&topicId=${tempId}`,
-          tag: `topic-${tempId}`
+          ...boardPush,
         });
       }
     } else if (topicData.isStrictScope) {
@@ -2461,10 +2468,7 @@ export default function App() {
         triggerPushNotification({
           targetUserIds: pushRecipientIds,
           excludeUserId: topicData.author.id,
-          title: `📢 掲示板新着: ${topicData.title}`,
-          body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
-          url: `/?tab=board&topicId=${tempId}`,
-          tag: `topic-${tempId}`
+          ...boardPush,
         });
       }
     } else {
@@ -2473,29 +2477,20 @@ export default function App() {
       triggerPushNotification({
         targetUserId: 'all',
         excludeUserId: topicData.author.id,
-        title: `📢 掲示板新着: ${topicData.title}`,
-        body: `${topicData.author.name}さんが「${topicData.title}」を投稿しました。`,
-        url: `/?tab=board&topicId=${tempId}`,
-        tag: `topic-${tempId}`
+        ...boardPush,
       });
     }
 
     // 掲示板メール通知をユーザー設定に応じて配信
     if (targetBoardUsers.length > 0) {
-      dispatchNotificationEmail(targetBoardUsers, {
-        category: 'bulletin',
-        categoryLabel: '掲示板',
-        title: `掲示板投稿: ${topicData.title}`,
-        actorName: topicData.author.name,
-        details: [
-          { label: 'カテゴリ', value: topicData.category || '掲示' },
-          { label: 'タイトル', value: topicData.title },
-          { label: '公開範囲', value: scopeLabelForEmail },
-          { label: '投稿者', value: topicData.author.name },
-        ],
-        mainContent: topicData.content,
-        pathParams: `tab=board&topicId=${tempId}`,
-      }, topicData.author);
+      dispatchNotificationEmail(
+        targetBoardUsers,
+        buildEmailFromTemplate('board_topic_created', boardVars, {
+          actorName: topicData.author.name,
+          mainContent: topicData.content,
+        }),
+        topicData.author
+      );
     }
 
     try {
@@ -3036,8 +3031,8 @@ export default function App() {
       isAllDay: ev.isAllDay ? 1 : 0,
       isPrivate: (ev.isPrivate || (ev as any).isSecret) ? 1 : 0,
       category: ev.type,
-      office: ev.office || '全社',
-      division: ev.division || '全部署',
+      office: (!ev.office || ev.office === 'all') ? '全社' : ev.office,
+      division: (!ev.division || ev.division === 'all') ? '全部署' : ev.division,
       location: ev.location || '',
       attendees: ev.attendees || [],
       memo: ev.memo || '',
@@ -3095,34 +3090,34 @@ export default function App() {
       .map(a => a.id)
       .filter(id => id && id !== userState.id);
     if (attendeeIds.length > 0) {
+      const eventVars = {
+        eventTitle: eventData.title,
+        actorName: userState.name,
+        dateRange: `${eventData.start || ''}${eventData.end ? ` ～ ${eventData.end}` : ''}`,
+        location: eventData.location || 'なし',
+        eventType: eventData.type || '予定',
+        memo: eventData.memo || '',
+        eventId: tempId,
+      };
+
       triggerPushNotification({
         targetUserIds: attendeeIds,
         excludeUserId: userState.id,
-        title: `📅 新しい予定: ${eventData.title}`,
-        body: `${userState.name}さんが「${eventData.title}」を追加しました。`,
-        url: `/?tab=calendar&eventId=${tempId}`,
-        tag: `event-${tempId}`
+        ...buildPushFromTemplate('calendar_event_created', eventVars),
       });
 
       const targetScheduleAttendees = (eventData.attendees || [])
         .map(a => usersList.find(u => u.id === a.id))
         .filter((u): u is User => !!u && u.id !== userState.id);
       if (targetScheduleAttendees.length > 0) {
-        dispatchNotificationEmail(targetScheduleAttendees, {
-          category: 'schedule',
-          categoryLabel: 'スケジュール',
-          title: `新しい予定: ${eventData.title}`,
-          actorName: userState.name,
-          details: [
-            { label: 'タイトル', value: eventData.title },
-            { label: '日時', value: `${eventData.start || ''}${eventData.end ? ` ～ ${eventData.end}` : ''}` },
-            { label: '場所', value: eventData.location || 'なし' },
-            { label: '区分', value: eventData.type || '予定' },
-            { label: '登録者', value: userState.name },
-          ],
-          mainContent: eventData.memo,
-          pathParams: `tab=calendar&eventId=${tempId}`,
-        }, userState);
+        dispatchNotificationEmail(
+          targetScheduleAttendees,
+          buildEmailFromTemplate('calendar_event_created', eventVars, {
+            actorName: userState.name,
+            mainContent: eventData.memo,
+          }),
+          userState
+        );
       }
     }
 
@@ -3202,9 +3197,10 @@ export default function App() {
     const parentEvent = events.find(e => e.id === parentId);
     const targetDate = instanceDate || targetEvent?.instanceDate || (isExpandedInstance ? extractDateFromInstanceId(eventId) : (targetEvent?.start ? targetEvent.start.split('T')[0] : undefined));
 
-    const hasRecurrence = isExpandedInstance ||
-      !!(targetEvent && (targetEvent.recurrence?.frequency !== 'none' || targetEvent.recurrenceParentId || targetEvent.instanceDate)) ||
-      !!(parentEvent && parentEvent.recurrence?.frequency !== 'none');
+    const hasRecurrence =
+      isExpandedInstance ||
+      isRecurringEvent(targetEvent) ||
+      isRecurringEvent(parentEvent);
 
     const performDelete = async () => {
       const originalEvents = [...events];
@@ -3340,33 +3336,35 @@ export default function App() {
       const isMultiOr = notifyRecipients.length > 1;
 
       if (notifyRecipients.length > 0) {
+        const wfSubmitVars = {
+          appTitle: appData.title,
+          applicantName: appData.applicant.name,
+          typeLabel: (appData as any).typeLabel || (appData as any).flowName || '各種申請',
+          orTitleSuffix: isMultiOr ? '（OR承認）' : '',
+          orBodySuffix: isMultiOr ? '（OR承認・いずれか1名の承認で完了）' : '',
+          mainContent: (appData as any).reason || (appData as any).description || '',
+          appId: tempId,
+        };
+        const wfSubmitPush = buildPushFromTemplate('workflow_submitted', wfSubmitVars);
         for (const rec of notifyRecipients) {
           triggerPushNotification({
             targetUserId: rec.id,
             excludeUserId: appData.applicant.id,
-            title: `📋 承認依頼: ${appData.title}`,
-            body: isMultiOr
-              ? `${appData.applicant.name}さんから新しい申請が届きました（OR承認・いずれか1名の承認で完了）。`
-              : `${appData.applicant.name}さんから新しい申請が届きました。`,
-            url: `/?tab=workflow&appId=${tempId}`,
-            tag: `wf-${tempId}`
+            ...wfSubmitPush,
           });
         }
 
-        dispatchNotificationEmail(notifyRecipients, {
-          category: 'workflow',
-          categoryLabel: 'ワークフロー',
-          title: isMultiOr ? `承認依頼（OR承認）: ${appData.title}` : `承認依頼: ${appData.title}`,
-          actorName: appData.applicant.name,
-          details: [
-            { label: '申請タイトル', value: appData.title },
-            { label: '申請者', value: appData.applicant.name },
-            { label: '申請種別', value: (appData as any).typeLabel || (appData as any).flowName || '各種申請' },
-            ...(isMultiOr ? [{ label: '承認方式', value: `OR承認（候補: ${notifyRecipients.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
-          ],
-          mainContent: (appData as any).reason || (appData as any).description,
-          pathParams: `tab=workflow&appId=${tempId}`,
-        }, appData.applicant);
+        dispatchNotificationEmail(
+          notifyRecipients,
+          buildEmailFromTemplate('workflow_submitted', wfSubmitVars, {
+            actorName: appData.applicant.name,
+            extraDetails: isMultiOr
+              ? [{ label: '承認方式', value: `OR承認（候補: ${notifyRecipients.map(r => r.name).join(' / ')} のうちいずれか1名）` }]
+              : undefined,
+            mainContent: (appData as any).reason || (appData as any).description,
+          }),
+          appData.applicant
+        );
       }
     }
 
@@ -3589,79 +3587,66 @@ export default function App() {
       const applicantUser = usersList.find(u => u.id === resultApp.applicant.id) || resultApp.applicant;
 
       if (actionStatus === 'rejected') {
+        const rejectVars = {
+          appTitle: resultApp.title,
+          actorName: userState.name,
+          reasonPush: comment || '未記入',
+          reasonEmail: comment || 'なし',
+          appId: id,
+        };
         triggerPushNotification({
           targetUserId: resultApp.applicant.id,
           excludeUserId: userState.id,
-          title: `❌ 申請却下: ${resultApp.title}`,
-          body: `${userState.name}さんにより却下されました。理由: ${comment || '未記入'}`,
-          url: `/?tab=workflow&appId=${id}`,
-          tag: `wf-${id}`
+          ...buildPushFromTemplate('workflow_rejected', rejectVars),
         });
 
-        dispatchNotificationEmail([applicantUser], {
-          category: 'workflow',
-          categoryLabel: 'ワークフロー',
-          title: `申請判定: 却下 (${resultApp.title})`,
-          actorName: userState.name,
-          details: [
-            { label: '申請タイトル', value: resultApp.title },
-            { label: '判定結果', value: '却下 (差し戻し)' },
-            { label: '判定者', value: userState.name },
-            { label: '理由・コメント', value: comment || 'なし' },
-          ],
-          pathParams: `tab=workflow&appId=${id}`,
-        }, userState);
+        dispatchNotificationEmail(
+          [applicantUser],
+          buildEmailFromTemplate('workflow_rejected', rejectVars, { actorName: userState.name }),
+          userState
+        );
       } else if (resultApp.status === 'approved') {
+        const approveVars = {
+          appTitle: resultApp.title,
+          actorName: userState.name,
+          appId: id,
+        };
         triggerPushNotification({
           targetUserId: resultApp.applicant.id,
           excludeUserId: userState.id,
-          title: `✅ 申請承認完了: ${resultApp.title}`,
-          body: `${userState.name}さんにより最終承認されました。`,
-          url: `/?tab=workflow&appId=${id}`,
-          tag: `wf-${id}`
+          ...buildPushFromTemplate('workflow_approved', approveVars),
         });
 
-        dispatchNotificationEmail([applicantUser], {
-          category: 'workflow',
-          categoryLabel: 'ワークフロー',
-          title: `申請判定: 承認完了 (${resultApp.title})`,
-          actorName: userState.name,
-          details: [
-            { label: '申請タイトル', value: resultApp.title },
-            { label: '判定結果', value: '最終承認完了' },
-            { label: '最終承認者', value: userState.name },
-          ],
-          pathParams: `tab=workflow&appId=${id}`,
-        }, userState);
+        dispatchNotificationEmail(
+          [applicantUser],
+          buildEmailFromTemplate('workflow_approved', approveVars, { actorName: userState.name }),
+          userState
+        );
 
         // 購入申請で購入依頼先が指定されている場合、依頼先ユーザーへ「購入手続き依頼」を通知
         if (resultApp.type === 'purchase_order' && resultApp.purchaseMethod === 'delegate' && resultApp.purchaserDelegateUserId) {
           const delegateUser = usersList.find(u => u.id === resultApp.purchaserDelegateUserId) || resultApp.purchaserDelegateUser;
           if (delegateUser && delegateUser.id !== userState.id) {
+            const delegateVars = {
+              appTitle: resultApp.title,
+              applicantName: resultApp.applicant.name,
+              purchaseVendor: resultApp.purchaseVendor || '未指定',
+              purchaseTiming: resultApp.purchaseTiming === 'urgent' ? '至急手配' : `${resultApp.purchaseDueDate || ''} まで`,
+              purchasePurpose: resultApp.purchasePurpose || resultApp.description || '',
+              actorName: userState.name,
+              appId: id,
+            };
             triggerPushNotification({
               targetUserId: delegateUser.id,
               excludeUserId: userState.id,
-              title: `🛒 購入手続き依頼: ${resultApp.title}`,
-              body: `申請「${resultApp.title}」が決裁されました。購入・手配の手続きをお願いします。`,
-              url: `/?tab=workflow&appId=${id}`,
-              tag: `wf-delegate-${id}`
+              ...buildPushFromTemplate('workflow_purchase_delegate', delegateVars),
             });
 
-            dispatchNotificationEmail([delegateUser], {
-              category: 'workflow',
-              categoryLabel: 'ワークフロー',
-              title: `【購入手続き依頼】申請承認完了: ${resultApp.title}`,
-              actorName: userState.name,
-              details: [
-                { label: '申請タイトル', value: resultApp.title },
-                { label: '申請者', value: resultApp.applicant.name },
-                { label: '購入元', value: resultApp.purchaseVendor || '未指定' },
-                { label: '購入時期', value: resultApp.purchaseTiming === 'urgent' ? '至急手配' : `${resultApp.purchaseDueDate || ''} まで` },
-                { label: '購入目的', value: resultApp.purchasePurpose || resultApp.description || '' },
-                { label: '最終承認者', value: userState.name },
-              ],
-              pathParams: `tab=workflow&appId=${id}`,
-            }, userState);
+            dispatchNotificationEmail(
+              [delegateUser],
+              buildEmailFromTemplate('workflow_purchase_delegate', delegateVars, { actorName: userState.name }),
+              userState
+            );
           }
         }
       }
@@ -3680,32 +3665,33 @@ export default function App() {
       const isMultiOrNext = finalNextRecs.length > 1;
 
       if (finalNextRecs.length > 0) {
+        const nextStepVars = {
+          appTitle: resultApp.title,
+          applicantName: targetApp.applicant.name,
+          stepProgress: `${resultApp.currentStepIndex}/${resultApp.totalSteps}`,
+          orStepSuffix: isMultiOrNext ? '・OR承認' : '',
+          orTitleSuffix: isMultiOrNext ? '（OR承認）' : '',
+          appId: id,
+        };
+        const nextStepPush = buildPushFromTemplate('workflow_next_step', nextStepVars);
         for (const rec of finalNextRecs) {
           triggerPushNotification({
             targetUserId: rec.id,
             excludeUserId: userState.id,
-            title: `📋 次期承認依頼: ${resultApp.title}`,
-            body: isMultiOrNext
-              ? `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}・OR承認）の確認をお願いします。`
-              : `${targetApp.applicant.name}さんの申請（ステップ ${resultApp.currentStepIndex}/${resultApp.totalSteps}）の確認をお願いします。`,
-            url: `/?tab=workflow&appId=${id}`,
-            tag: `wf-${id}`
+            ...nextStepPush,
           });
         }
 
-        dispatchNotificationEmail(finalNextRecs, {
-          category: 'workflow',
-          categoryLabel: 'ワークフロー',
-          title: isMultiOrNext ? `次期承認依頼（OR承認）: ${resultApp.title}` : `次期承認依頼: ${resultApp.title}`,
-          actorName: userState.name,
-          details: [
-            { label: '申請タイトル', value: resultApp.title },
-            { label: '申請者', value: targetApp.applicant.name },
-            { label: '進行ステップ', value: `${resultApp.currentStepIndex}/${resultApp.totalSteps}` },
-            ...(isMultiOrNext ? [{ label: '承認方式', value: `OR承認（候補: ${finalNextRecs.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
-          ],
-          pathParams: `tab=workflow&appId=${id}`,
-        }, userState);
+        dispatchNotificationEmail(
+          finalNextRecs,
+          buildEmailFromTemplate('workflow_next_step', nextStepVars, {
+            actorName: userState.name,
+            extraDetails: isMultiOrNext
+              ? [{ label: '承認方式', value: `OR承認（候補: ${finalNextRecs.map(r => r.name).join(' / ')} のうちいずれか1名）` }]
+              : undefined,
+          }),
+          userState
+        );
       }
     }
 
@@ -3864,30 +3850,31 @@ export default function App() {
         const recs = Array.from(recMap.values());
         const isMultiOr = recs.length > 1;
         if (recs.length > 0) {
+          const resubmitVars = {
+            appTitle: finalAppObj.title,
+            applicantName: finalAppObj.applicant.name,
+            orTitleSuffix: isMultiOr ? '（OR承認）' : '',
+            orBodySuffix: isMultiOr ? '（OR承認・いずれか1名）' : '',
+            appId: finalAppObj.id,
+          };
+          const resubmitPush = buildPushFromTemplate('workflow_resubmitted', resubmitVars);
           for (const rec of recs) {
             triggerPushNotification({
               targetUserId: rec.id,
               excludeUserId: finalAppObj.applicant.id,
-              title: `📋 承認依頼: ${finalAppObj.title}`,
-              body: isMultiOr
-                ? `${finalAppObj.applicant.name}さんから申請が提出されました（OR承認・いずれか1名）。`
-                : `${finalAppObj.applicant.name}さんから申請が提出されました。`,
-              url: `/?tab=workflow&appId=${finalAppObj.id}`,
-              tag: `wf-${finalAppObj.id}`
+              ...resubmitPush,
             });
           }
-          dispatchNotificationEmail(recs, {
-            category: 'workflow',
-            categoryLabel: 'ワークフロー',
-            title: isMultiOr ? `承認依頼（OR承認）: ${finalAppObj.title}` : `承認依頼: ${finalAppObj.title}`,
-            actorName: finalAppObj.applicant.name,
-            details: [
-              { label: '申請タイトル', value: finalAppObj.title },
-              { label: '申請者', value: finalAppObj.applicant.name },
-              ...(isMultiOr ? [{ label: '承認方式', value: `OR承認（候補: ${recs.map(r => r.name).join(' / ')} のうちいずれか1名）` }] : []),
-            ],
-            pathParams: `tab=workflow&appId=${finalAppObj.id}`,
-          }, finalAppObj.applicant);
+          dispatchNotificationEmail(
+            recs,
+            buildEmailFromTemplate('workflow_resubmitted', resubmitVars, {
+              actorName: finalAppObj.applicant.name,
+              extraDetails: isMultiOr
+                ? [{ label: '承認方式', value: `OR承認（候補: ${recs.map(r => r.name).join(' / ')} のうちいずれか1名）` }]
+                : undefined,
+            }),
+            finalAppObj.applicant
+          );
         }
       }
       try {

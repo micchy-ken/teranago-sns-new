@@ -9,6 +9,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { getLocalDateStr, getJstHourAndMinutes } from '../utils/dateUtils';
 import { calculateWeekOfMonth, isRecurringEvent, getRecurrenceLabel, safeParseRecurrence } from '../utils/recurrenceUtils';
 import { RecurrenceActionModal, RecurrenceActionScope } from './RecurrenceActionModal';
+import { ConfirmModal } from './ConfirmModal';
 import { UrlPastePopup, useUrlPasteHandler } from './common/UrlPastePopup';
 import { MemberSelector } from './MemberSelector';
 import { resolveOffice, resolveOfficeName, resolveDivision, resolveDivisionName } from '../utils/masterResolver';
@@ -229,6 +230,7 @@ export function EventModal({
     mode: 'edit' | 'delete';
     pendingPayload?: any;
   }>({ isOpen: false, mode: 'edit' });
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
 
   // アップロード・プレビュー状態
   const [isUploading, setIsUploading] = useState(false);
@@ -276,12 +278,14 @@ export function EventModal({
 
   const handleModalClose = () => {
     setActionModalState({ isOpen: false, mode: 'edit' });
+    setIsConfirmDeleteOpen(false);
     onClose();
   };
 
   useEffect(() => {
     if (isOpen) {
       setActionModalState({ isOpen: false, mode: 'edit' });
+      setIsConfirmDeleteOpen(false);
       setError(null);
       setIsUploading(false);
       if (editingEvent) {
@@ -295,8 +299,10 @@ export function EventModal({
           setCurrentEditingEvent(editingEvent);
         }
         setType(editingEvent.type);
-        setOffice(resolveOfficeName(editingEvent.officeId || editingEvent.office, offices) || '全社');
-        setDivision(resolveDivisionName(editingEvent.divisionId || editingEvent.division, divisions) || '全部署');
+        const resolvedOff = resolveOfficeName(editingEvent.officeId || editingEvent.office, offices);
+        const resolvedDiv = resolveDivisionName(editingEvent.divisionId || editingEvent.division, divisions);
+        setOffice(!resolvedOff || resolvedOff === 'all' || resolvedOff === '全拠点' || resolvedOff === 'すべての拠点' ? '全社' : resolvedOff);
+        setDivision(!resolvedDiv || resolvedDiv === 'all' || resolvedDiv === 'すべての部署' ? '全部署' : resolvedDiv);
 
         const isAllDayEv = !!editingEvent.isAllDay;
         const startDateStr = extractLocalDateStr(editingEvent.start);
@@ -757,8 +763,10 @@ export function EventModal({
     }
 
     const recurrenceObj = buildRecurrenceRule();
-    const matchedOffice = office !== '全社' ? resolveOffice(office, offices) : undefined;
-    const matchedDivision = division !== '全部署' ? resolveDivision(division, divisions) : undefined;
+    const isAllOffice = !office || office === '全社' || office === 'all' || office === '全拠点' || office === 'すべての拠点';
+    const isAllDivision = !division || division === '全部署' || division === 'all' || division === 'すべての部署';
+    const matchedOffice = !isAllOffice ? resolveOffice(office, offices) : undefined;
+    const matchedDivision = !isAllDivision ? resolveDivision(division, divisions) : undefined;
 
     const eventPayload: Omit<CalendarEvent, 'id'> = {
       title: (title || '').trim(),
@@ -767,10 +775,10 @@ export function EventModal({
       end: endIso,
       isAllDay,
       isPrivate,
-      officeId: office === '全社' ? 'all' : matchedOffice?.id,
-      office: office === '全社' ? '全社' : (matchedOffice?.name || office),
-      divisionId: division === '全部署' ? 'all' : matchedDivision?.id,
-      division: division === '全部署' ? '全部署' : (matchedDivision?.name || division),
+      officeId: isAllOffice ? 'all' : matchedOffice?.id,
+      office: isAllOffice ? '全社' : (matchedOffice?.name || office),
+      divisionId: isAllDivision ? 'all' : matchedDivision?.id,
+      division: isAllDivision ? '全部署' : (matchedDivision?.name || division),
       location,
       memo,
       isGoogleSynced: false,
@@ -837,8 +845,16 @@ export function EventModal({
       return;
     }
 
-    onDelete(editingEvent.id);
-    onClose();
+    setIsConfirmDeleteOpen(true);
+  };
+
+  // 単発予定の削除確定ハンドラ
+  const handleConfirmSingleDelete = () => {
+    setIsConfirmDeleteOpen(false);
+    if (editingEvent && onDelete) {
+      onDelete(editingEvent.id);
+    }
+    handleModalClose();
   };
 
   // 繰り返しアクション決定ハンドラ
@@ -864,7 +880,7 @@ export function EventModal({
   return (
     <div
       onClick={(e) => {
-        if (actionModalState.isOpen || isPreviewOpen) return;
+        if (actionModalState.isOpen || isConfirmDeleteOpen || isPreviewOpen) return;
         if (e.target === e.currentTarget) {
           handleModalClose();
         }
@@ -1798,6 +1814,20 @@ export function EventModal({
         onClose={() => setActionModalState({ isOpen: false, mode: 'edit' })}
         onConfirm={handleConfirmRecurrenceAction}
       />
+
+      {/* 単発予定の削除確認ダイアログ */}
+      {isConfirmDeleteOpen && editingEvent && (
+        <ConfirmModal
+          isOpen={isConfirmDeleteOpen}
+          title="予定の削除"
+          message={`「${editingEvent.title || title || 'この予定'}」を削除してもよろしいですか？`}
+          confirmText="削除する"
+          cancelText="キャンセル"
+          type="danger"
+          onConfirm={handleConfirmSingleDelete}
+          onClose={() => setIsConfirmDeleteOpen(false)}
+        />
+      )}
 
       {/* 現場選択モーダルポップアップ */}
       {isSiteSelectorOpen && (

@@ -1,7 +1,7 @@
-// Service Worker for Terakoya SNS / Groupware
-// Version: 2026.11.25.1
-const CACHE_NAME = 'teranago-sns-v20261125-1';
-const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261125-1';
+// Service Worker for TERAPO
+// Version: 2026.11.25.5
+const CACHE_NAME = 'teranago-sns-v20261125-5';
+const IMAGE_CACHE_NAME = 'teranago-image-cache-v20261125-5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -260,7 +260,7 @@ self.addEventListener('push', (event) => {
   const defaultIcon = resolveSwUrl('icon.svg');
 
   let notificationData = {
-    title: '社内グループウェア 新着通知',
+    title: 'TERAPO 新着通知',
     body: '新しい連絡があります。',
     icon: defaultIcon,
     badge: defaultIcon,

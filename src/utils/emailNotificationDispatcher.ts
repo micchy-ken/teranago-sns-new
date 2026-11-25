@@ -13,6 +13,7 @@ export interface EmailDispatchItem {
   mainContent?: string;
   shareUrl?: string; // Direct link (e.g., https://app.com/?tab=calendar&eventId=123)
   pathParams?: string; // Query string (e.g., tab=calendar&eventId=123)
+  includeUrl?: boolean; // false の場合は共有リンク・ボタンを省略（デフォルト true）
 }
 
 /**
@@ -59,7 +60,8 @@ export async function dispatchNotificationEmail(
     return { success: true, sentCount: 0, errors: [] };
   }
 
-  const shareUrl = getFullShareUrl(item.shareUrl || item.pathParams);
+  const includeUrl = item.includeUrl !== false;
+  const shareUrl = includeUrl ? getFullShareUrl(item.shareUrl || item.pathParams) : '';
   const nowStr = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
   const actor = actorUser?.name || item.actorName || 'システム';
 
@@ -84,7 +86,7 @@ export async function dispatchNotificationEmail(
     const textLines = [
       `${user.name} 様`,
       ``,
-      `寺岡オートドアSNS から【${item.categoryLabel}】に関する通知です。`,
+      `TERAPO から【${item.categoryLabel}】に関する通知です。`,
       `操作・更新者: ${actor}`,
       `日時: ${nowStr}`,
       ``,
@@ -108,7 +110,7 @@ export async function dispatchNotificationEmail(
 
     textLines.push(
       ``,
-      `※本メールは寺岡オートドアSNS通知設定に基づいて自動配信されています。`
+      `※本メールはTERAPO通知設定に基づいて自動配信されています。`
     );
 
     const text = textLines.join('\n');
@@ -150,7 +152,7 @@ export async function dispatchNotificationEmail(
       <div style="font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'BIZ UDPGothic', meiryo, sans-serif; padding: 24px; line-height: 1.6; color: #1e293b; max-width: 620px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0; margin: -24px -24px 20px -24px; display: flex; align-items: center; justify-content: space-between;">
           <h2 style="margin: 0; font-size: 16px; font-weight: bold; color: #ffffff;">
-            寺岡オートドアSNS <span style="background-color: #3b82f6; color: #ffffff; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 8px;">${item.categoryLabel}通知</span>
+            TERAPO <span style="background-color: #3b82f6; color: #ffffff; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 8px;">${item.categoryLabel}通知</span>
           </h2>
         </div>
 
@@ -169,7 +171,7 @@ export async function dispatchNotificationEmail(
         ${shareButtonHtml}
 
         <div style="margin-top: 28px; border-top: 1px solid #f1f5f9; padding-top: 12px; font-size: 11px; color: #94a3b8; text-align: center;">
-          本メールは寺岡オートドアSNSの「個人設定 ＞ 通知センター」で設定された宛先に自動送信されています。<br>
+          本メールはTERAPOの「個人設定 ＞ 通知センター」で設定された宛先に自動送信されています。<br>
           通知の停止・変更はシステム内の個人設定画面で行えます。
         </div>
       </div>
