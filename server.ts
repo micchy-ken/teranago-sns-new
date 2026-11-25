@@ -22,6 +22,7 @@ import safetyRouter from './routes/safety.js';
 import chatQuizzesRouter from './routes/chatQuizzes.js';
 import assetsRouter from './routes/assets.js';
 import projectsRouter from './routes/projects.js';
+import notificationTemplatesRouter from './routes/notificationTemplates.js';
 import {
   requireApiAuth,
   issueSessionToken,
@@ -861,6 +862,9 @@ async function startServer() {
 
   // プロジェクト・Todo・資料メモボードAPIルーター（/api 汎用ルーターより先にマウント）
   app.use(['/api/projects', '/api/project-boards', '/api/tasks'], projectsRouter);
+
+  // 通知テンプレート集約・永続化APIルーター（Web Push・メール文面＆URL有無の一元管理）
+  app.use('/api/notification-templates', notificationTemplatesRouter);
 
   // 文書管理・フォルダ機能APIルーター
   const documentsFilesDir = path.join(uploadsDir, 'documents');

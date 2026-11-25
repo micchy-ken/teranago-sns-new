@@ -63,7 +63,11 @@ import {
 } from './utils/notifications';
 import { triggerPushNotification } from './utils/pushNotifications';
 import { dispatchNotificationEmail } from './utils/emailNotificationDispatcher';
-import { buildPushFromTemplate, buildEmailFromTemplate } from './config/notificationTemplates';
+import {
+  buildPushFromTemplate,
+  buildEmailFromTemplate,
+  syncNotificationTemplatesFromServer,
+} from './config/notificationTemplates';
 import { deleteAttachmentFiles } from './utils/fileUpload';
 import { TopicDetailModal } from './components/TopicDetailModal';
 import { GlobalEventDetailModal } from './components/GlobalEventDetailModal';
@@ -2179,6 +2183,7 @@ export default function App() {
 
     // 認証トークン保持時のみユーザー一覧および各機能データを取得
     if (isAuthenticated && getAuthToken()) {
+      syncNotificationTemplatesFromServer().catch(() => {});
       refetchUsers().then((latestUsers) => {
         refetchAll(latestUsers);
       });

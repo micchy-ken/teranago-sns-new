@@ -4,10 +4,10 @@
  * その日の何番目のバージョンかを示すデイリー番号 (#1, #2, ...) を更新してください。
  */
 export const APP_VERSION = {
-  version: '2026.11.25.5',
+  version: '2026.11.25.6',
   date: '2026-11-25',
-  releaseNumber: 5,
+  releaseNumber: 6,
   timeZone: 'Asia/Tokyo (JST)',
-  display: 'v2026.11.25 #5 (JST)',
-  description: 'Web Push（PWAマニフェスト・SW・プレビュー）およびHTML/テキスト通知メールのブランド表記をTERAPOへ統一'
+  display: 'v2026.11.25 #6 (JST)',
+  description: '通知テンプレート（Web Push・メール）のNAS集約永続化API（/api/notification-templates）および管理者メニューからのリアルタイム編集・保存・初期値リセット機能を実装'
 } as const;

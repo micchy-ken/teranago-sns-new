@@ -14,6 +14,9 @@ export interface EmailDispatchItem {
   shareUrl?: string; // Direct link (e.g., https://app.com/?tab=calendar&eventId=123)
   pathParams?: string; // Query string (e.g., tab=calendar&eventId=123)
   includeUrl?: boolean; // false の場合は共有リンク・ボタンを省略（デフォルト true）
+  subjectOverride?: string; // 管理者テンプレートで件名を直接上書きする場合
+  leadOverride?: string; // 管理者テンプレートでリード文（挨拶直下の説明文）を上書きする場合
+  ctaLabel?: string; // 共有リンクボタンのカスタム表示文言
 }
 
 /**
@@ -81,12 +84,16 @@ export async function dispatchNotificationEmail(
       continue;
     }
 
-    const subject = `【${item.categoryLabel}通知】${item.title}`;
+    const subject = item.subjectOverride && item.subjectOverride.trim()
+      ? item.subjectOverride
+      : `【${item.categoryLabel}通知】${item.title}`;
+
+    const customLead = item.leadOverride && item.leadOverride.trim() ? item.leadOverride.trim() : '';
 
     const textLines = [
       `${user.name} 様`,
       ``,
-      `TERAPO から【${item.categoryLabel}】に関する通知です。`,
+      customLead || `TERAPO から【${item.categoryLabel}】に関する通知です。`,
       `操作・更新者: ${actor}`,
       `日時: ${nowStr}`,
       ``,
@@ -135,11 +142,24 @@ export async function dispatchNotificationEmail(
       `
       : '';
 
+    const safeCtaLabel = (item.ctaLabel || '👉 該当画面を直接開く（共有リンク）')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const safeLeadHtml = customLead
+      ? customLead
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\r?\n/g, '<br>')
+      : `<strong>${actor}</strong> さんが【${item.categoryLabel}】を更新・登録しました。内容をご確認ください。`;
+
     const shareButtonHtml = shareUrl
       ? `
         <div style="margin-top: 24px; text-align: center;">
           <a href="${shareUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 12px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 8px; shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            👉 該当画面を直接開く（共有リンク）
+            ${safeCtaLabel}
           </a>
           <div style="margin-top: 8px; font-size: 11px; color: #64748b; word-break: break-all;">
             直リンク: <a href="${shareUrl}" style="color: #2563eb;">${shareUrl}</a>
@@ -158,7 +178,7 @@ export async function dispatchNotificationEmail(
 
         <p style="font-size: 15px; font-weight: bold; color: #0f172a; margin-bottom: 12px;">${user.name} 様</p>
         <p style="font-size: 13px; color: #334155; margin-bottom: 16px;">
-          <strong>${actor}</strong> さんが【${item.categoryLabel}】を更新・登録しました。内容をご確認ください。
+          ${safeLeadHtml}
         </p>
 
         <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">

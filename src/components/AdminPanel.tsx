@@ -3352,9 +3352,9 @@ export function AdminPanel({
         <DrivingLogOfficeConfigAdmin offices={offices} />
       )}
 
-      {/* SUB TAB: NOTIFICATION TEMPLATES PREVIEW */}
+      {/* SUB TAB: NOTIFICATION TEMPLATES PREVIEW & EDITOR */}
       {activeSubTab === 'notification_templates' && (
-        <NotificationTemplatesAdmin />
+        <NotificationTemplatesAdmin currentUserName={currentUser?.name} />
       )}
 
       {/* SUB TAB: INSPECTION ITEMS MASTER CONFIG */}

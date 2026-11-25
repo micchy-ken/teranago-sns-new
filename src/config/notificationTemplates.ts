@@ -9,6 +9,7 @@
  */
 
 import type { EmailDispatchItem, NotificationCategoryKey } from '../utils/emailNotificationDispatcher';
+import { API_BASE_URL } from './api';
 import { PRODUCTION_APP_URL } from './appEnvironment';
 
 export type NotificationTemplateCategory =
@@ -1369,12 +1370,426 @@ const TEMPLATE_MAP: Record<NotificationTemplateKey, NotificationTemplateDefiniti
     return acc;
   }, {} as Record<NotificationTemplateKey, NotificationTemplateDefinition>);
 
+export interface NotificationPushOverride {
+  titleTemplate?: string;
+  bodyTemplate?: string;
+  includeUrl?: boolean;
+}
+
+export interface NotificationEmailOverride {
+  subjectTemplate?: string;
+  titleTemplate?: string;
+  headerTitleTemplate?: string;
+  leadTemplate?: string;
+  mainContentTemplate?: string;
+  ctaLabel?: string;
+  includeUrl?: boolean;
+}
+
+export interface NotificationTemplateOverride {
+  push?: NotificationPushOverride;
+  email?: NotificationEmailOverride;
+}
+
+export interface NotificationTemplatesStoreMeta {
+  updatedAt: string | null;
+  updatedBy: string | null;
+  synced: boolean;
+  serverAvailable: boolean;
+  lastError: string | null;
+}
+
+export interface NotificationTemplatesActionResult {
+  ok: boolean;
+  serverAvailable: boolean;
+  status?: number;
+  error?: string;
+  message?: string;
+}
+
+const TEMPLATE_OVERRIDES_STORAGE_KEY = 'teranago_notification_templates_v1';
+
+let liveTemplateOverrides: Partial<Record<NotificationTemplateKey, NotificationTemplateOverride>> = {};
+let liveStoreMeta: NotificationTemplatesStoreMeta = {
+  updatedAt: null,
+  updatedBy: null,
+  synced: false,
+  serverAvailable: true,
+  lastError: null,
+};
+
+const templateSubscribers = new Set<() => void>();
+
+function notifyTemplateSubscribers() {
+  templateSubscribers.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+function loadOverridesFromLocalCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(TEMPLATE_OVERRIDES_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (parsed.templates && typeof parsed.templates === 'object' && !Array.isArray(parsed.templates)) {
+        liveTemplateOverrides = parsed.templates;
+        liveStoreMeta = {
+          ...liveStoreMeta,
+          updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+          updatedBy: typeof parsed.updatedBy === 'string' ? parsed.updatedBy : null,
+        };
+      }
+    }
+  } catch {
+    // ignore storage/parse errors
+  }
+}
+
+function persistOverridesToLocalCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      TEMPLATE_OVERRIDES_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        updatedAt: liveStoreMeta.updatedAt,
+        updatedBy: liveStoreMeta.updatedBy,
+        templates: liveTemplateOverrides,
+      })
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
+// 初期起動時にローカルキャッシュがあれば即座に反映（NAS同期完了前のチラつきを防止）
+loadOverridesFromLocalCache();
+
+export function subscribeNotificationTemplates(listener: () => void): () => void {
+  templateSubscribers.add(listener);
+  return () => {
+    templateSubscribers.delete(listener);
+  };
+}
+
+export function getNotificationTemplateOverrides(): Partial<
+  Record<NotificationTemplateKey, NotificationTemplateOverride>
+> {
+  return { ...liveTemplateOverrides };
+}
+
+export function getNotificationTemplatesMeta(): NotificationTemplatesStoreMeta {
+  return { ...liveStoreMeta };
+}
+
 export function getNotificationTemplate(key: NotificationTemplateKey): NotificationTemplateDefinition {
   return TEMPLATE_MAP[key];
 }
 
 /**
- * テンプレート定義から Web Push 送信用の title / body / url / tag / includeUrl を生成
+ * ベース定義に上書き設定をマージした実効テンプレートを返す
+ */
+export function applyOverrideToTemplate(
+  base: NotificationTemplateDefinition,
+  override?: NotificationTemplateOverride | null
+): NotificationTemplateDefinition {
+  if (!override) return base;
+  return {
+    ...base,
+    push: base.push
+      ? {
+          ...base.push,
+          ...(override.push?.titleTemplate !== undefined ? { titleTemplate: override.push.titleTemplate } : {}),
+          ...(override.push?.bodyTemplate !== undefined ? { bodyTemplate: override.push.bodyTemplate } : {}),
+          ...(override.push?.includeUrl !== undefined ? { includeUrl: override.push.includeUrl } : {}),
+        }
+      : undefined,
+    email: base.email
+      ? {
+          ...base.email,
+          ...(override.email?.subjectTemplate !== undefined ? { subjectTemplate: override.email.subjectTemplate } : {}),
+          ...(override.email?.titleTemplate !== undefined ? { titleTemplate: override.email.titleTemplate } : {}),
+          ...(override.email?.headerTitleTemplate !== undefined
+            ? { headerTitleTemplate: override.email.headerTitleTemplate }
+            : {}),
+          ...(override.email?.leadTemplate !== undefined ? { leadTemplate: override.email.leadTemplate } : {}),
+          ...(override.email?.mainContentTemplate !== undefined
+            ? { mainContentTemplate: override.email.mainContentTemplate }
+            : {}),
+          ...(override.email?.ctaLabel !== undefined ? { ctaLabel: override.email.ctaLabel } : {}),
+          ...(override.email?.includeUrl !== undefined ? { includeUrl: override.email.includeUrl } : {}),
+        }
+      : undefined,
+  };
+}
+
+/**
+ * 現在の有効テンプレート（初期値 + NAS保存済み上書き設定）を取得
+ */
+export function getEffectiveNotificationTemplate(
+  key: NotificationTemplateKey
+): NotificationTemplateDefinition {
+  const base = TEMPLATE_MAP[key];
+  const override = liveTemplateOverrides[key];
+  return applyOverrideToTemplate(base, override);
+}
+
+/**
+ * NAS サーバーから最新の通知テンプレート上書き設定を同期
+ */
+export async function syncNotificationTemplatesFromServer(): Promise<NotificationTemplatesActionResult> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/notification-templates`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (resp.status === 404) {
+      liveStoreMeta = {
+        ...liveStoreMeta,
+        synced: false,
+        serverAvailable: false,
+        lastError: 'NASサーバー側に /api/notification-templates がまだ配置されていません（初期値で動作中）。',
+      };
+      notifyTemplateSubscribers();
+      return {
+        ok: false,
+        serverAvailable: false,
+        status: 404,
+        error: liveStoreMeta.lastError || undefined,
+      };
+    }
+
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => ({}));
+      const msg = errJson.error || `同期に失敗しました (HTTP ${resp.status})`;
+      liveStoreMeta = {
+        ...liveStoreMeta,
+        synced: false,
+        serverAvailable: resp.status !== 502 && resp.status !== 503,
+        lastError: msg,
+      };
+      notifyTemplateSubscribers();
+      return { ok: false, serverAvailable: liveStoreMeta.serverAvailable, status: resp.status, error: msg };
+    }
+
+    const data = await resp.json();
+    const templates =
+      data && typeof data.templates === 'object' && !Array.isArray(data.templates)
+        ? (data.templates as Partial<Record<NotificationTemplateKey, NotificationTemplateOverride>>)
+        : {};
+
+    liveTemplateOverrides = templates;
+    liveStoreMeta = {
+      updatedAt: typeof data?.updatedAt === 'string' ? data.updatedAt : null,
+      updatedBy: typeof data?.updatedBy === 'string' ? data.updatedBy : null,
+      synced: true,
+      serverAvailable: true,
+      lastError: null,
+    };
+    persistOverridesToLocalCache();
+    notifyTemplateSubscribers();
+
+    return { ok: true, serverAvailable: true, status: resp.status };
+  } catch (err: any) {
+    const msg = err?.message || 'NASサーバーとの通信に失敗しました。';
+    liveStoreMeta = {
+      ...liveStoreMeta,
+      synced: false,
+      serverAvailable: false,
+      lastError: msg,
+    };
+    notifyTemplateSubscribers();
+    return { ok: false, serverAvailable: false, error: msg };
+  }
+}
+
+/**
+ * 単一テンプレートの上書き設定を NAS サーバーへ保存（管理者専用）
+ */
+export async function saveNotificationTemplateOverride(
+  key: NotificationTemplateKey,
+  override: NotificationTemplateOverride,
+  updatedBy?: string
+): Promise<NotificationTemplatesActionResult> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/notification-templates/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        override,
+        updatedBy: updatedBy || undefined,
+      }),
+    });
+
+    if (resp.status === 404) {
+      const msg = 'NASサーバー側に /api/notification-templates がまだ反映されていません。NAS側の配置後に再度保存してください。';
+      liveStoreMeta = { ...liveStoreMeta, serverAvailable: false, lastError: msg };
+      notifyTemplateSubscribers();
+      return { ok: false, serverAvailable: false, status: 404, error: msg };
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = data.error || `保存に失敗しました (HTTP ${resp.status})`;
+      return { ok: false, serverAvailable: true, status: resp.status, error: msg };
+    }
+
+    if (data.templates && typeof data.templates === 'object' && !Array.isArray(data.templates)) {
+      liveTemplateOverrides = data.templates;
+    } else {
+      liveTemplateOverrides = { ...liveTemplateOverrides, [key]: override };
+    }
+    liveStoreMeta = {
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+      updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : (updatedBy || liveStoreMeta.updatedBy),
+      synced: true,
+      serverAvailable: true,
+      lastError: null,
+    };
+    persistOverridesToLocalCache();
+    notifyTemplateSubscribers();
+
+    return {
+      ok: true,
+      serverAvailable: true,
+      status: resp.status,
+      message: data.message || '通知テンプレートを保存しました。',
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      serverAvailable: false,
+      error: err?.message || '通信エラーにより保存できませんでした。',
+    };
+  }
+}
+
+/**
+ * 単一テンプレートの上書き設定を削除して初期値へ戻す（管理者専用）
+ */
+export async function resetNotificationTemplateOverride(
+  key: NotificationTemplateKey,
+  updatedBy?: string
+): Promise<NotificationTemplatesActionResult> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/notification-templates/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updatedBy: updatedBy || undefined }),
+    });
+
+    if (resp.status === 404) {
+      const msg = 'NASサーバー側に /api/notification-templates がまだ反映されていません。';
+      liveStoreMeta = { ...liveStoreMeta, serverAvailable: false, lastError: msg };
+      notifyTemplateSubscribers();
+      return { ok: false, serverAvailable: false, status: 404, error: msg };
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      return {
+        ok: false,
+        serverAvailable: true,
+        status: resp.status,
+        error: data.error || `初期値リセットに失敗しました (HTTP ${resp.status})`,
+      };
+    }
+
+    if (data.templates && typeof data.templates === 'object' && !Array.isArray(data.templates)) {
+      liveTemplateOverrides = data.templates;
+    } else {
+      const next = { ...liveTemplateOverrides };
+      delete next[key];
+      liveTemplateOverrides = next;
+    }
+    liveStoreMeta = {
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+      updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : (updatedBy || liveStoreMeta.updatedBy),
+      synced: true,
+      serverAvailable: true,
+      lastError: null,
+    };
+    persistOverridesToLocalCache();
+    notifyTemplateSubscribers();
+
+    return {
+      ok: true,
+      serverAvailable: true,
+      status: resp.status,
+      message: data.message || '選択した通知テンプレートを初期値に戻しました。',
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      serverAvailable: false,
+      error: err?.message || '通信エラーによりリセットできませんでした。',
+    };
+  }
+}
+
+/**
+ * 全テンプレートを初期値へ一括リセット（管理者専用）
+ */
+export async function resetAllNotificationTemplateOverrides(
+  updatedBy?: string
+): Promise<NotificationTemplatesActionResult> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/notification-templates/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updatedBy: updatedBy || undefined }),
+    });
+
+    if (resp.status === 404) {
+      const msg = 'NASサーバー側に /api/notification-templates がまだ反映されていません。';
+      return { ok: false, serverAvailable: false, status: 404, error: msg };
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      return {
+        ok: false,
+        serverAvailable: true,
+        status: resp.status,
+        error: data.error || `全リセットに失敗しました (HTTP ${resp.status})`,
+      };
+    }
+
+    liveTemplateOverrides = {};
+    liveStoreMeta = {
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+      updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : (updatedBy || liveStoreMeta.updatedBy),
+      synced: true,
+      serverAvailable: true,
+      lastError: null,
+    };
+    persistOverridesToLocalCache();
+    notifyTemplateSubscribers();
+
+    return {
+      ok: true,
+      serverAvailable: true,
+      status: resp.status,
+      message: data.message || 'すべての通知テンプレートを初期値に戻しました。',
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      serverAvailable: false,
+      error: err?.message || '通信エラーによりリセットできませんでした。',
+    };
+  }
+}
+
+/**
+ * テンプレート定義（＋NAS保存済み上書き設定）から Web Push 送信用の title / body / url / tag / includeUrl を生成
  */
 export function buildPushFromTemplate(
   key: NotificationTemplateKey,
@@ -1395,7 +1810,7 @@ export function buildPushFromTemplate(
   requireInteraction?: boolean;
   renotify?: boolean;
 } {
-  const def = TEMPLATE_MAP[key];
+  const def = getEffectiveNotificationTemplate(key);
   const push = def?.push;
   if (!push) {
     return { title: '', body: '', includeUrl: false };
@@ -1421,7 +1836,7 @@ export function buildPushFromTemplate(
 }
 
 /**
- * テンプレート定義から EmailDispatchItem を生成
+ * テンプレート定義（＋NAS保存済み上書き設定）から EmailDispatchItem を生成
  */
 export function buildEmailFromTemplate(
   key: NotificationTemplateKey,
@@ -1435,34 +1850,55 @@ export function buildEmailFromTemplate(
     includeUrl?: boolean;
   }
 ): EmailDispatchItem {
-  const def = TEMPLATE_MAP[key];
+  const def = getEffectiveNotificationTemplate(key);
+  const savedOverride = liveTemplateOverrides[key];
   const email = def?.email;
   if (!email) {
     throw new Error(`Email template not defined for key: ${key}`);
   }
 
+  const mergedVars: Record<string, string | number | undefined | null> = {
+    actorName: options.actorName,
+    ...vars,
+    ...(options.mainContent !== undefined && vars.mainContent === undefined
+      ? { mainContent: options.mainContent }
+      : {}),
+  };
+
   const baseDetails = email.detailsTemplate.map((d) => ({
     label: d.label,
-    value: interpolateTemplate(d.valueTemplate, vars),
+    value: interpolateTemplate(d.valueTemplate, mergedVars),
   }));
   const details = options.extraDetails && options.extraDetails.length > 0
     ? [...baseDetails, ...options.extraDetails]
     : baseDetails;
 
-  const resolvedMainContent =
-    options.mainContent !== undefined
-      ? options.mainContent
-      : (email.mainContentTemplate ? interpolateTemplate(email.mainContentTemplate, vars) : undefined);
+  const hasCustomMainContentTemplate = savedOverride?.email?.mainContentTemplate !== undefined;
+  const resolvedMainContent = hasCustomMainContentTemplate
+    ? interpolateTemplate(email.mainContentTemplate || '', mergedVars)
+    : options.mainContent !== undefined
+    ? options.mainContent
+    : (email.mainContentTemplate ? interpolateTemplate(email.mainContentTemplate, mergedVars) : undefined);
 
   const includeUrl = options.includeUrl !== undefined ? options.includeUrl : email.includeUrl;
   const resolvedPathParams = includeUrl
-    ? (options.pathParams !== undefined ? options.pathParams : interpolateTemplate(email.urlTemplate, vars))
+    ? (options.pathParams !== undefined ? options.pathParams : interpolateTemplate(email.urlTemplate, mergedVars))
+    : undefined;
+
+  const resolvedSubject = email.subjectTemplate
+    ? interpolateTemplate(email.subjectTemplate, mergedVars)
+    : undefined;
+  const resolvedLead = email.leadTemplate && email.leadTemplate.trim()
+    ? interpolateTemplate(email.leadTemplate, mergedVars)
     : undefined;
 
   return {
     category: email.categoryKey || 'schedule',
     categoryLabel: email.categoryLabel,
-    title: interpolateTemplate(email.titleTemplate, vars),
+    title: interpolateTemplate(email.titleTemplate, mergedVars),
+    subjectOverride: resolvedSubject && resolvedSubject.trim() ? resolvedSubject : undefined,
+    leadOverride: resolvedLead && resolvedLead.trim() ? resolvedLead : undefined,
+    ctaLabel: email.ctaLabel,
     actorName: options.actorName,
     details,
     mainContent: resolvedMainContent && resolvedMainContent.trim() ? resolvedMainContent : undefined,
@@ -1495,27 +1931,66 @@ export function renderEmailPlainTextPreview(
   const email = def.email;
   if (!email) return '';
 
-  if (email.plainTextOverrideTemplate) {
-    return interpolateTemplate(email.plainTextOverrideTemplate, vars);
+  const recipientName = def.key === 'server_user_invitation'
+    ? (vars.targetEmail || 'new-member@teraoka-ads.co.jp')
+    : (vars.recipientName || '寺岡 花子');
+  const rawUrl = email.includeUrl ? interpolateTemplate(email.urlTemplate, vars) : '';
+  const fullShareUrl = rawUrl
+    ? (rawUrl.startsWith('http') ? rawUrl : `${PRODUCTION_APP_URL}?${rawUrl.replace(/^\/?\??/, '')}`)
+    : '';
+
+  // 独自レイアウト（安否確認・招待・パスワード等）のテキストプレビュー
+  if (email.layoutTheme === 'safety_plain') {
+    const bodyText = email.mainContentTemplate
+      ? interpolateTemplate(email.mainContentTemplate, vars)
+      : email.plainTextOverrideTemplate
+      ? interpolateTemplate(email.plainTextOverrideTemplate, vars)
+      : '';
+    if (!email.includeUrl && bodyText) {
+      return bodyText.replace(/\n*▼\s*安否回答URL:[\s\S]*?(?=\n\n|$)/, '').trim();
+    }
+    return bodyText;
   }
 
-  const recipientName = vars.recipientName || '寺岡 花子';
+  if (
+    email.layoutTheme === 'safety_urgent' ||
+    email.layoutTheme === 'safety_remind' ||
+    email.layoutTheme === 'indigo_safety_reg' ||
+    email.layoutTheme === 'indigo_account'
+  ) {
+    const headerTitle = email.headerTitleTemplate ? interpolateTemplate(email.headerTitleTemplate, vars) : '';
+    const leadText = email.leadTemplate ? interpolateTemplate(email.leadTemplate, vars) : '';
+    const mainContent = email.mainContentTemplate ? interpolateTemplate(email.mainContentTemplate, vars).trim() : '';
+    const footerText = email.footerNote ? interpolateTemplate(email.footerNote, vars) : '';
+
+    const customLines: string[] = [`${recipientName} 様`, ''];
+    if (headerTitle) customLines.push(`■ ${headerTitle}`, '');
+    if (leadText) customLines.push(leadText);
+    if (mainContent) {
+      customLines.push('', `【${email.mainContentLabel || '連絡事項'}】`, mainContent);
+    }
+    if (email.includeUrl && fullShareUrl) {
+      customLines.push('', `▼ ${email.ctaLabel || 'URL'}:`, fullShareUrl);
+    }
+    if (footerText) {
+      customLines.push('', footerText);
+    }
+    return customLines.join('\n');
+  }
+
   const actor = vars.actorName || vars.applicantName || vars.organizerName || '山田 太郎';
   const nowStr = '2026/11/25 16:30:00';
   const details = email.detailsTemplate.map((d) => ({
     label: d.label,
     value: interpolateTemplate(d.valueTemplate, vars),
   }));
+  const customLead = email.leadTemplate ? interpolateTemplate(email.leadTemplate, vars).trim() : '';
   const mainContent = email.mainContentTemplate ? interpolateTemplate(email.mainContentTemplate, vars) : '';
-  const rawUrl = email.includeUrl ? interpolateTemplate(email.urlTemplate, vars) : '';
-  const fullShareUrl = rawUrl
-    ? (rawUrl.startsWith('http') ? rawUrl : `${PRODUCTION_APP_URL}?${rawUrl.replace(/^\/?\??/, '')}`)
-    : '';
 
   const lines = [
     `${recipientName} 様`,
     '',
-    `TERAPO から【${email.categoryLabel}】に関する通知です。`,
+    customLead || `TERAPO から【${email.categoryLabel}】に関する通知です。`,
     `操作・更新者: ${actor}`,
     `日時: ${nowStr}`,
     '',
